@@ -1,0 +1,20 @@
+# Environment & temporary files
+cookie.txt
+*.log
+.system_generated/
+test_check.php
+test_contracts.php
+test_billing.php
+test_billing_final.php
+test_notif.php
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
