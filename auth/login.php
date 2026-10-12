@@ -3,8 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 
 if (is_logged_in()) {
-    header('Location: /dashboard/index.php');
-    exit;
+    redirect('/dashboard/index.php');
 }
 
 $error = '';
@@ -15,8 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $res = login_user($email, $password);
     if ($res['success']) {
-        header('Location: /dashboard/index.php');
-        exit;
+        redirect('/dashboard/index.php');
     } else {
         $error = $res['message'];
     }
@@ -48,8 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <!-- Header / Logo -->
         <div class="text-center space-y-2">
-            <a href="/" class="inline-flex flex-col items-center justify-center gap-2">
-                <img src="/logo.webp" alt="تاكسي نقيلو" class="w-16 h-16 object-contain rounded-full shadow-md bg-white p-1 border-2 border-amber-400 mx-auto">
+            <a href="<?= url('/') ?>" class="inline-flex flex-col items-center justify-center gap-2">
+                <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-16 h-16 object-contain rounded-full shadow-md bg-white p-1 border-2 border-amber-400 mx-auto">
                 <div>
                     <span class="text-2xl font-black text-slate-900 tracking-tight block">تاكسي <span class="text-amber-600">نقيلو</span></span>
                     <span class="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">EURL TAXI NAGUILOU Services</span>
@@ -115,8 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
 
         <div class="text-center text-xs text-slate-500 flex justify-between px-2">
-            <a href="/" class="hover:text-amber-600 transition">← العودة للرئيسية</a>
-            <a href="/auth/register.php" class="font-bold text-amber-600 hover:underline">تسجيل حساب جديد</a>
+            <a href="<?= url('/') ?>" class="hover:text-amber-600 transition">← العودة للرئيسية</a>
+            <a href="<?= url('/auth/register.php') ?>" class="font-bold text-amber-600 hover:underline">تسجيل حساب جديد</a>
         </div>
 
     </div>

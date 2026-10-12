@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/notifications.php - System Notifications Center (الإشعارات وتنبيهات النظام)
 $pageTitle = 'Notifications Système | مركز الإشعارات والتنبيهات';
 require_once __DIR__ . '/../includes/header.php';
@@ -11,19 +11,16 @@ if (isset($_GET['action'])) {
     if ($act === 'mark_all_read') {
         $pdo->query("UPDATE notifications SET is_read = 1");
         set_flash('success', 'تم تحديد جميع الإشعارات كمقروءة');
-        header('Location: /dashboard/notifications.php');
-        exit;
+        redirect('/dashboard/notifications.php');
     } elseif ($act === 'toggle_read' && isset($_GET['id'])) {
         $nId = intval($_GET['id']);
         $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ?")->execute([$nId]);
-        header('Location: /dashboard/notifications.php');
-        exit;
+        redirect('/dashboard/notifications.php');
     } elseif ($act === 'delete' && isset($_GET['id'])) {
         $nId = intval($_GET['id']);
         $pdo->prepare("DELETE FROM notifications WHERE id = ?")->execute([$nId]);
         set_flash('success', 'تم حذف الإشعار بنجاح');
-        header('Location: /dashboard/notifications.php');
-        exit;
+        redirect('/dashboard/notifications.php');
     } elseif ($act === 'run_audit_scan') {
         // Dynamic scan of vehicles and drivers to detect upcoming expirations
         $vExpiring = $pdo->query("
@@ -46,8 +43,7 @@ if (isset($_GET['action'])) {
         }
         log_audit('create', 'notifications', null, null, ['action' => 'run_audit_scan', 'added_count' => $addedCount]);
         set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول وتحديث مركز التنبيهات بنجاح");
-        header('Location: /dashboard/notifications.php');
-        exit;
+        redirect('/dashboard/notifications.php');
     }
 }
 
@@ -99,7 +95,7 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
         </div>
 
         <div class="flex items-center gap-2">
-            <a href="/dashboard/notifications.php?action=run_audit_scan" 
+            <a href="notifications.php?action=run_audit_scan" 
                class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
                 <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -108,7 +104,7 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
             </a>
             
             <?php if ($unreadCount > 0): ?>
-                <a href="/dashboard/notifications.php?action=mark_all_read" 
+                <a href="notifications.php?action=mark_all_read" 
                    class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -185,26 +181,26 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
             </div>
             <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filterType !== 'all'): ?>
-                <a href="/dashboard/notifications.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="notifications.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <!-- Segmented Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-            <a href="/dashboard/notifications.php?type=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="notifications.php?type=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل
             </a>
-            <a href="/dashboard/notifications.php?type=unread<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="notifications.php?type=unread<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filterType === 'unread' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
                 <span>غير مقروءة</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white font-num font-bold"><?= $unreadCount ?></span>
             </a>
-            <a href="/dashboard/notifications.php?type=urgent<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="notifications.php?type=urgent<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'urgent' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-rose-700 hover:bg-rose-50' ?>">
                 حرجة (Urgentes)
             </a>
-            <a href="/dashboard/notifications.php?type=info<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="notifications.php?type=info<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'info' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-blue-700 hover:bg-blue-50' ?>">
                 إدارية ومالية
             </a>
@@ -274,7 +270,7 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
                             </a>
                         <?php endif; ?>
 
-                        <a href="/dashboard/notifications.php?action=toggle_read&id=<?= $notif['id'] ?>" 
+                        <a href="notifications.php?action=toggle_read&id=<?= $notif['id'] ?>" 
                            title="<?= $notif['is_read'] ? 'تحديد كغير مقروء' : 'تحديد كمقروء' ?>"
                            class="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition">
                             <?php if ($notif['is_read']): ?>
@@ -288,7 +284,7 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
                             <?php endif; ?>
                         </a>
 
-                        <a href="/dashboard/notifications.php?action=delete&id=<?= $notif['id'] ?>" 
+                        <a href="notifications.php?action=delete&id=<?= $notif['id'] ?>" 
                            onclick="return confirm('هل تريد حذف هذا الإشعار؟')"
                            title="حذف الإشعار"
                            class="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition">

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/vehicles.php - Full Fleet & Vehicle Management
 $pageTitle = 'سجل المركبات والوثائق';
 require_once __DIR__ . '/../includes/header.php';
@@ -39,8 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
             $newId = $pdo->lastInsertId();
             log_audit('create', 'vehicles', $newId, null, ['plate_number' => $plateNumber, 'brand' => "$brand $model"]);
             set_flash('success', 'تمت إضافة سيارة الأجرة بنجاح إلى الأسطول');
-            header('Location: /dashboard/vehicles.php');
-            exit;
+            redirect('/dashboard/vehicles.php');
         } catch (Exception $e) {
             set_flash('error', 'حدث خطأ أثناء الإضافة: رقم اللوحة قد يكون مسجلاً مسبقاً');
         }
@@ -59,8 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
             ]);
             log_audit('update', 'vehicles', $vId, null, ['plate_number' => $plateNumber]);
             set_flash('success', 'تم تحديث بيانات المركبة والوثائق بنجاح');
-            header('Location: /dashboard/vehicles.php');
-            exit;
+            redirect('/dashboard/vehicles.php');
         } catch (Exception $e) {
             set_flash('error', 'تعذر تحديث المركبة');
         }
@@ -77,8 +75,7 @@ if (isset($_GET['delete'])) {
     } catch (Exception $e) {
         set_flash('error', 'تعذر حذف المركبة لوجود عقود أو بيانات مرتبطة بها');
     }
-    header('Location: /dashboard/vehicles.php');
-    exit;
+    redirect('/dashboard/vehicles.php');
 }
 
 // Stats for Quick KPI Strip
@@ -212,21 +209,21 @@ if (isset($_GET['edit'])) {
             </div>
             <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filter !== 'all'): ?>
-                <a href="/dashboard/vehicles.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="vehicles.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-            <a href="/dashboard/vehicles.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="vehicles.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل (<?= $totalVehiclesCount ?>)
             </a>
-            <a href="/dashboard/vehicles.php?filter=expiring<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="vehicles.php?filter=expiring<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'expiring' ? 'bg-rose-500 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/60' ?>">
                 <span>تنبيهات الوثائق</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'expiring' ? 'bg-white text-rose-600' : 'bg-rose-200 text-rose-800' ?>"><?= $expiringDocsCount ?></span>
             </a>
-            <a href="/dashboard/vehicles.php?filter=unassigned<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="vehicles.php?filter=unassigned<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'unassigned' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 شاغرة بدون سائق
             </a>
@@ -326,17 +323,17 @@ if (isset($_GET['edit'])) {
                                 <!-- Actions -->
                                 <td class="p-3.5 text-center whitespace-nowrap">
                                     <div class="flex items-center justify-center gap-1.5">
-                                        <a href="/dashboard/vehicles.php?edit=<?= $v['id'] ?>" 
+                                        <a href="vehicles.php?edit=<?= $v['id'] ?>" 
                                            title="تعديل البيانات والوثائق"
                                            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
                                             تعديل
                                         </a>
-                                        <a href="/dashboard/contracts.php?action=new&vehicle_id=<?= $v['id'] ?>" 
+                                        <a href="contracts.php?action=new&vehicle_id=<?= $v['id'] ?>" 
                                            title="إصدار عقد عمل 90-11"
                                            class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition text-xs border border-amber-200/60">
                                             عقد 90-11
                                         </a>
-                                        <a href="/dashboard/vehicles.php?delete=<?= $v['id'] ?>" 
+                                        <a href="vehicles.php?delete=<?= $v['id'] ?>" 
                                            onclick="return confirm('هل أنت متأكد من حذف هذه المركبة من الأسطول؟')" 
                                            class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                                            title="حذف المركبة">
@@ -379,7 +376,7 @@ if (isset($_GET['edit'])) {
                 </h3>
                 <p class="text-xs text-slate-500 mt-0.5">أدخل بيانات المركبة وتواريخ صلاحية المراقبة التقنية والتأمين والعداد</p>
             </div>
-            <a href="/dashboard/vehicles.php" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+            <a href="vehicles.php" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -497,7 +494,7 @@ if (isset($_GET['edit'])) {
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <a href="/dashboard/vehicles.php" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                <a href="vehicles.php" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
                     إلغاء
                 </a>
                 <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">

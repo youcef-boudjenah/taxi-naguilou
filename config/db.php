@@ -6,6 +6,50 @@ define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'taxi_naguilou');
 
+/**
+ * Dynamic App Base URL Resolution
+ * Works seamlessly whether hosted at root (vhost http://taxi-naguilou.test/)
+ * or in a subdirectory (http://localhost/taxi-naguilou/)
+ */
+function app_base_url(): string {
+    static $baseUrl = null;
+    if ($baseUrl !== null) {
+        return $baseUrl;
+    }
+
+    $projectRoot = str_replace('\\', '/', realpath(__DIR__ . '/..') ?: (__DIR__ . '/..'));
+    $docRoot = !empty($_SERVER['DOCUMENT_ROOT']) ? str_replace('\\', '/', realpath($_SERVER['DOCUMENT_ROOT']) ?: $_SERVER['DOCUMENT_ROOT']) : '';
+
+    if (!empty($docRoot) && strpos(strtolower($projectRoot), strtolower($docRoot)) === 0) {
+        $sub = trim(substr($projectRoot, strlen($docRoot)), '/');
+        $baseUrl = $sub !== '' ? '/' . $sub : '';
+    } else {
+        $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+        $folder = basename($projectRoot);
+        if (strpos($scriptName, '/' . $folder . '/') === 0 || $scriptName === '/' . $folder) {
+            $baseUrl = '/' . $folder;
+        } else {
+            $baseUrl = '';
+        }
+    }
+    return $baseUrl;
+}
+
+function url(string $path = ''): string {
+    $base = app_base_url();
+    if ($path === '' || $path === '/') {
+        return !empty($base) ? $base . '/' : '/';
+    }
+    $path = '/' . ltrim($path, '/');
+    return $base . $path;
+}
+
+function redirect(string $path): void {
+    $target = url($path);
+    header("Location: " . $target);
+    exit;
+}
+
 function getDBConnection() {
     static $pdo = null;
     if ($pdo !== null) {

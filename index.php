@@ -58,8 +58,8 @@ require_once __DIR__ . '/config/db.php';
     <header class="border-b border-slate-100 sticky top-0 bg-white/95 backdrop-blur z-50">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between py-4">
             <!-- Brand -->
-            <a href="/" class="flex items-center gap-3">
-                <img src="/logo.webp" alt="تاكسي نقيلو" class="w-11 h-11 object-contain rounded-full bg-white p-0.5 border border-amber-300 shadow-sm shrink-0">
+            <a href="<?= url('/') ?>" class="flex items-center gap-3">
+                <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-11 h-11 object-contain rounded-full bg-white p-0.5 border border-amber-300 shadow-sm shrink-0">
                 <div>
                     <span class="text-xl font-extrabold text-slate-900 tracking-tight block leading-none">تاكسي <span class="text-amber-600">نقيلو</span></span>
                     <span class="text-[10px] text-slate-400 font-bold block mt-0.5 uppercase tracking-wider">EURL TAXI NAGUILOU Services</span>
@@ -75,7 +75,7 @@ require_once __DIR__ . '/config/db.php';
             </nav>
 
             <div class="flex items-center gap-2">
-                <a href="/auth/login.php" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition">
+                <a href="<?= url('/auth/login.php') ?>" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition">
                     دخول المنصة
                 </a>
                 <a href="#register" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm">

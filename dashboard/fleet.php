@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/fleet.php - Live Fleet Tracking & Operational Readiness
 $pageTitle = 'تتبع الأسطول الميداني والجاهزية';
 require_once __DIR__ . '/../includes/header.php';
@@ -210,11 +210,11 @@ if ($pdo) {
                         </span>
 
                         <div class="flex items-center gap-1.5">
-                            <a href="/dashboard/vehicles.php?search=<?= urlencode($v['plate_number']) ?>" 
+                            <a href="vehicles.php?search=<?= urlencode($v['plate_number']) ?>" 
                                class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 hover:bg-white text-[11px] font-bold transition">
                                 الملف الكامل
                             </a>
-                            <a href="/dashboard/leaves.php?vehicle_id=<?= $v['id'] ?>&action=new" 
+                            <a href="leaves.php?vehicle_id=<?= $v['id'] ?>&action=new" 
                                class="px-2.5 py-1 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-[11px] font-bold transition">
                                 تعيين بديل
                             </a>

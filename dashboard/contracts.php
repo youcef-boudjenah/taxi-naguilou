@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/contracts.php - Gestion des Contrats: Gérez et générez les contrats d'affiliation et de travail
 $pageTitle = 'Gestion des Contrats | إدارة عقود العمل والانتساب';
 require_once __DIR__ . '/../includes/header.php';
@@ -33,8 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $cId = $pdo->lastInsertId();
             log_audit('create', 'contracts', $cId, null, ['contract_number' => $contractNum, 'driver_id' => $driverId]);
             set_flash('success', "تم إنشاء وتوثيق العقد رقم $contractNum بنجاح وفقاً لأحكام القانون 90-11");
-            header("Location: /dashboard/contract_view.php?id=$cId");
-            exit;
+            redirect("/dashboard/contract_view.php?id=$cId");
         } catch (Exception $e) {
             set_flash('error', 'حدث خطأ أثناء إنشاء العقد: ' . $e->getMessage());
         }
@@ -174,20 +173,20 @@ $countExpires = max(0, $countTous - $countActifs);
             </div>
             <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filter !== 'all'): ?>
-                <a href="/dashboard/contracts.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="contracts.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-            <a href="/dashboard/contracts.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="contracts.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل (<?= $countTous ?>)
             </a>
-            <a href="/dashboard/contracts.php?filter=active<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="contracts.php?filter=active<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'active' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 سارية المفعول
             </a>
-            <a href="/dashboard/contracts.php?filter=expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="contracts.php?filter=expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'expired' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 منتهية
             </a>
@@ -292,7 +291,7 @@ $countExpires = max(0, $countTous - $countActifs);
 
                                 <!-- Actions -->
                                 <td class="p-3.5 whitespace-nowrap text-center print:hidden">
-                                    <a href="/dashboard/contract_view.php?id=<?= $c['id'] ?>" 
+                                    <a href="contract_view.php?id=<?= $c['id'] ?>" 
                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition border border-amber-200/60 shadow-2xs">
                                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

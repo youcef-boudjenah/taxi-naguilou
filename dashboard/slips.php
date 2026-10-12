@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/slips.php - Générateur de Bordereaux d'Envoi & Historique des Bordereaux
 $pageTitle = 'Générateur de Bordereaux d\'Envoi | جداول الإرسال الرسمية';
 require_once __DIR__ . '/../includes/header.php';
@@ -114,14 +114,14 @@ if (isset($_GET['print_id'])) {
         
         <!-- Segmented Tab Navigation -->
         <div class="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold">
-            <a href="/dashboard/slips.php?tab=generator" 
+            <a href="slips.php?tab=generator" 
                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition <?= $activeTab === 'generator' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' ?>">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                 </svg>
                 <span>المولّد (Générateur)</span>
             </a>
-            <a href="/dashboard/slips.php?tab=history" 
+            <a href="slips.php?tab=history" 
                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition <?= $activeTab === 'history' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' ?>">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
@@ -253,7 +253,7 @@ if (isset($_GET['print_id'])) {
                     <!-- Official Header -->
                     <div class="border-b-2 border-slate-900 pb-4">
                         <div class="flex items-center justify-between gap-4">
-                            <img src="/logo.webp" alt="EURL TAXI NAGUILOU" class="w-12 h-12 object-contain rounded-full border border-amber-300 shadow-xs shrink-0">
+                            <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-12 h-12 object-contain rounded-full border border-amber-300 shadow-xs shrink-0">
                             <div class="text-center space-y-0.5 flex-1">
                                 <div class="text-xs font-bold tracking-wide">الجمهورية الجزائرية الديمقراطية الشعبية</div>
                                 <div class="text-[10px] font-semibold text-slate-700">RÉPUBLIQUE ALGÉRIENNE DÉMOCRATIQUE ET POPULAIRE</div>
@@ -331,7 +331,7 @@ if (isset($_GET['print_id'])) {
                     <h3 class="font-bold text-slate-900 text-sm">أرشيف جداول الإرسال الرسمية</h3>
                     <p class="text-xs text-slate-400">سجل كامل لجداول الإرسال الصادرة للمصالح الولائية والميدانية</p>
                 </div>
-                <a href="/dashboard/slips.php?tab=generator" 
+                <a href="slips.php?tab=generator" 
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -384,7 +384,7 @@ if (isset($_GET['print_id'])) {
                                         </span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap text-center">
-                                        <a href="/dashboard/slips.php?tab=generator&print_id=<?= $slip['id'] ?>"
+                                        <a href="slips.php?tab=generator&print_id=<?= $slip['id'] ?>"
                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-xs">
                                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.03-.42-2.1-.523-3.2A11.75 11.75 0 0112 3c3.08 0 5.86 1.173 7.803 3.09.28.277.53.57.753.878m-1.556 7.861A11.724 11.724 0 0112 21c-3.08 0-5.86-1.173-7.803-3.09-.28-.277-.53-.57-.753-.878" />

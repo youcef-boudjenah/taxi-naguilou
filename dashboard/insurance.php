@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/insurance.php - Gérer Assurance: Gestion, Alertes et Renouvellement des Polices d'Assurance
 $pageTitle = 'Gérer Assurance | إدارة وثائق التأمين';
 require_once __DIR__ . '/../includes/header.php';
@@ -40,8 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ]);
 
             set_flash('success', "تم تسجيل وتجديد وثيقة التأمين رقم $policyNumber لدى شركة $company بنجاح");
-            header('Location: /dashboard/insurance.php');
-            exit;
+            redirect('/dashboard/insurance.php');
         } catch (Exception $e) {
             set_flash('error', 'حدث خطأ أثناء حفظ وثيقة التأمين: ' . $e->getMessage());
         }
@@ -238,7 +237,7 @@ foreach ($rows as $r) {
             </div>
             <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filterCompany !== 'all' || $filterStatus !== 'all'): ?>
-                <a href="/dashboard/insurance.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="insurance.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
@@ -255,15 +254,15 @@ foreach ($rows as $r) {
             </select>
 
             <div class="flex items-center gap-1">
-                <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=all" 
+                <a href="insurance.php?company=<?= urlencode($filterCompany) ?>&status=all" 
                    class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                     الكل
                 </a>
-                <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=imminent" 
+                <a href="insurance.php?company=<?= urlencode($filterCompany) ?>&status=imminent" 
                    class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'imminent' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
                     وشيكة (&le; 15j)
                 </a>
-                <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=active" 
+                <a href="insurance.php?company=<?= urlencode($filterCompany) ?>&status=active" 
                    class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'active' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-emerald-700 hover:bg-emerald-50' ?>">
                     سارية
                 </a>

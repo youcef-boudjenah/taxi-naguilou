@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/index.php - Executive Fleet & Compliance Dashboard
 $pageTitle = 'لوحة التحكم والمؤشرات';
 require_once __DIR__ . '/../includes/header.php';
@@ -69,7 +69,7 @@ if ($pdo) {
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div class="flex items-center gap-4">
             <div class="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0 shadow-2xs">
-                <img src="/logo.webp" alt="تاكسي نقيلو" class="w-8 h-8 object-contain">
+                <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-8 h-8 object-contain">
             </div>
             <div>
                 <div class="flex items-center gap-2">
@@ -84,15 +84,15 @@ if ($pdo) {
 
         <!-- Cohesive Quick Action Controls -->
         <div class="flex items-center gap-2 self-start md:self-auto">
-            <a href="/dashboard/fleet.php" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs flex items-center gap-2">
+            <a href="fleet.php" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs flex items-center gap-2">
                 <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                 <span>تتبع الأسطول</span>
             </a>
-            <a href="/dashboard/vehicles.php?action=new" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-2xs flex items-center gap-1.5">
+            <a href="vehicles.php?action=new" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-2xs flex items-center gap-1.5">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 <span>إضافة مركبة</span>
             </a>
-            <a href="/dashboard/traveler_reports.php" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center gap-1.5">
+            <a href="traveler_reports.php" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center gap-1.5">
                 <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                 <span class="hidden sm:inline">محضر سفر</span>
             </a>
@@ -115,7 +115,7 @@ if ($pdo) {
             </div>
             <div class="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-2.5">
                 <span class="text-emerald-700 font-bold"><?= $activeVehiclesCount ?> في الخدمة</span>
-                <a href="/dashboard/vehicles.php" class="text-amber-700 font-bold hover:underline">السجل الكامل ←</a>
+                <a href="vehicles.php" class="text-amber-700 font-bold hover:underline">السجل الكامل ←</a>
             </div>
         </div>
 
@@ -132,7 +132,7 @@ if ($pdo) {
             </div>
             <div class="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-2.5">
                 <span>بطاقات كفاءة مهنية</span>
-                <a href="/dashboard/drivers.php" class="text-amber-700 font-bold hover:underline">الملفات ←</a>
+                <a href="drivers.php" class="text-amber-700 font-bold hover:underline">الملفات ←</a>
             </div>
         </div>
 
@@ -149,7 +149,7 @@ if ($pdo) {
             </div>
             <div class="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-2.5">
                 <span class="text-emerald-700 font-bold">100% موثقة</span>
-                <a href="/dashboard/contracts.php" class="text-amber-700 font-bold hover:underline">العقود ←</a>
+                <a href="contracts.php" class="text-amber-700 font-bold hover:underline">العقود ←</a>
             </div>
         </div>
 
@@ -166,7 +166,7 @@ if ($pdo) {
             </div>
             <div class="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-100 pt-2.5">
                 <span>BaridiMob / CCP</span>
-                <a href="/dashboard/billing.php" class="text-amber-700 font-bold hover:underline">الفوترة ←</a>
+                <a href="billing.php" class="text-amber-700 font-bold hover:underline">الفوترة ←</a>
             </div>
         </div>
 
@@ -181,7 +181,7 @@ if ($pdo) {
             </div>
             <div class="flex items-center gap-2">
                 <span class="text-xs text-slate-400 font-medium">عتبة التنبيه: 30 يوماً</span>
-                <a href="/dashboard/vehicles.php?filter=expiring" class="text-xs font-bold text-amber-700 hover:underline">عرض الكل ←</a>
+                <a href="vehicles.php?filter=expiring" class="text-xs font-bold text-amber-700 hover:underline">عرض الكل ←</a>
             </div>
         </div>
 
@@ -247,7 +247,7 @@ if ($pdo) {
                                 </td>
 
                                 <td class="p-3.5 text-center">
-                                    <a href="/dashboard/vehicles.php?search=<?= urlencode($v['plate_number']) ?>" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-2xs inline-block">
+                                    <a href="vehicles.php?search=<?= urlencode($v['plate_number']) ?>" class="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-2xs inline-block">
                                         تجديد الوثائق
                                     </a>
                                 </td>
@@ -273,7 +273,7 @@ if ($pdo) {
                     <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                     <h3 class="font-extrabold text-slate-900 text-sm">أحدث عقود العمل (قانون 90-11)</h3>
                 </div>
-                <a href="/dashboard/contracts.php" class="text-xs font-bold text-amber-700 hover:underline">كل العقود ←</a>
+                <a href="contracts.php" class="text-xs font-bold text-amber-700 hover:underline">كل العقود ←</a>
             </div>
 
             <div class="space-y-2.5">
@@ -289,7 +289,7 @@ if ($pdo) {
                             </div>
                         </div>
                         <div>
-                            <a href="/dashboard/contract_view.php?id=<?= $ct['id'] ?>" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-slate-950 font-bold text-[11px] transition shadow-2xs">
+                            <a href="contract_view.php?id=<?= $ct['id'] ?>" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-slate-950 font-bold text-[11px] transition shadow-2xs">
                                 معاينة العقد
                             </a>
                         </div>
@@ -305,7 +305,7 @@ if ($pdo) {
                     <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
                     <h3 class="font-extrabold text-slate-900 text-sm">السائقون البدلاء وجداول الإرسال</h3>
                 </div>
-                <a href="/dashboard/leaves.php" class="text-xs font-bold text-amber-700 hover:underline">إدارة العطل ←</a>
+                <a href="leaves.php" class="text-xs font-bold text-amber-700 hover:underline">إدارة العطل ←</a>
             </div>
 
             <?php if (!empty($activeLeaves)): ?>
@@ -324,7 +324,7 @@ if ($pdo) {
                                 <span class="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-bold border border-amber-200 font-num text-[10px] block">
                                     حتى <?= htmlspecialchars($lv['end_date']) ?>
                                 </span>
-                                <a href="/dashboard/slips.php" class="inline-block text-[11px] text-slate-500 hover:text-slate-800 mt-1 font-bold">
+                                <a href="slips.php" class="inline-block text-[11px] text-slate-500 hover:text-slate-800 mt-1 font-bold">
                                     جدول الإرسال ←
                                 </a>
                             </div>

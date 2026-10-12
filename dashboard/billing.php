@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/billing.php - Abonnements & Facturation: 1 000 DA/mois espace + 4 000 DA/mois par véhicule actif
 $pageTitle = 'Abonnements & Facturation | الاشتراكات والفوترة';
 require_once __DIR__ . '/../includes/header.php';
@@ -113,8 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         log_audit('create', 'driver_subscriptions', $driverId, null, ['amount' => $amount, 'period' => $selectedPeriod, 'method' => $method]);
         set_flash('success', "تم تسجيل الدفعة اليدوية بنجاح بقيمة " . number_format($amount, 2) . " دج للسائق");
-        header("Location: /dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
-        exit;
+        redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
     }
 }
 
@@ -131,8 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     log_audit('create', 'driver_subscriptions', null, null, ['action' => 'generate_debts', 'period' => $selectedPeriod]);
     set_flash('success', "تم توليد وتحديث استحقاقات الاشتراكات لشهر {$monthNames[$selectedMonth]} بنجاح (1 000 دج فضاء + 4 000 دج مركبة)");
-    header("Location: /dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
-    exit;
+    redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
 }
 
 // Search and Filter
@@ -335,7 +333,7 @@ $allDriversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role
 
         <!-- Export Journal -->
         <div class="flex items-center gap-2 w-full lg:w-auto justify-end">
-            <a href="/dashboard/billing.php?export=excel&month=<?= urlencode($selectedMonth) ?>&year=<?= urlencode($selectedYear) ?>" 
+            <a href="billing.php?export=excel&month=<?= urlencode($selectedMonth) ?>&year=<?= urlencode($selectedYear) ?>" 
                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-emerald-300 hover:border-emerald-400 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs transition shadow-2xs whitespace-nowrap">
                 <svg class="w-4 h-4 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />

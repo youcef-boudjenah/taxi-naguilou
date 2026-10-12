@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/planning.php - Garde de nuit du parc & Prochain planning des chauffeurs (3 jours)
 $pageTitle = 'Garde de Nuit & Planning des Chauffeurs';
 require_once __DIR__ . '/../includes/header.php';
@@ -23,8 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->execute([$driverId, $vehicleId, $shiftDate, $shiftType, $isPermanence]);
         log_audit('create', 'driver_schedules', $pdo->lastInsertId(), null, ['driver_id' => $driverId, 'shift_date' => $shiftDate, 'is_permanence' => $isPermanence]);
         set_flash('success', 'تم تسجيل مناوبة السائق بنجاح في الجدول التقديري');
-        header('Location: /dashboard/planning.php');
-        exit;
+        redirect('/dashboard/planning.php');
     }
 }
 
@@ -43,8 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->execute([$vId, $guardian, $slot, $notes]);
         log_audit('create', 'night_watch', $pdo->lastInsertId(), null, ['vehicle_id' => $vId, 'park_slot' => $slot]);
         set_flash('success', 'تم تسجيل إيواء المركبة في حراسة الحظيرة الليلية (Garde de nuit)');
-        header('Location: /dashboard/planning.php');
-        exit;
+        redirect('/dashboard/planning.php');
     }
 }
 
@@ -54,8 +52,7 @@ if (isset($_GET['exit_park'])) {
     $pdo->prepare("UPDATE night_watch SET status = 'sorti', exit_time = NOW() WHERE id = ?")->execute([$nwId]);
     log_audit('update', 'night_watch', $nwId, null, ['status' => 'sorti']);
     set_flash('success', 'تم تسجيل خروج سيارة الأجرة من الحظيرة إلى الخدمة الصباحية');
-    header('Location: /dashboard/planning.php');
-    exit;
+    redirect('/dashboard/planning.php');
 }
 
 // Fetch Night Watch records
@@ -172,7 +169,7 @@ foreach ($allShifts as $sh) {
                         </div>
 
                         <div class="pt-1">
-                            <a href="/dashboard/planning.php?exit_park=<?= $nw['id'] ?>" 
+                            <a href="planning.php?exit_park=<?= $nw['id'] ?>" 
                                class="block w-full py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-center text-xs font-bold text-slate-700 transition">
                                 تسجيل خروج للخدمة (Sortie du parc)
                             </a>

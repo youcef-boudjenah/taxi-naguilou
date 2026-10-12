@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/contract_view.php - Official 16-Article Labor Contract (Law 90-11)
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
@@ -51,7 +51,7 @@ if (!$contract) {
     <!-- Top Action Toolbar (Hidden in print) -->
     <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         <div class="flex items-center gap-3">
-            <a href="/dashboard/contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+            <a href="contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
@@ -75,7 +75,7 @@ if (!$contract) {
         <!-- Republic Official Header with Logo -->
         <div class="border-b-2 border-slate-900 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <img src="/logo.webp" alt="EURL TAXI NAGUILOU" class="w-16 h-16 object-contain rounded-full border border-amber-300 shadow-sm shrink-0">
+                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-16 h-16 object-contain rounded-full border border-amber-300 shadow-sm shrink-0">
                 <div class="text-center space-y-1 flex-1">
                     <h1 class="text-base sm:text-lg font-bold">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
                     <h2 class="text-xs sm:text-sm font-semibold text-slate-700">وزارة العمل والتشغيل والضمان الاجتماعي • وزارة النقل</h2>

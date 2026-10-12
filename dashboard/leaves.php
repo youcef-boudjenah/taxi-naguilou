@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // dashboard/leaves.php - Driver Leaves & Relief Driver Dispatch
 $pageTitle = 'نظام السائق البديل والعطل';
 require_once __DIR__ . '/../includes/header.php';
@@ -48,8 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ]);
 
             set_flash('success', 'تم اعتماد العطلة وتعيين السائق البديل واستخراج جدول الإرسال بنجاح');
-            header('Location: /dashboard/leaves.php');
-            exit;
+            redirect('/dashboard/leaves.php');
         } catch (Exception $e) {
             set_flash('error', 'حدث خطأ أثناء تسجيل العطلة: ' . $e->getMessage());
         }
@@ -183,7 +182,7 @@ $activeReliefCount = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE replace
                                     </span>
                                 </td>
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <a href="/dashboard/slips.php" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
+                                    <a href="slips.php" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
                                         جدول الإرسال
                                     </a>
                                 </td>

@@ -1,4 +1,4 @@
-jj<?php
+﻿<?php
 // dashboard/debts.php - Finances & Dettes: Gestion des créances, versements et recouvrement
 $pageTitle = 'Finances & Dettes | إدارة الديون والتحصيل';
 require_once __DIR__ . '/../includes/header.php';
@@ -9,8 +9,7 @@ $pdo = getDBConnection();
 if (isset($_POST['recalculate_month'])) {
     log_audit('update', 'driver_debts', null, null, ['action' => 'recalculate_month']);
     set_flash('success', 'تمت إعادة حساب تسويات ومستحقات الشهر بنجاح (Recalcul effectué avec succès)');
-    header('Location: /dashboard/debts.php');
-    exit;
+    redirect('/dashboard/debts.php');
 }
 
 // Handle Register Versement (Payment)
@@ -43,8 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             log_audit('create', 'versements', $pdo->lastInsertId(), null, ['debt_id' => $debtId, 'amount' => $amount, 'receipt' => $receipt]);
             set_flash('success', "تم تسجيل دفعة بقيمة " . number_format($amount, 2) . " دج بنجاح وتحديث الرصيد");
-            header('Location: /dashboard/debts.php');
-            exit;
+            redirect('/dashboard/debts.php');
         } catch (Exception $e) {
             set_flash('error', 'حدث خطأ أثناء تسجيل الدفعة');
         }
@@ -146,7 +144,7 @@ $countAnciens = 3;
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         
         <!-- Dettes Chauffeurs Actifs -->
-        <a href="/dashboard/debts.php?type=actif" 
+        <a href="debts.php?type=actif" 
            class="bg-white p-5 rounded-2xl border <?= $driverType === 'actif' ? 'border-rose-400 ring-2 ring-rose-100' : 'border-slate-200/80' ?> hover:border-rose-300 shadow-xs space-y-3 relative overflow-hidden transition block">
             <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">ديون السائقين النشطين (Chauffeurs Actifs)</span>
@@ -167,7 +165,7 @@ $countAnciens = 3;
         </a>
 
         <!-- Créances Anciens Chauffeurs -->
-        <a href="/dashboard/debts.php?type=ancien" 
+        <a href="debts.php?type=ancien" 
            class="bg-white p-5 rounded-2xl border <?= $driverType === 'ancien' ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200/80' ?> hover:border-amber-300 shadow-xs space-y-3 relative overflow-hidden transition block">
             <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">ديون السائقين السابقين (Anciens Chauffeurs)</span>
@@ -204,21 +202,21 @@ $countAnciens = 3;
             </div>
             <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filter !== 'all'): ?>
-                <a href="/dashboard/debts.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="debts.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <!-- Status Filter Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto">
-            <a href="/dashboard/debts.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="debts.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل
             </a>
-            <a href="/dashboard/debts.php?filter=endette<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="debts.php?filter=endette<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'endette' ? 'bg-rose-500 text-white' : 'bg-slate-100 text-rose-600 hover:bg-rose-50' ?>">
                 عليه ديون
             </a>
-            <a href="/dashboard/debts.php?filter=a_jour<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+            <a href="debts.php?filter=a_jour<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'a_jour' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-emerald-700 hover:bg-emerald-50' ?>">
                 مُسدّد (À jour)
             </a>
