@@ -44,6 +44,7 @@ if (isset($_GET['action'])) {
                 $addedCount++;
             }
         }
+        log_audit('create', 'notifications', null, null, ['action' => 'run_audit_scan', 'added_count' => $addedCount]);
         set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول وتحديث مركز التنبيهات بنجاح");
         header('Location: /dashboard/notifications.php');
         exit;
@@ -86,113 +87,126 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
 <div class="space-y-6">
     
     <!-- Top Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <div class="flex items-center gap-2">
-                <h2 class="text-xl font-black text-slate-900">Notifications Système</h2>
-                <span class="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
-                    مركز الإشعارات والتنبيهات الحية
+            <div class="flex items-center gap-2.5">
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">Notifications Système</h1>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-800 border border-amber-500/20 font-num">
+                    <?= $totalNotifs ?> إشعار
                 </span>
             </div>
-            <p class="text-xs text-slate-500 mt-1">Surveillance en temps réel des alertes techniques, d'assurance, des chauffeurs et de la facturation.</p>
+            <p class="text-xs text-slate-500 mt-1">مراقبة التنبيهات الفنية، وثائق التأمين، رخص السائقين، واستحقاقات الاشتراكات في الوقت الفعلي</p>
         </div>
 
         <div class="flex items-center gap-2">
             <a href="/dashboard/notifications.php?action=run_audit_scan" 
-               class="px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center gap-1.5 shadow-sm">
-                <span>🔍</span>
-                <span>فحص وتدقيق الأسطول (Scan d'audit)</span>
+               class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
+                <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                <span>فحص وتدقيق الأسطول</span>
             </a>
             
             <?php if ($unreadCount > 0): ?>
                 <a href="/dashboard/notifications.php?action=mark_all_read" 
-                   class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-sm flex items-center gap-1.5">
-                    <span>✓</span>
-                    <span>Tout marquer comme lu</span>
+                   class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span>تحديد الكل كمقروء</span>
                 </a>
             <?php endif; ?>
         </div>
     </div>
 
     <!-- 4 KPI Metric Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        
-        <!-- Total -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500">إجمالي الإشعارات</span>
-                <span class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-sm font-bold">🔔</span>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500">إجمالي الإشعارات</p>
+                <p class="text-xl font-bold text-slate-900 font-num mt-0.5"><?= $totalNotifs ?></p>
             </div>
-            <div class="text-3xl font-black text-slate-900 font-num"><?= $totalNotifs ?></div>
-            <div class="text-[11px] text-slate-400 font-semibold">سجل الأحداث والعمليات</div>
+            <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Non Lues (Unread) -->
-        <div class="bg-white p-5 rounded-2xl border <?= $unreadCount > 0 ? 'border-amber-300 ring-2 ring-amber-100 bg-amber-50/20' : 'border-slate-200' ?> shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-amber-700">غير مقروءة (Non Lues)</span>
-                <span class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold">✉️</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-amber-700">غير مقروءة (Non Lues)</p>
+                <p class="text-xl font-bold text-amber-600 font-num mt-0.5"><?= $unreadCount ?></p>
             </div>
-            <div class="text-3xl font-black text-amber-600 font-num"><?= $unreadCount ?></div>
-            <div class="text-[11px] text-amber-600 font-semibold">تتطلب المراجعة والاطلاع</div>
+            <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Alertes Urgentes -->
-        <div class="bg-white p-5 rounded-2xl border <?= $urgentCount > 0 ? 'border-rose-300 bg-rose-50/20' : 'border-slate-200' ?> shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-rose-700">تنبيهات حرجة وعاجلة</span>
-                <span class="w-8 h-8 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-bold">🚨</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-rose-700">تنبيهات حرجة وعاجلة</p>
+                <p class="text-xl font-bold <?= $urgentCount > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num mt-0.5"><?= $urgentCount ?></p>
             </div>
-            <div class="text-3xl font-black text-rose-600 font-num"><?= $urgentCount ?></div>
-            <div class="text-[11px] text-rose-600 font-semibold">مراقبة تقنية، تأمين، أو رخص منتهية</div>
+            <div class="w-10 h-10 rounded-xl <?= $urgentCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Info & Facturation -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-blue-700">إشعارات مالية وإدارية</span>
-                <span class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold">ℹ️</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500">إشعارات مالية وإدارية</p>
+                <p class="text-xl font-bold text-blue-600 font-num mt-0.5"><?= $infoCount ?></p>
             </div>
-            <div class="text-3xl font-black text-blue-600 font-num"><?= $infoCount ?></div>
-            <div class="text-[11px] text-blue-600 font-semibold">اشتراكات، جداول إرسال، وعقود</div>
+            <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+            </div>
         </div>
-
     </div>
 
     <!-- Filter & Search Toolbar -->
-    <div class="bg-white p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+    <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         
         <!-- Search -->
         <form method="GET" class="flex-1 w-full flex items-center gap-2">
             <div class="relative flex-1 sm:max-w-md">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
                        placeholder="بحث في محتوى الإشعارات والتنبيهات..."
-                       class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500">
+                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
             </div>
-            <button type="submit" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white font-bold">بحث</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filterType !== 'all'): ?>
-                <a href="/dashboard/notifications.php" class="text-slate-400 hover:text-slate-600 underline">إعادة ضبط</a>
+                <a href="/dashboard/notifications.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <!-- Segmented Tabs -->
-        <div class="flex items-center gap-1.5 w-full sm:w-auto">
+        <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
             <a href="/dashboard/notifications.php?type=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filterType === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
-                Toutes (الكل)
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
+                الكل
             </a>
             <a href="/dashboard/notifications.php?type=unread<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1 <?= $filterType === 'unread' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
-                <span>Non Lues</span>
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filterType === 'unread' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
+                <span>غير مقروءة</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white font-num font-bold"><?= $unreadCount ?></span>
             </a>
             <a href="/dashboard/notifications.php?type=urgent<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filterType === 'urgent' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-rose-700 hover:bg-rose-50' ?>">
-                Urgentes (حرجة)
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'urgent' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-rose-700 hover:bg-rose-50' ?>">
+                حرجة (Urgentes)
             </a>
             <a href="/dashboard/notifications.php?type=info<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filterType === 'info' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-blue-700 hover:bg-blue-50' ?>">
-                Informations (إدارية)
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'info' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-blue-700 hover:bg-blue-50' ?>">
+                إدارية ومالية
             </a>
         </div>
 
@@ -203,34 +217,34 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
         <?php if (!empty($notificationsList)): ?>
             <?php foreach ($notificationsList as $notif): 
                 $badgeStyle = [
-                    'urgent' => 'bg-rose-100 text-rose-800 border-rose-300',
-                    'alert' => 'bg-amber-100 text-amber-800 border-amber-300',
+                    'urgent' => 'bg-rose-50 text-rose-700 border-rose-200',
+                    'alert' => 'bg-amber-50 text-amber-800 border-amber-200',
                     'warning' => 'bg-amber-50 text-amber-800 border-amber-200',
                     'info' => 'bg-blue-50 text-blue-700 border-blue-200',
                     'success' => 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 ][$notif['type']] ?? 'bg-slate-100 text-slate-700 border-slate-200';
-
-                $iconEmoji = [
-                    'urgent' => '🚨',
-                    'alert' => '⚠️',
-                    'warning' => '⏳',
-                    'info' => 'ℹ️',
-                    'success' => '✅'
-                ][$notif['type']] ?? '🔔';
             ?>
-                <div class="bg-white p-5 rounded-2xl border <?= !$notif['is_read'] ? 'border-amber-300 ring-1 ring-amber-200/50 shadow-md' : 'border-slate-200 shadow-sm' ?> transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="bg-white p-4 sm:p-5 rounded-2xl border <?= !$notif['is_read'] ? 'border-amber-300 ring-1 ring-amber-200/50 shadow-xs' : 'border-slate-200 shadow-2xs' ?> transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     
                     <div class="flex items-start gap-3.5 flex-1 min-w-0">
-                        <span class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 <?= !$notif['is_read'] ? 'bg-amber-100' : 'bg-slate-100' ?>">
-                            <?= $iconEmoji ?>
-                        </span>
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 <?= !$notif['is_read'] ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600' ?>">
+                            <?php if ($notif['type'] === 'urgent' || $notif['type'] === 'alert'): ?>
+                                <svg class="w-5 h-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            <?php else: ?>
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                                </svg>
+                            <?php endif; ?>
+                        </div>
 
                         <div class="space-y-1 min-w-0 flex-1 text-xs">
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-black border uppercase font-sans <?= $badgeStyle ?>">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase font-sans <?= $badgeStyle ?>">
                                     <?= htmlspecialchars($notif['type']) ?>
                                 </span>
-                                <h3 class="font-extrabold text-slate-900 text-sm"><?= htmlspecialchars($notif['title']) ?></h3>
+                                <h3 class="font-bold text-slate-900 text-sm"><?= htmlspecialchars($notif['title']) ?></h3>
                                 <?php if (!$notif['is_read']): ?>
                                     <span class="px-2 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">جديد</span>
                                 <?php endif; ?>
@@ -241,7 +255,7 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
                             </p>
 
                             <div class="flex items-center gap-3 pt-1 text-[11px] text-slate-400 font-num">
-                                <span><?= date('Y-m-d H:i', strtotime($notif['created_at'])) ?></span>
+                                <span dir="ltr"><?= date('Y-m-d H:i', strtotime($notif['created_at'])) ?></span>
                                 <span>•</span>
                                 <span>الحالة: <strong class="<?= $notif['is_read'] ? 'text-slate-500' : 'text-amber-700' ?>"><?= $notif['is_read'] ? 'مقروء' : 'غير مقروء' ?></strong></span>
                             </div>
@@ -252,23 +266,35 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
                     <div class="flex items-center gap-2 self-end sm:self-center shrink-0 text-xs">
                         <?php if (!empty($notif['link'])): ?>
                             <a href="<?= htmlspecialchars($notif['link']) ?>" 
-                               class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-sm flex items-center gap-1.5">
-                                <span>🔍</span>
-                                <span>معالجة وتفاصيل ←</span>
+                               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-2xs">
+                                <span>معالجة وتفاصيل</span>
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                                </svg>
                             </a>
                         <?php endif; ?>
 
                         <a href="/dashboard/notifications.php?action=toggle_read&id=<?= $notif['id'] ?>" 
                            title="<?= $notif['is_read'] ? 'تحديد كغير مقروء' : 'تحديد كمقروء' ?>"
-                           class="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 transition">
-                            <?= $notif['is_read'] ? '✉️' : '✓' ?>
+                           class="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition">
+                            <?php if ($notif['is_read']): ?>
+                                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                                </svg>
+                            <?php else: ?>
+                                <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                </svg>
+                            <?php endif; ?>
                         </a>
 
                         <a href="/dashboard/notifications.php?action=delete&id=<?= $notif['id'] ?>" 
                            onclick="return confirm('هل تريد حذف هذا الإشعار؟')"
                            title="حذف الإشعار"
-                           class="p-2 rounded-xl border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition">
-                            🗑️
+                           class="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                         </a>
                     </div>
 
@@ -276,9 +302,13 @@ $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN 
             <?php endforeach; ?>
         <?php else: ?>
             <div class="p-12 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200 space-y-2">
-                <span class="text-3xl block">🎉</span>
-                <div class="font-bold text-slate-700">لا توجد إشعارات مطابقة حالياً</div>
-                <p class="text-slate-400">جميع وثائق الأسطول واشتراكات السائقين ومواعيد المراقبة التقنية في حالة نظامية.</p>
+                <div class="w-12 h-12 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div class="font-bold text-slate-700 text-sm">لا توجد إشعارات مطابقة حالياً</div>
+                <p class="text-slate-400 text-xs">جميع وثائق الأسطول واشتراكات السائقين ومواعيد المراقبة التقنية في حالة نظامية.</p>
             </div>
         <?php endif; ?>
     </div>

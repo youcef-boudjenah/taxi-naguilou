@@ -49,16 +49,21 @@ if (!$contract) {
 <body class="bg-slate-100 text-slate-900 min-h-screen py-8 px-4">
 
     <!-- Top Action Toolbar (Hidden in print) -->
-    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         <div class="flex items-center gap-3">
-            <a href="/dashboard/contracts.php" class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
-                ← العودة إلى قائمة العقود
+            <a href="/dashboard/contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+                <span>العودة إلى قائمة العقود</span>
             </a>
-            <span class="text-xs font-bold text-slate-500">رقم العقد: <span class="font-num text-slate-900"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
+            <span class="text-xs font-bold text-slate-500">رقم العقد: <span class="font-num text-slate-900 font-mono"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
         </div>
         <div class="flex items-center gap-2">
-            <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-1.5">
-                <span>🖨️</span>
+            <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.03-.42-2.1-.523-3.2A11.75 11.75 0 0112 3c3.08 0 5.86 1.173 7.803 3.09.28.277.53.57.753.878m-1.556 7.861A11.724 11.724 0 0112 21c-3.08 0-5.86-1.173-7.803-3.09-.28-.277-.53-.57-.753-.878" />
+                </svg>
                 <span>طباعة العقد الرسمي (PDF)</span>
             </button>
         </div>

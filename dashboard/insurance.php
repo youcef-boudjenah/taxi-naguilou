@@ -33,6 +33,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmtVeh->execute([$endDate, $company, $vehicleId]);
 
+            log_audit('update', 'insurance_policies', $vehicleId, null, [
+                'policy_number' => $policyNumber,
+                'company' => $company,
+                'end_date' => $endDate
+            ]);
+
             set_flash('success', "تم تسجيل وتجديد وثيقة التأمين رقم $policyNumber لدى شركة $company بنجاح");
             header('Location: /dashboard/insurance.php');
             exit;
@@ -93,7 +99,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
 
-// Filter in-memory for days_left to ensure consistency
+// Filter in-memory for days_left
 $filteredRows = [];
 $totalCount = count($rows);
 $imminentCount = 0;
@@ -123,12 +129,12 @@ foreach ($rows as $r) {
 <div class="space-y-6">
     
     <!-- Top Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <div class="flex items-center gap-2">
-                <h2 class="text-xl font-black text-slate-900">Gérer Assurance</h2>
-                <span class="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
-                    إدارة وثائق التأمين للأسطول
+            <div class="flex items-center gap-2.5">
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">Gérer Assurance</h1>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-800 border border-amber-500/20">
+                    إدارة وثائق التأمين
                 </span>
             </div>
             <p class="text-xs text-slate-500 mt-1">تتبع صلاحية بوالص التأمين، التنبيهات الاستباقية وتجديد عقود شركات التأمين المعتمدة (SAA, CAAT, CIAR, CASH, Alliance)</p>
@@ -136,113 +142,125 @@ foreach ($rows as $r) {
         
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('renewModal').classList.remove('hidden')"
-                    class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-2">
-                <span>➕</span>
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
                 <span>تجديد / تسجيل بوليصة جديدة</span>
             </button>
         </div>
     </div>
 
     <!-- KPI Metric Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        
-        <!-- Total Insured -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500">إجمالي الأسطول المؤمن</span>
-                <span class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-sm font-bold">🛡️</span>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500">إجمالي الأسطول المؤمن</p>
+                <p class="text-xl font-bold text-slate-900 font-num mt-0.5"><?= $totalCount ?></p>
             </div>
-            <div class="text-3xl font-black text-slate-900 font-num"><?= $totalCount ?></div>
-            <div class="text-[11px] text-slate-400 font-semibold">مركبات خاضعة للتأمين التجاري</div>
+            <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Imminent Expiry (< 15 days) -->
-        <div class="bg-white p-5 rounded-2xl border <?= $imminentCount > 0 ? 'border-amber-300 ring-2 ring-amber-100 bg-amber-50/20' : 'border-slate-200' ?> shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-amber-700">Expiration Imminente (&le; 15j)</span>
-                <span class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold">⚠️</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-amber-700">تنبيه وشيك (&le; 15 يوم)</p>
+                <p class="text-xl font-bold text-amber-600 font-num mt-0.5"><?= $imminentCount ?></p>
             </div>
-            <div class="text-3xl font-black text-amber-600 font-num"><?= $imminentCount ?></div>
-            <div class="text-[11px] text-amber-600 font-semibold">تتطلب التجديد الفوري لتفادي الحجز</div>
+            <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Active Policies -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-emerald-700">بوالص سارية المفعول</span>
-                <span class="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-bold">✅</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500">بوالص سارية المفعول</p>
+                <p class="text-xl font-bold text-emerald-600 font-num mt-0.5"><?= $activeCount ?></p>
             </div>
-            <div class="text-3xl font-black text-emerald-600 font-num"><?= $activeCount ?></div>
-            <div class="text-[11px] text-emerald-600 font-semibold">صالحة لأكثر من 15 يوماً</div>
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
         </div>
 
-        <!-- Expired Policies -->
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-rose-700">بوالص منتهية الصلاحية</span>
-                <span class="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center text-sm font-bold">⛔</span>
+        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500">بوالص منتهية</p>
+                <p class="text-xl font-bold <?= $expiredCount > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num mt-0.5"><?= $expiredCount ?></p>
             </div>
-            <div class="text-3xl font-black text-rose-600 font-num"><?= $expiredCount ?></div>
-            <div class="text-[11px] text-rose-600 font-semibold">توقف فوري عن النشاط الميداني</div>
+            <div class="w-10 h-10 rounded-xl <?= $expiredCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+            </div>
         </div>
-
     </div>
 
     <!-- Imminent Expiration Warning Alert Banner -->
     <?php if ($imminentCount > 0): ?>
-        <div class="bg-gradient-to-l from-amber-500 to-amber-600 text-slate-950 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-3">
-                <span class="text-2xl">🚨</span>
+        <div class="bg-amber-50 border border-amber-200/80 text-amber-950 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                </div>
                 <div>
-                    <h3 class="font-black text-sm">تنبيه حرج: توجد <?= $imminentCount ?> مركبات تنتهي صلاحية تأمينها خلال أقل من 15 يوماً!</h3>
-                    <p class="text-xs font-semibold text-amber-950 mt-0.5">تفرض المادة 12 من قانون النقل البري التوقيف الفوري لأي سيارة أجرة لا تحمل شهادة تأمين سارية المفعول.</p>
+                    <h3 class="font-bold text-xs">تنبيه حرج: توجد <?= $imminentCount ?> مركبات تنتهي صلاحية تأمينها خلال أقل من 15 يوماً</h3>
+                    <p class="text-[11px] text-amber-800 mt-0.5">تفرض لوائح النقل البري التوقيف الفوري لأي سيارة أجرة لا تحمل شهادة تأمين سارية المفعول.</p>
                 </div>
             </div>
             <button onclick="document.getElementById('renewModal').classList.remove('hidden')" 
-                    class="px-4 py-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-white font-bold text-xs whitespace-nowrap shadow transition">
+                    class="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs whitespace-nowrap transition shadow-xs">
                 تجديد البوالص الآن
             </button>
         </div>
     <?php endif; ?>
 
     <!-- Filter & Search Toolbar -->
-    <div class="bg-white p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+    <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         
         <!-- Search -->
         <form method="GET" class="flex-1 w-full flex items-center gap-2">
-            <div class="relative flex-1 sm:max-w-xs">
+            <div class="relative flex-1 sm:max-w-md">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
                        placeholder="بحث برقم اللوحة، الباب، أو البوليصة..."
-                       class="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500">
+                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
             </div>
-            <button type="submit" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white font-bold">بحث</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filterCompany !== 'all' || $filterStatus !== 'all'): ?>
-                <a href="/dashboard/insurance.php" class="text-slate-400 hover:text-slate-600 underline">إعادة ضبط</a>
+                <a href="/dashboard/insurance.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <!-- Company & Status Filters -->
         <div class="flex items-center gap-2 w-full sm:w-auto">
-            
-            <!-- Company dropdown -->
             <select onchange="location.href='/dashboard/insurance.php?company=' + this.value + '&status=<?= urlencode($filterStatus) ?>'" 
-                    class="px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-xs bg-white text-slate-700">
-                <option value="all" <?= $filterCompany === 'all' ? 'selected' : '' ?>>كل الشركات (Toutes compagnies)</option>
+                    class="px-3 py-1.5 rounded-lg border border-slate-200 font-semibold text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <option value="all" <?= $filterCompany === 'all' ? 'selected' : '' ?>>كل الشركات</option>
                 <option value="SAA" <?= $filterCompany === 'SAA' ? 'selected' : '' ?>>SAA (الشركة الوطنية)</option>
                 <option value="CAAT" <?= $filterCompany === 'CAAT' ? 'selected' : '' ?>>CAAT</option>
                 <option value="CIAR" <?= $filterCompany === 'CIAR' ? 'selected' : '' ?>>CIAR</option>
                 <option value="CASH" <?= $filterCompany === 'CASH' ? 'selected' : '' ?>>CASH Assurances</option>
-                <option value="Alliance" <?= $filterCompany === 'Alliance' ? 'selected' : '' ?>>Alliance Assurances</option>
+                <option value="Alliance" <?= $filterCompany === 'Alliance' ? 'selected' : '' ?>>Alliance</option>
             </select>
 
-            <!-- Status Tabs -->
             <div class="flex items-center gap-1">
                 <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=all" 
                    class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                     الكل
                 </a>
                 <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=imminent" 
-                   class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'imminent' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
+                   class="px-3 py-1.5 rounded-lg font-bold transition <?= $filterStatus === 'imminent' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
                     وشيكة (&le; 15j)
                 </a>
                 <a href="/dashboard/insurance.php?company=<?= urlencode($filterCompany) ?>&status=active" 
@@ -250,16 +268,15 @@ foreach ($rows as $r) {
                     سارية
                 </a>
             </div>
-
         </div>
 
     </div>
 
     <!-- Insurance Policies Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-100">
+                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
                     <tr>
                         <th class="p-3.5 whitespace-nowrap">المركبة المعنية</th>
                         <th class="p-3.5 whitespace-nowrap">السائق المكلف</th>
@@ -281,91 +298,84 @@ foreach ($rows as $r) {
                             $policy = $row['policy_number'] ?? ('POL-' . $company . '-2026');
                             $coverage = $row['coverage_type'] ?? 'تأمين تجاري شامل + ركاب';
                         ?>
-                            <tr class="hover:bg-slate-50/60 transition <?= $days <= 15 && $days >= 0 ? 'bg-amber-50/20' : ($days < 0 ? 'bg-rose-50/20' : '') ?>">
-                                
-                                <!-- Vehicle -->
+                            <tr class="hover:bg-slate-50/60 transition <?= $days <= 15 && $days >= 0 ? 'bg-amber-50/15' : ($days < 0 ? 'bg-rose-50/15' : '') ?>">
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-extrabold text-slate-900"><?= htmlspecialchars($row['brand'] . ' ' . $row['model']) ?></div>
-                                    <div class="text-[11px] font-num font-bold text-amber-700">
+                                    <div class="font-bold text-slate-900 text-[13px]"><?= htmlspecialchars($row['brand'] . ' ' . $row['model']) ?></div>
+                                    <div class="text-[11px] font-num text-slate-500" dir="ltr">
                                         <?= htmlspecialchars($row['plate_number']) ?> 
                                         <span class="text-slate-400 font-normal">(باب: <?= htmlspecialchars($row['door_number']) ?>)</span>
                                     </div>
                                 </td>
 
-                                <!-- Driver -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <?php if (!empty($row['driver_name'])): ?>
-                                        <div class="font-bold text-slate-800"><?= htmlspecialchars($row['driver_name']) ?></div>
-                                        <div class="text-[11px] text-slate-400 font-num"><?= htmlspecialchars($row['driver_phone']) ?></div>
+                                        <div class="font-semibold text-slate-800"><?= htmlspecialchars($row['driver_name']) ?></div>
+                                        <div class="text-[11px] text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($row['driver_phone']) ?></div>
                                     <?php else: ?>
-                                        <span class="text-slate-400 italic">غير معين</span>
+                                        <span class="text-slate-400 text-[11px]">غير معين</span>
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Company -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black
-                                        <?= $company === 'SAA' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                                           ($company === 'CAAT' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' :
-                                           ($company === 'CIAR' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
-                                           'bg-slate-100 text-slate-800 border border-slate-200')) ?>">
-                                        🏢 <?= htmlspecialchars($company) ?>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold
+                                        <?= $company === 'SAA' ? 'bg-blue-50 text-blue-700 border border-blue-200/60' :
+                                           ($company === 'CAAT' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60' :
+                                           ($company === 'CIAR' ? 'bg-purple-50 text-purple-700 border border-purple-200/60' :
+                                           'bg-slate-100 text-slate-800 border border-slate-200/60')) ?>">
+                                        <?= htmlspecialchars($company) ?>
                                     </span>
                                 </td>
 
-                                <!-- Policy Number -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold text-slate-900"><?= htmlspecialchars($policy) ?></div>
+                                    <div class="font-num font-mono text-slate-900 font-bold"><?= htmlspecialchars($policy) ?></div>
                                     <?php if (!empty($row['attestation_number'])): ?>
-                                        <div class="text-[10px] text-slate-400 font-num">وصل: <?= htmlspecialchars($row['attestation_number']) ?></div>
+                                        <div class="text-[10px] text-slate-400 font-num font-mono">وصل: <?= htmlspecialchars($row['attestation_number']) ?></div>
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Coverage Type -->
-                                <td class="p-3.5 whitespace-nowrap text-slate-600">
+                                <td class="p-3.5 whitespace-nowrap text-slate-600 text-[11px]">
                                     <?= htmlspecialchars($coverage) ?>
                                 </td>
 
-                                <!-- Expiry Date -->
-                                <td class="p-3.5 whitespace-nowrap font-num font-bold text-slate-800">
+                                <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800" dir="ltr">
                                     <?= htmlspecialchars($expDate) ?>
                                 </td>
 
-                                <!-- Days Left -->
                                 <td class="p-3.5 whitespace-nowrap text-center font-num">
                                     <?php if ($days < 0): ?>
                                         <span class="text-rose-600 font-bold">منتهي منذ <?= abs($days) ?> يوم</span>
                                     <?php elseif ($days <= 15): ?>
-                                        <span class="text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                            باقي <?= $days ?> أيام ⚠️
+                                        <span class="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                            باقي <?= $days ?> أيام
                                         </span>
                                     <?php else: ?>
-                                        <span class="text-emerald-700 font-bold">باقي <?= $days ?> يوم</span>
+                                        <span class="text-emerald-700 font-semibold">باقي <?= $days ?> يوم</span>
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Status Badge -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <?php if ($days < 0): ?>
-                                        <span class="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200">
-                                            منتهي (Expiré)
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200/60">
+                                            منتهي
                                         </span>
                                     <?php elseif ($days <= 15): ?>
-                                        <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 font-black text-[10px] border border-amber-200">
-                                            وشيك الانتهاء (&le; 15j)
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200/60">
+                                            وشيك الانتهاء
                                         </span>
                                     <?php else: ?>
-                                        <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
-                                            ساري المفعول (Valide)
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/60">
+                                            ساري المفعول
                                         </span>
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Action -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <button onclick="openRenewModalFor(<?= $row['vehicle_id'] ?>, '<?= htmlspecialchars($row['plate_number']) ?>', '<?= htmlspecialchars($company) ?>')"
-                                            class="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-sm">
-                                        تجديد البوليصة ↻
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                        </svg>
+                                        <span>تجديد</span>
                                     </button>
                                 </td>
 
@@ -373,7 +383,7 @@ foreach ($rows as $r) {
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="9" class="p-8 text-center text-slate-400">
+                            <td colspan="9" class="p-10 text-center text-slate-400">
                                 لا توجد وثائق تأمين مطابقة لشروط البحث والتصفية المحددة.
                             </td>
                         </tr>
@@ -387,22 +397,26 @@ foreach ($rows as $r) {
 
 <!-- Modal: Renouveler / Souscrire Police d'assurance -->
 <div id="renewModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-150">
-        <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-            <div class="flex items-center gap-2">
-                <span class="text-xl">🛡️</span>
-                <h3 class="text-base font-black text-slate-900">تجديد أو تسجيل بوليصة تأمين (Gérer Assurance)</h3>
+    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden space-y-4 p-6 sm:p-7 text-right">
+        <div class="border-b border-slate-100 pb-3 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-900">تجديد أو تسجيل بوليصة تأمين (Gérer Assurance)</h3>
+                <span class="text-xs text-slate-500">حفظ بيانات عقد التأمين التجاري ومطابقة الوثيقة للأسطول</span>
             </div>
-            <button onclick="document.getElementById('renewModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
+            <button onclick="document.getElementById('renewModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
         </div>
 
-        <form method="POST" class="p-6 space-y-4 text-xs">
+        <form method="POST" class="space-y-4 text-xs">
             <input type="hidden" name="action" value="save_insurance">
 
             <!-- Vehicle selection -->
             <div>
-                <label class="block font-bold text-slate-700 mb-1">المركبة المعنية *</label>
-                <select name="vehicle_id" id="modalVehicleSelect" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-xs focus:ring-2 focus:ring-amber-500">
+                <label class="block font-bold text-slate-700 mb-1.5">المركبة المعنية <span class="text-rose-500">*</span></label>
+                <select name="vehicle_id" id="modalVehicleSelect" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                     <?php foreach ($allVehicles as $v): ?>
                         <option value="<?= $v['id'] ?>">
                             <?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (لوحة: <?= htmlspecialchars($v['plate_number']) ?> - باب: <?= htmlspecialchars($v['door_number']) ?>)
@@ -414,8 +428,8 @@ foreach ($rows as $r) {
             <!-- Insurance Company -->
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">شركة التأمين *</label>
-                    <select name="company" id="modalCompanySelect" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-xs focus:ring-2 focus:ring-amber-500">
+                    <label class="block font-bold text-slate-700 mb-1.5">شركة التأمين <span class="text-rose-500">*</span></label>
+                    <select name="company" id="modalCompanySelect" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                         <option value="SAA">SAA (الشركة الوطنية للتأمين)</option>
                         <option value="CAAT">CAAT (الصندوق الجزائري للتأمين)</option>
                         <option value="CIAR">CIAR (التأمين الدولي الجزائري)</option>
@@ -427,16 +441,16 @@ foreach ($rows as $r) {
                     </select>
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">رقم بوليصة التأمين (N° Police) *</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">رقم بوليصة التأمين <span class="text-rose-500">*</span></label>
                     <input type="text" name="policy_number" id="modalPolicyInput" required placeholder="مثال: POL-2026-9901"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-num font-bold text-xs focus:ring-2 focus:ring-amber-500">
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-mono text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
             </div>
 
             <!-- Coverage Type -->
             <div>
-                <label class="block font-bold text-slate-700 mb-1">نوع التغطية التأمينية</label>
-                <select name="coverage_type" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-xs focus:ring-2 focus:ring-amber-500">
+                <label class="block font-bold text-slate-700 mb-1.5">نوع التغطية التأمينية</label>
+                <select name="coverage_type" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                     <option value="Tous Risques + Transport Public Voyageurs">Tous Risques + Transport Public Voyageurs (شامل + ركاب)</option>
                     <option value="Responsabilité Civile + Défense & Recours">Responsabilité Civile + Défense & Recours (المسؤولية المدنية)</option>
                     <option value="Tous Risques Flotte Taxi">Tous Risques Flotte Taxi (تأمين أسطول سيارات الأجرة)</option>
@@ -446,38 +460,38 @@ foreach ($rows as $r) {
             <!-- Start and End Dates -->
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">تاريخ بداية العقد</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ بداية العقد</label>
                     <input type="date" name="start_date" value="<?= date('Y-m-d') ?>" required
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-num text-xs focus:ring-2 focus:ring-amber-500">
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء الصلاحية *</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء الصلاحية <span class="text-rose-500">*</span></label>
                     <input type="date" name="end_date" value="<?= date('Y-m-d', strtotime('+1 year')) ?>" required
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-num font-bold text-xs focus:ring-2 focus:ring-amber-500">
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-bold text-xs bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
             </div>
 
             <!-- Premium & Attestation Ref -->
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">مبلغ قسط التأمين (DZD)</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">مبلغ قسط التأمين (DZD)</label>
                     <input type="number" step="500" name="premium_amount" value="38000"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-num text-xs focus:ring-2 focus:ring-amber-500">
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">رقم الوصل / الشهادة المؤقتة</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">رقم الوصل / الشهادة المؤقتة</label>
                     <input type="text" name="attestation_number" placeholder="ATT-16-..."
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 font-num text-xs focus:ring-2 focus:ring-amber-500">
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-mono text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
             </div>
 
             <div class="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button type="button" onclick="document.getElementById('renewModal').classList.add('hidden')"
-                        class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 transition">
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
                     إلغاء
                 </button>
                 <button type="submit"
-                        class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black shadow-sm transition">
+                        class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold shadow-xs transition">
                     تأكيد التجديد وحفظ الوثيقة
                 </button>
             </div>

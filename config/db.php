@@ -265,6 +265,82 @@ function initAllTables(PDO $pdo) {
         is_read BOOLEAN DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Platform Settings (إعدادات المنصة والهوية الجبائية والقانونية والبنكية)
+    CREATE TABLE IF NOT EXISTS settings (
+        `key` VARCHAR(100) PRIMARY KEY,
+        `value` TEXT NOT NULL,
+        `category` VARCHAR(50) DEFAULT 'general',
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Audit Logs (سجل التدقيق والرقابة الأمنية)
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NULL,
+        user_name VARCHAR(150) NULL,
+        action VARCHAR(100) NOT NULL,
+        entity VARCHAR(80) NOT NULL,
+        entity_id INT NULL,
+        details TEXT NULL,
+        ip_address VARCHAR(45) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- CNAS Social Security Declarations (تأمينات الضمان الاجتماعي للعمال الأجراء 90-11)
+    CREATE TABLE IF NOT EXISTS cnas_declarations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        driver_id INT NOT NULL,
+        cnas_number VARCHAR(50) NOT NULL,
+        affiliation_date DATE NOT NULL,
+        declaration_type ENUM('principale', 'complementaire', 'mise_a_jour') DEFAULT 'principale',
+        period_quarter VARCHAR(30) NOT NULL,
+        base_salary DECIMAL(10, 2) DEFAULT 45000.00,
+        cotisation_patronale DECIMAL(10, 2) DEFAULT 11700.00,
+        cotisation_ouvriere DECIMAL(10, 2) DEFAULT 4050.00,
+        total_cotisation DECIMAL(10, 2) DEFAULT 15750.00,
+        payment_status ENUM('regle', 'en_attente', 'retard') DEFAULT 'regle',
+        payment_date DATE NULL,
+        receipt_ref VARCHAR(100) NULL,
+        attestation_expiry DATE NULL,
+        notes VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Traveler Reports / Inter-Wilaya Trip Manifests (محاضر ودفاتر المسافرين بين الولايات)
+    CREATE TABLE IF NOT EXISTS traveler_reports (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        report_number VARCHAR(50) UNIQUE NOT NULL,
+        vehicle_id INT NOT NULL,
+        driver_id INT NOT NULL,
+        line_name VARCHAR(200) NOT NULL,
+        departure_station VARCHAR(150) NOT NULL,
+        arrival_station VARCHAR(150) NOT NULL,
+        departure_date DATE NOT NULL,
+        departure_time TIME NOT NULL,
+        seats_count INT DEFAULT 4,
+        price_per_seat DECIMAL(10, 2) DEFAULT 1200.00,
+        total_revenue DECIMAL(10, 2) DEFAULT 4800.00,
+        status ENUM('completed', 'in_transit', 'scheduled', 'cancelled') DEFAULT 'completed',
+        notes TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+        FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Manifest Passengers (قائمة ركاب محضر السفر)
+    CREATE TABLE IF NOT EXISTS traveler_passengers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        report_id INT NOT NULL,
+        seat_number INT NOT NULL,
+        passenger_name VARCHAR(150) NOT NULL,
+        passenger_cni VARCHAR(50) NOT NULL,
+        phone VARCHAR(30) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (report_id) REFERENCES traveler_reports(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
     $pdo->exec($schema);
@@ -597,6 +673,167 @@ function seedDefaultData(PDO $pdo) {
             240
         ]);
     }
+
+    // 13. Seed Platform Settings (إعدادات المنصة والهوية الجبائية)
+    $settingsCount = $pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();
+    if ($settingsCount == 0) {
+        $stmtSet = $pdo->prepare("INSERT INTO settings (`key`, `value`, `category`) VALUES (?, ?, ?)");
+        $defaultSettings = [
+            ['company_name', 'EURL TAXI NAGUILOU Services', 'company'],
+            ['company_slogan', 'المنصة الوطنية الرائدة في تسيير أساطيل سيارات الأجرة ونقل الأشخاص', 'company'],
+            ['company_phone', '0550 00 00 01 / 023 45 67 89', 'company'],
+            ['company_email', 'contact@taxinaguilou.dz', 'company'],
+            ['company_address', 'حي النصر، نهج الاستقلال، الجزائر العاصمة - الجزائر', 'company'],
+            ['legal_rc', '16/00-9874521B26', 'legal'],
+            ['legal_nif', '002616098745210', 'legal'],
+            ['legal_nis', '00261609874', 'legal'],
+            ['legal_article', '16200984123', 'legal'],
+            ['bank_ccp', '0021458796', 'bank'],
+            ['bank_rip', '00799999002145879624', 'bank'],
+            ['bank_name', 'بنك الفلاحة والتنمية الريفية (BADR) - وكالة الجزائر الوسطى', 'bank'],
+            ['bank_rib', '003 00016 0160004589 77', 'bank'],
+            ['fee_space_monthly', '1000.00', 'billing'],
+            ['fee_vehicle_monthly', '4000.00', 'billing'],
+            ['alert_threshold_days', '15', 'alerts'],
+            ['app_timezone', 'Africa/Algiers', 'system'],
+            ['app_currency', 'دج (DZD)', 'system'],
+            ['douxe_ai_enabled', '1', 'ai']
+        ];
+        foreach ($defaultSettings as $s) {
+            $stmtSet->execute($s);
+        }
+    }
+
+    // 14. Seed CNAS Social Security Declarations (الضمان الاجتماعي 90-11)
+    $cnasCount = $pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
+    if ($cnasCount == 0) {
+        $stmtCnas = $pdo->prepare("
+            INSERT INTO cnas_declarations (driver_id, cnas_number, affiliation_date, declaration_type, period_quarter, base_salary, cotisation_patronale, cotisation_ouvriere, total_cotisation, payment_status, payment_date, receipt_ref, attestation_expiry, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmtCnas->execute([
+            $driver1Id ?? 3, '16-84910294-88', '2022-03-15', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+            45000.00, 11700.00, 4050.00, 15750.00, 'regle', '2026-09-28', 'QUITT-CNAS-16-9921',
+            date('Y-m-d', strtotime('+80 days')), 'شهادة تحيين سارية ومطابقة لقانون العمل 90-11'
+        ]);
+        $stmtCnas->execute([
+            $driver2Id ?? 4, '16-91024811-45', '2023-01-10', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+            48000.00, 12480.00, 4320.00, 16800.00, 'regle', '2026-09-30', 'QUITT-CNAS-16-9954',
+            date('Y-m-d', strtotime('+75 days')), 'تسوية فصلية تامة لدى وكالة تيقصراين'
+        ]);
+        $stmtCnas->execute([
+            $driver3Id ?? 5, '16-77381920-12', '2024-05-01', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+            45000.00, 11700.00, 4050.00, 15750.00, 'en_attente', null, null,
+            date('Y-m-d', strtotime('+12 days')), 'استحقاق دفع ثلاثي وشيك - إشعار موجه للإدارة'
+        ]);
+    }
+
+    // 15. Seed Traveler Reports (محاضر ودفاتر المسافرين بين الولايات)
+    $repCount = $pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+    if ($repCount == 0) {
+        $stmtRep = $pdo->prepare("
+            INSERT INTO traveler_reports (report_number, vehicle_id, driver_id, line_name, departure_station, arrival_station, departure_date, departure_time, seats_count, price_per_seat, total_revenue, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        
+        // Trip 1: Alger - Oran
+        $stmtRep->execute([
+            'PV-2026-1042', $v1Id ?? 1, $driver1Id ?? 3,
+            'خط: الجزائر العاصمة ⇄ وهران (الباهية)',
+            'محطة نقل المسافرين خروبة (الجزائر)', 'محطة الحطاب / الباهية (وهران)',
+            date('Y-m-d'), '06:30:00', 4, 1500.00, 6000.00, 'completed',
+            'رحلة صباحية مباشرة عبر الطريق السيار شرق-غرب دون حوادث'
+        ]);
+        $rep1Id = $pdo->lastInsertId();
+
+        $stmtPass = $pdo->prepare("
+            INSERT INTO traveler_passengers (report_id, seat_number, passenger_name, passenger_cni, phone)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+        $stmtPass->execute([$rep1Id, 1, 'مراد شريفي', '11827401928374', '0551223344']);
+        $stmtPass->execute([$rep1Id, 2, 'سميرة بن عودة', '10938472910293', '0662334455']);
+        $stmtPass->execute([$rep1Id, 3, 'محمد طاهر رحماني', '12093847192847', '0773445566']);
+        $stmtPass->execute([$rep1Id, 4, 'فاطمة الزهراء قاسمي', '11548392019283', '0554556677']);
+
+        // Trip 2: Alger - Constantine
+        $stmtRep->execute([
+            'PV-2026-1043', $v3Id ?? 3, $driver3Id ?? 5,
+            'خط: الجزائر العاصمة ⇄ قسنطينة (مدينة الجسور)',
+            'محطة خروبة (الجزائر)', 'محطة زواغي سليمان (قسنطينة)',
+            date('Y-m-d', strtotime('+1 day')), '07:00:00', 4, 1400.00, 5600.00, 'scheduled',
+            'رحلة مبرمجة لمناوبة السائق البديل'
+        ]);
+        $rep2Id = $pdo->lastInsertId();
+        $stmtPass->execute([$rep2Id, 1, 'عبد النور براهيمي', '11928374659281', '0665667788']);
+        $stmtPass->execute([$rep2Id, 2, 'كمال عماري', '11483920192837', '0776778899']);
+    }
+
+    // 16. Seed Audit Logs (سجل التدقيق والرقابة)
+    $auditCount = $pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
+    if ($auditCount == 0) {
+        $stmtAud = $pdo->prepare("
+            INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, details, ip_address, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)
+        ");
+        $stmtAud->execute([1, 'مدير المنصة', 'login_success', 'auth', 1, 'تسجيل دخول ناجح إلى لوحة التحكم', '127.0.0.1', 180]);
+        $stmtAud->execute([1, 'مدير المنصة', 'contract_signed', 'contracts', 1, 'توثيق العقد النظامي رقم CT-2026-001 للسائق أحمد بلقاسم', '127.0.0.1', 120]);
+        $stmtAud->execute([1, 'مدير المنصة', 'slip_issued', 'transmission_slips', 1, 'إصدار جدول إرسال ومناوبة رقم BRD-2026-0042', '127.0.0.1', 60]);
+        $stmtAud->execute([1, 'مدير المنصة', 'billing_payment', 'billings', 1, 'تأكيد استلام اشتراك شهري عبر BaridiMob بمبلغ 4,500 دج', '127.0.0.1', 25]);
+    }
+}
+
+function log_audit(PDO $pdo, string $action, string $entity, ?int $entityId = null, ?string $details = null): bool {
+    try {
+        $user = function_exists('current_user') ? current_user() : null;
+        $userId = $user['id'] ?? null;
+        $userName = $user['name'] ?? 'النظام';
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+        $stmt = $pdo->prepare("
+            INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, details, ip_address, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        return $stmt->execute([$userId, $userName, $action, $entity, $entityId, $details, $ip]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+function get_setting(PDO $pdo, string $key, string $default = ''): string {
+    try {
+        $stmt = $pdo->prepare("SELECT `value` FROM settings WHERE `key` = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $val = $stmt->fetchColumn();
+        return $val !== false ? (string)$val : $default;
+    } catch (Exception $e) {
+        return $default;
+    }
+}
+
+function update_setting(PDO $pdo, string $key, string $value, string $category = 'general'): bool {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO settings (`key`, `value`, `category`) 
+            VALUES (?, ?, ?) 
+            ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), `category` = VALUES(`category`), `updated_at` = NOW()
+        ");
+        return $stmt->execute([$key, $value, $category]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+function get_all_settings(PDO $pdo): array {
+    try {
+        $rows = $pdo->query("SELECT `key`, `value`, `category` FROM settings")->fetchAll();
+        $res = [];
+        foreach ($rows as $r) {
+            $res[$r['key']] = $r['value'];
+        }
+        return $res;
+    } catch (Exception $e) {
+        return [];
+    }
 }
 
 function getUnreadNotificationsCount(PDO $pdo): int {
@@ -617,3 +854,4 @@ function getRecentNotifications(PDO $pdo, int $limit = 5): array {
         return [];
     }
 }
+

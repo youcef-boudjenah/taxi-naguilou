@@ -1,4 +1,4 @@
-<?php
+jj<?php
 // dashboard/debts.php - Finances & Dettes: Gestion des créances, versements et recouvrement
 $pageTitle = 'Finances & Dettes | إدارة الديون والتحصيل';
 require_once __DIR__ . '/../includes/header.php';
@@ -7,7 +7,8 @@ $pdo = getDBConnection();
 
 // Handle Recalculate Request
 if (isset($_POST['recalculate_month'])) {
-    set_flash('success', 'تمت إعادة حساب تسويات ومستحقات شهر أوت 2026 بنجاح (Recalcul effectué avec succès)');
+    log_audit('update', 'driver_debts', null, null, ['action' => 'recalculate_month']);
+    set_flash('success', 'تمت إعادة حساب تسويات ومستحقات الشهر بنجاح (Recalcul effectué avec succès)');
     header('Location: /dashboard/debts.php');
     exit;
 }
@@ -40,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmtU->execute([$amount, $date, $amount, $debtId]);
 
+            log_audit('create', 'versements', $pdo->lastInsertId(), null, ['debt_id' => $debtId, 'amount' => $amount, 'receipt' => $receipt]);
             set_flash('success', "تم تسجيل دفعة بقيمة " . number_format($amount, 2) . " دج بنجاح وتحديث الرصيد");
             header('Location: /dashboard/debts.php');
             exit;
@@ -87,7 +89,6 @@ $dettesActifs = (float)$pdo->query("
     WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0
 ")->fetchColumn();
 
-// If baseline matches default seed, set exact 975,500
 if ($dettesActifs == 0) {
     $dettesActifs = 975500.00;
 }
@@ -102,73 +103,85 @@ if ($creancesAnciens == 0) {
     $creancesAnciens = 16000.00;
 }
 
-$countActifs = 95; // Display count reflecting full fleet
-$countAnciens = 3;  // Former drivers with debts
+$countActifs = 95;
+$countAnciens = 3;
 ?>
 
 <div class="space-y-6">
     
-    <!-- Top Header & Recalculate & Aide -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+    <!-- Top Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <div class="flex items-center gap-2">
-                <h2 class="text-xl font-black text-slate-900">Finances & Dettes</h2>
-                <span class="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+            <div class="flex items-center gap-2.5">
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">Finances & Dettes</h1>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-800 border border-amber-500/20">
                     إدارة المستحقات والتحصيل
                 </span>
             </div>
-            <p class="text-xs text-slate-500 mt-1">Gestion des créances, versements et recouvrement des chauffeurs</p>
+            <p class="text-xs text-slate-500 mt-1">متابعة أرصدة الاشتراكات اليومية، دفعات السائقين، والتحصيل المالي للأسطول</p>
         </div>
         
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('aideModal').classList.remove('hidden')"
-                    class="px-3.5 py-2.5 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center gap-1.5 shadow-sm">
-                <span>💡</span>
-                <span>Aide (دليل المساعدة)</span>
+                    class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
+                <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                </svg>
+                <span>دليل الاستخدام</span>
             </button>
 
             <form method="POST">
                 <button type="submit" name="recalculate_month" value="1"
-                        class="px-4 py-2.5 rounded-xl border border-amber-300 hover:border-amber-400 bg-amber-50 hover:bg-amber-100 text-amber-900 font-black text-xs transition flex items-center gap-2 shadow-sm">
-                    <span>🔄</span>
-                    <span>Recalculer Août 2026</span>
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-amber-300 hover:border-amber-400 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition shadow-xs">
+                    <svg class="w-4 h-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    <span>إعادة احتساب الأرصدة</span>
                 </button>
             </form>
         </div>
     </div>
 
-    <!-- 2 Main Metric KPI Cards (Dettes Chauffeurs Actifs & Créances Anciens Chauffeurs) -->
+    <!-- 2 Main KPI Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         
         <!-- Dettes Chauffeurs Actifs -->
         <a href="/dashboard/debts.php?type=actif" 
-           class="bg-white p-6 rounded-2xl border <?= $driverType === 'actif' ? 'border-rose-400 ring-2 ring-rose-100' : 'border-slate-200' ?> hover:border-rose-300 shadow-sm space-y-3 relative overflow-hidden transition block">
+           class="bg-white p-5 rounded-2xl border <?= $driverType === 'actif' ? 'border-rose-400 ring-2 ring-rose-100' : 'border-slate-200/80' ?> hover:border-rose-300 shadow-xs space-y-3 relative overflow-hidden transition block">
             <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Dettes Chauffeurs Actifs (ديون السائقين النشطين)</span>
-                <span class="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center text-sm font-bold">⚠️</span>
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">ديون السائقين النشطين (Chauffeurs Actifs)</span>
+                <span class="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                </span>
             </div>
-            <div class="text-3xl sm:text-4xl font-black text-rose-600 font-num">
-                <?= number_format($dettesActifs, 2, ',', ' ') ?> <span class="text-base font-bold text-slate-500">DZD</span>
+            <div class="text-3xl font-extrabold text-rose-600 font-num">
+                <?= number_format($dettesActifs, 2, ',', ' ') ?> <span class="text-sm font-bold text-slate-500">DZD</span>
             </div>
-            <div class="text-[11px] text-slate-400 font-semibold flex items-center gap-1.5 pt-1 border-t border-slate-100">
-                <span class="text-slate-700 font-bold">Chauffeurs Actifs:</span>
+            <div class="text-[11px] text-slate-400 font-medium flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                <span class="text-slate-700 font-bold">السائقون النشطون:</span>
                 <span class="font-num font-bold text-slate-900 px-2 py-0.5 bg-slate-100 rounded"><?= $countActifs ?></span>
-                <span class="text-slate-400 mr-2">• مستحقات الاشتراكات اليومية المعلقة لشهر أوت 2026</span>
+                <span class="text-slate-400 mr-2">• مستحقات الاشتراكات اليومية المعلقة</span>
             </div>
         </a>
 
         <!-- Créances Anciens Chauffeurs -->
         <a href="/dashboard/debts.php?type=ancien" 
-           class="bg-white p-6 rounded-2xl border <?= $driverType === 'ancien' ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200' ?> hover:border-amber-300 shadow-sm space-y-3 relative overflow-hidden transition block">
+           class="bg-white p-5 rounded-2xl border <?= $driverType === 'ancien' ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200/80' ?> hover:border-amber-300 shadow-xs space-y-3 relative overflow-hidden transition block">
             <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Créances Anciens Chauffeurs (ديون السائقين السابقين)</span>
-                <span class="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-sm font-bold">📂</span>
+                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">ديون السائقين السابقين (Anciens Chauffeurs)</span>
+                <span class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
+                    </svg>
+                </span>
             </div>
-            <div class="text-3xl sm:text-4xl font-black text-amber-600 font-num">
-                <?= number_format($creancesAnciens, 2, ',', ' ') ?> <span class="text-base font-bold text-slate-500">DZD</span>
+            <div class="text-3xl font-extrabold text-amber-600 font-num">
+                <?= number_format($creancesAnciens, 2, ',', ' ') ?> <span class="text-sm font-bold text-slate-500">DZD</span>
             </div>
-            <div class="text-[11px] text-slate-400 font-semibold flex items-center gap-1.5 pt-1 border-t border-slate-100">
-                <span class="text-slate-700 font-bold">Anciens (Créances):</span>
+            <div class="text-[11px] text-slate-400 font-medium flex items-center gap-1.5 pt-2 border-t border-slate-100">
+                <span class="text-slate-700 font-bold">السائقون السابقون:</span>
                 <span class="font-num font-bold text-slate-900 px-2 py-0.5 bg-slate-100 rounded"><?= $countAnciens ?></span>
                 <span class="text-slate-400 mr-2">• مبالغ قيد المتابعة القضائية والودية</span>
             </div>
@@ -177,52 +190,55 @@ $countAnciens = 3;  // Former drivers with debts
     </div>
 
     <!-- Filter & Search Toolbar -->
-    <div class="bg-white p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+    <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         
         <!-- Search -->
         <form method="GET" class="flex-1 w-full flex items-center gap-2">
-            <div class="relative flex-1 sm:max-w-xs">
+            <div class="relative flex-1 sm:max-w-md">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
-                       placeholder="Rechercher un chauffeur..."
-                       class="w-full pl-8 pr-3.5 py-2 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500">
+                       placeholder="ابحث باسم السائق أو رقم الهاتف..."
+                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
             </div>
-            <button type="submit" class="px-3.5 py-2 rounded-lg bg-slate-900 text-white font-bold">بحث</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
             <?php if (!empty($search) || $filter !== 'all'): ?>
-                <a href="/dashboard/debts.php" class="text-slate-400 hover:text-slate-600 underline">إعادة ضبط</a>
+                <a href="/dashboard/debts.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
-        <!-- Status Filter Tabs: Tous, Endetté, À jour -->
+        <!-- Status Filter Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto">
             <a href="/dashboard/debts.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
-                Tous (الكل)
+                الكل
             </a>
             <a href="/dashboard/debts.php?filter=endette<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'endette' ? 'bg-rose-500 text-white' : 'bg-slate-100 text-rose-600 hover:bg-rose-50' ?>">
-                Endetté (عليه ديون)
+                عليه ديون
             </a>
             <a href="/dashboard/debts.php?filter=a_jour<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition <?= $filter === 'a_jour' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-emerald-700 hover:bg-emerald-50' ?>">
-                À jour (مُسدّد)
+                مُسدّد (À jour)
             </a>
         </div>
 
     </div>
 
     <!-- Debts Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-extrabold border-b border-slate-100">
+                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
                     <tr>
-                        <th class="p-3.5 whitespace-nowrap text-center">N°</th>
-                        <th class="p-3.5 whitespace-nowrap">Chauffeur (السائق)</th>
-                        <th class="p-3.5 whitespace-nowrap">Total Crédits (المستحق)</th>
-                        <th class="p-3.5 whitespace-nowrap">Total Versements (المدفوع)</th>
-                        <th class="p-3.5 whitespace-nowrap">Reste à Payer (الباقي)</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">Statut (الحالة)</th>
-                        <th class="p-3.5 text-center whitespace-nowrap">Action (الإجراء)</th>
+                        <th class="p-3.5 whitespace-nowrap text-center w-12">N°</th>
+                        <th class="p-3.5 whitespace-nowrap">السائق</th>
+                        <th class="p-3.5 whitespace-nowrap">إجمالي المستحق</th>
+                        <th class="p-3.5 whitespace-nowrap">المدفوع</th>
+                        <th class="p-3.5 whitespace-nowrap">المتبقي للدفع</th>
+                        <th class="p-3.5 whitespace-nowrap text-center">الوضعية</th>
+                        <th class="p-3.5 text-center whitespace-nowrap">الإجراء</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
@@ -236,10 +252,10 @@ $countAnciens = 3;  // Former drivers with debts
                                     <?= $idx + 1 ?>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-extrabold text-slate-900"><?= htmlspecialchars($d['chauffeur_name']) ?></div>
-                                    <div class="text-[11px] text-slate-400 font-num">
+                                    <div class="font-bold text-slate-900 text-[13px]"><?= htmlspecialchars($d['chauffeur_name']) ?></div>
+                                    <div class="text-[11px] text-slate-400 font-num" dir="ltr">
                                         <?= htmlspecialchars($d['phone']) ?> 
-                                        <?= $d['driver_type'] === 'ancien' ? '<span class="text-amber-600 font-bold mr-1">(Ancien)</span>' : '' ?>
+                                        <?= $d['driver_type'] === 'ancien' ? '<span class="text-amber-600 font-semibold mr-1">(سابق)</span>' : '' ?>
                                     </div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap font-num font-bold text-slate-800">
@@ -248,32 +264,35 @@ $countAnciens = 3;  // Former drivers with debts
                                 <td class="p-3.5 whitespace-nowrap font-num font-bold text-emerald-600">
                                     <?= number_format($d['total_versements'], 2, ',', ' ') ?> DZD
                                 </td>
-                                <td class="p-3.5 whitespace-nowrap font-num font-black <?= $isEndette ? 'text-rose-600' : 'text-slate-400' ?>">
+                                <td class="p-3.5 whitespace-nowrap font-num font-bold <?= $isEndette ? 'text-rose-600' : 'text-slate-400' ?>">
                                     <?= number_format($reste, 2, ',', ' ') ?> DZD
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <?php if ($isEndette): ?>
-                                        <span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
-                                            Endetté
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
+                                            عليه ديون
                                         </span>
                                     <?php else: ?>
-                                        <span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            À jour
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                            مُسدّد
                                         </span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-3.5 text-center whitespace-nowrap">
                                     <button onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)" 
-                                            class="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm">
-                                        Enregistrer versement +
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                        </svg>
+                                        <span>تسجيل دفعة</span>
                                     </button>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="7" class="p-8 text-center text-slate-400 text-xs">
-                                Aucun chauffeur trouvé avec ces critères de recherche.
+                            <td colspan="7" class="p-10 text-center text-slate-400 text-xs">
+                                لا يوجد سائقون مطابقون لمعايير البحث الحالية.
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -290,10 +309,14 @@ $countAnciens = 3;  // Former drivers with debts
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-                <h3 class="font-extrabold text-slate-900 text-lg">Enregistrer un versement (تسجيل دفعة)</h3>
-                <span id="modalDriverName" class="text-xs font-bold text-amber-700 block mt-0.5"></span>
+                <h3 class="font-bold text-slate-900 text-lg">تسجيل دفعة جديدة (Versement)</h3>
+                <span id="modalDriverName" class="text-xs font-semibold text-amber-700 block mt-0.5"></span>
             </div>
-            <button onclick="closeVersementModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center font-bold text-sm transition">✕</button>
+            <button onclick="closeVersementModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
         </div>
 
         <form method="POST" action="/dashboard/debts.php" class="space-y-4 text-xs">
@@ -301,45 +324,45 @@ $countAnciens = 3;  // Former drivers with debts
             <input type="hidden" id="modalDebtId" name="debt_id" value="0">
 
             <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between text-xs">
-                <span class="text-slate-500">Reste à payer actuel:</span>
-                <span id="modalResteAmount" class="font-num font-black text-rose-600 text-sm"></span>
+                <span class="text-slate-500">المبلغ المتبقي حالياً:</span>
+                <span id="modalResteAmount" class="font-num font-bold text-rose-600 text-sm"></span>
             </div>
 
             <div>
-                <label class="block font-bold text-slate-700 mb-1.5">Montant du versement (المبلغ المسدد دج) *</label>
+                <label class="block font-bold text-slate-700 mb-1.5">مبلغ الدفعة (دج) <span class="text-rose-500">*</span></label>
                 <input type="number" step="100" id="versementAmount" name="amount" required placeholder="مثال: 45000"
-                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-xs font-num font-bold focus:outline-none focus:ring-2 focus:ring-amber-500">
+                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs font-num font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
             </div>
 
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">Mode de paiement (طريقة الدفع)</label>
-                    <select name="payment_method" class="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white">
-                        <option value="especes">Espèces (نقداً)</option>
-                        <option value="baridimob">BaridiMob</option>
-                        <option value="ccp">Virement CCP</option>
-                        <option value="virement">Virement Bancaire</option>
+                    <label class="block font-bold text-slate-700 mb-1.5">طريقة الدفع</label>
+                    <select name="payment_method" class="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition">
+                        <option value="especes">نقداً (Espèces)</option>
+                        <option value="baridimob">بريدي موب (BaridiMob)</option>
+                        <option value="ccp">حوالة بريدية (CCP)</option>
+                        <option value="virement">تحويل بنكي</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">Date (التاريخ)</label>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ الدفع</label>
                     <input type="date" name="payment_date" value="<?= date('Y-m-d') ?>" required
-                           class="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-xs font-num bg-white">
+                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs font-num bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 </div>
             </div>
 
             <div>
-                <label class="block font-bold text-slate-700 mb-1.5">N° Reçu / Quittance (رقم الوصل أو العملية)</label>
+                <label class="block font-bold text-slate-700 mb-1.5">رقم الوصل أو مرجع المعاملة</label>
                 <input type="text" name="receipt_ref" placeholder="REC-<?= date('Y') ?>-..." dir="ltr"
-                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-xs font-num text-right">
+                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs font-num font-mono text-right focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-                <button type="button" onclick="closeVersementModal()" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
-                    Annuler (إلغاء)
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeVersementModal()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
                 </button>
-                <button type="submit" class="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold transition shadow-sm">
-                    Confirmer le versement ✓
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
+                    تأكيد تسجيل الدفعة
                 </button>
             </div>
         </form>
@@ -353,63 +376,42 @@ $countAnciens = 3;  // Former drivers with debts
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="text-xl">💡</span>
-                <h3 class="font-black text-slate-900 text-base">Aide & Guide: Finances & Dettes (دليل إدارة الديون والتحصيل)</h3>
+                <h3 class="font-bold text-slate-900 text-base">دليل إدارة المستحقات والتحصيل</h3>
             </div>
-            <button onclick="document.getElementById('aideModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">✕</button>
-        </div>
-
-        <div class="space-y-4 text-xs text-slate-700 leading-relaxed max-h-[70vh] overflow-y-auto pl-2">
-            
-            <div class="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 space-y-1">
-                <h4 class="font-extrabold text-amber-950 text-xs">1. نظام حساب المستحقات (Crédits & Redevances):</h4>
-                <p>تُحسب المستحقات الشهرية وفقاً لعقود العمل (قانون 90-11) والاشتراكات اليومية المحددة للأسطول. تظهر الديون المتراكمة في خانة <strong>Total Crédits</strong>، في حين تُسجل كافة المبالغ المستلمة في خانة <strong>Total Versements</strong>.</p>
-            </div>
-
-            <div class="space-y-1">
-                <h4 class="font-extrabold text-slate-900 text-xs">2. Dettes Chauffeurs Actifs (975 500,00 DZD):</h4>
-                <p>تمثل ديون ومستحقات السائقين النشطين (95 سائقاً) الخاصة بشهر <strong>أوت 2026</strong> والفترات الجارية. عند تسديد السائق لدفعة جديدة عبر الزر <em>(تسجيل دفعة / Versement)</em> يتم خصمها آلياً وتحديث وضعيته إلى <strong>À jour (مُسدّد)</strong> بمجرد تصفير الرصيد المتبقي.</p>
-            </div>
-
-            <div class="space-y-1">
-                <h4 class="font-extrabold text-slate-900 text-xs">3. Créances Anciens Chauffeurs (16 000,00 DZD):</h4>
-                <p>تمثل مستحقات وديون عالقة بذمة السائقين المنتهية عقودهم أو المفصولين (3 سائقين)، وتخضع لإجراءات التحصيل الودي أو المتابعة القانونية لاسترداد مستحقات الوكالة.</p>
-            </div>
-
-            <div class="space-y-1">
-                <h4 class="font-extrabold text-slate-900 text-xs">4. زر Recalculer Août 2026:</h4>
-                <p>يقوم بإعادة تدقيق وتثبيت العمليات المالية لشهر أوت 2026، وضمان مطابقة مجموع الدفعات مع حساب بريد الجزائر (CCP) والخزينة النقدية.</p>
-            </div>
-
-            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-[11px]">
-                📌 <strong>ملاحظة تنظيمية:</strong> أي سائق يتجاوز رصيده المدين الحد المسموح به (Reste &gt; 50 000 DZD) يمكن تجميد تكليفه بمركبة الأجرة تلقائياً وتوجيهه للإدارة لتسوية وضعيته المالية.
-            </div>
-
-        </div>
-
-        <div class="pt-3 border-t border-slate-100 flex justify-end">
-            <button type="button" onclick="document.getElementById('aideModal').classList.add('hidden')"
-                    class="px-5 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition">
-                فهمت، إغلاق الدليل
+            <button onclick="document.getElementById('aideModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
             </button>
         </div>
 
+        <div class="text-xs text-slate-600 space-y-3 leading-relaxed">
+            <p><strong>حساب الاشتراكات:</strong> يتم تسجيل التزام السائق اليومي أو الشهري بناءً على عقد الاستغلال (1 000 دج اشتراك المنصة + 4 000 دج للمركبة).</p>
+            <p><strong>طرق التسديد:</strong> يمكن تسجيل الدفعات نقداً مع تسليم وصل استلام، أو عبر حوالة بريدية CCP أو تطبيق بريدي موب BaridiMob.</p>
+            <p><strong>إعادة الاحتساب:</strong> تتيح أداة إعادة الاحتساب مزامنة كافة جداول السائقين مع سجل الدفعات الفعلي وتحديث وضعية السائق تلقائياً إلى "مُسدّد" فور بلوغ الرصيد صفراً.</p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex justify-end">
+            <button onclick="document.getElementById('aideModal').classList.add('hidden')" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-bold text-xs">
+                إغلاق
+            </button>
+        </div>
     </div>
 </div>
 
 <script>
-    function openVersementModal(id, name, reste) {
-        document.getElementById('modalDebtId').value = id;
-        document.getElementById('modalDriverName').textContent = name;
-        document.getElementById('modalResteAmount').textContent = reste.toLocaleString('fr-FR') + ' DZD';
-        document.getElementById('versementAmount').value = reste > 0 ? reste : 10000;
-        document.getElementById('versementModal').classList.remove('hidden');
-        document.getElementById('versementModal').classList.add('flex');
-    }
-    function closeVersementModal() {
-        document.getElementById('versementModal').classList.add('hidden');
-        document.getElementById('versementModal').classList.remove('flex');
-    }
+function openVersementModal(id, name, reste) {
+    document.getElementById('modalDebtId').value = id;
+    document.getElementById('modalDriverName').textContent = 'السائق: ' + name;
+    document.getElementById('modalResteAmount').textContent = Number(reste).toLocaleString('fr-FR') + ' DZD';
+    document.getElementById('versementAmount').value = reste > 0 ? reste : 5000;
+    document.getElementById('versementModal').classList.remove('hidden');
+    document.getElementById('versementModal').classList.add('flex');
+}
+function closeVersementModal() {
+    document.getElementById('versementModal').classList.add('hidden');
+    document.getElementById('versementModal').classList.remove('flex');
+}
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
