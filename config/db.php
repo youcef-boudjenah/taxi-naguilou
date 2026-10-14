@@ -1,5 +1,8 @@
 <?php
 // config/db.php - Central Database Configuration & Auto-Migration
+if (!ob_get_level()) {
+    ob_start();
+}
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', '3306');
 define('DB_USER', 'root');
@@ -46,7 +49,15 @@ function url(string $path = ''): string {
 
 function redirect(string $path): void {
     $target = url($path);
-    header("Location: " . $target);
+    if (!headers_sent()) {
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        header("Location: " . $target);
+        exit;
+    }
+    echo '<script>window.location.replace(' . json_encode($target) . ');</script>';
+    echo '<noscript><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($target) . '"></noscript>';
     exit;
 }
 

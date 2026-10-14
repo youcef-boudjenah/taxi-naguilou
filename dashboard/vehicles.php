@@ -1,7 +1,7 @@
 <?php
 // dashboard/vehicles.php - Full Fleet & Vehicle Management
-$pageTitle = 'سجل المركبات والوثائق';
-require_once __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_login();
 
 $pdo = getDBConnection();
 $drivers = [];
@@ -119,6 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
         }
     }
 }
+
+$pageTitle = 'سجل المركبات والوثائق';
+require_once __DIR__ . '/../includes/header.php';
 
 // Stats for Quick KPI Strip
 $totalVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
