@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     $taxiContractStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
     $taxiContractEnd = !empty($_POST['taxi_contract_end']) ? $_POST['taxi_contract_end'] : null;
+    $assignedVehicleId = !empty($_POST['assigned_vehicle_id']) ? intval($_POST['assigned_vehicle_id']) : null;
 
     // Handle photo upload
     $avatarUrl = null;
@@ -92,6 +93,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $nextMedStart, $nextMedEnd, $taxiContractStart, $taxiContractEnd, $avatarUrl
             ]);
             $newDriverId = (int)$pdo->lastInsertId();
+
+            // Link vehicle if assigned
+            if ($assignedVehicleId && $assignedVehicleId > 0) {
+                $stmtVeh = $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?");
+                $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
+            }
+
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
             set_flash('success', 'تم تسجيل السائق بنجاح وإصدار بطاقته الفنية');
             redirect('/dashboard/driver_fiche.php?id=' . $newDriverId);
@@ -169,6 +177,22 @@ foreach ($allDrivers as $d) {
 $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
 $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
 $countPermanence = count($permanenceDriverIds);
+
+// Fetch Active Vehicles for assignment
+$activeVehicles = [];
+if ($pdo) {
+    try {
+        $stmtV = $pdo->query("
+            SELECT v.id, v.plate_number, v.brand, v.model, v.door_number, v.current_driver_id,
+                   u.full_name as current_driver_name
+            FROM vehicles v
+            LEFT JOIN users u ON v.current_driver_id = u.id
+            WHERE v.status = 'active'
+            ORDER BY v.plate_number ASC
+        ");
+        $activeVehicles = $stmtV ? $stmtV->fetchAll() : [];
+    } catch (\Throwable $e) {}
+}
 ?>
 
 <div class="space-y-6">
@@ -193,8 +217,8 @@ $countPermanence = count($permanenceDriverIds);
                 </svg>
                 <span>مخطط المناوبات (3 أيام)</span>
             </a>
-            <button onclick="document.getElementById('addDriverModal').classList.remove('hidden')"
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
+            <button type="button" onclick="openAddDriverModal()"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-xs cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
@@ -468,211 +492,708 @@ $countPermanence = count($permanenceDriverIds);
 
 </div>
 
-<!-- Modal: Add Driver (Fiche Technique Complète) -->
-<div id="addDriverModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 overflow-y-auto">
-    <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-5 text-right my-8 max-h-[90vh] overflow-y-auto">
+<!-- Modal: Add Driver (Sleek Desktop/ERP Multi-Step Wizard Modal) -->
+<div id="addDriverModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md hidden items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-white max-w-4xl w-full rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto transition-all animate-fadeIn text-right">
         
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-                <h3 class="font-black text-slate-900 text-lg">تسجيل سائق سيارة أجرة جديد (دفتر المقررة)</h3>
-                <span class="text-xs text-slate-500">إدخال البطاقة الفنية، رخصة السياقة، الفحوصات الطبية، وعقد استغلال رخصة الأجرة</span>
+        <!-- Modal Top Bar -->
+        <div class="px-6 py-4 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-400 text-slate-950 font-black flex items-center justify-center shadow-xs shrink-0">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.765z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="font-black text-slate-900 text-base sm:text-lg">تسجيل سائق سيارة أجرة جديد</h3>
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 font-num">
+                            دفتر المقررة DTW
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">إدخال البطاقة الفنية، رخصة السياقة، الفحوصات الطبية، وتعيين المركبة وفق القانون 90-11</p>
+                </div>
             </div>
-            <button onclick="document.getElementById('addDriverModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            
+            <button type="button" onclick="closeAddDriverModal()" 
+                    class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition" 
+                    title="إغلاق (Esc)">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
         </div>
 
-        <form method="POST" action="" enctype="multipart/form-data" class="space-y-5 text-xs">
+        <!-- Stepper Navigation Bar (Tabs) -->
+        <div class="bg-white border-b border-slate-200/80 px-6 pt-3 pb-0 shrink-0">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold" id="wizardStepperTabs">
+                <button type="button" onclick="goToWizardStep(1)" id="stepTab-1" 
+                        class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-900 text-white border-slate-900 shadow-xs">
+                    <span class="w-5 h-5 rounded-full bg-white/20 text-white flex items-center justify-center text-[11px] font-num font-black shrink-0">1</span>
+                    <span class="truncate">الحالة المدنية والصورة</span>
+                </button>
+                <button type="button" onclick="goToWizardStep(2)" id="stepTab-2" 
+                        class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100">
+                    <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-num font-black shrink-0">2</span>
+                    <span class="truncate">الرخصة والمقررة</span>
+                </button>
+                <button type="button" onclick="goToWizardStep(3)" id="stepTab-3" 
+                        class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100">
+                    <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-num font-black shrink-0">3</span>
+                    <span class="truncate">الفحص الطبي DTW</span>
+                </button>
+                <button type="button" onclick="goToWizardStep(4)" id="stepTab-4" 
+                        class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100">
+                    <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-num font-black shrink-0">4</span>
+                    <span class="truncate">المركبة والعقد</span>
+                </button>
+            </div>
+            
+            <!-- Dynamic Progress Line -->
+            <div class="w-full bg-slate-100 h-1 mt-3 rounded-full overflow-hidden">
+                <div id="wizardProgressLine" class="h-full bg-amber-500 transition-all duration-300 w-1/4"></div>
+            </div>
+        </div>
+
+        <!-- Form Body (Scrollable container) -->
+        <form id="addDriverForm" method="POST" action="" enctype="multipart/form-data" class="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6 text-xs">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_driver">
 
-            <!-- Tab 1: الحالة المدنية والهوية الشخصية -->
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
-                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span>1. الحالة المدنية والهوية الشخصية (الصفحة 4 من الدفتر)</span>
-                </h4>
+            <!-- ==============================================
+                 STEP 1: الحالة المدنية والصورة الشخصية
+                 ============================================== -->
+            <div id="stepSection-1" class="wizard-section space-y-5">
                 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">اللقب (Nom) <span class="text-rose-500">*</span></label>
-                        <input type="text" name="last_name" required placeholder="مثال: حمو صالح"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <div class="flex flex-col lg:flex-row items-start gap-6">
+                    
+                    <!-- Left: Driver Photo Portrait Uploader Box -->
+                    <div class="w-full lg:w-48 shrink-0 flex flex-col items-center">
+                        <label class="block font-bold text-slate-800 text-xs mb-2 text-center">صورة السائق (35x45 مم)</label>
+                        
+                        <div onclick="document.getElementById('driverAvatarInput').click()" 
+                             id="photoDropZone"
+                             class="w-36 h-48 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 hover:border-amber-500 flex flex-col items-center justify-center relative cursor-pointer group shadow-2xs overflow-hidden transition">
+                            
+                            <!-- Preview Image (Initially Hidden) -->
+                            <img id="driverAvatarPreview" src="" alt="معاينة الصورة" 
+                                 class="w-full h-full object-cover hidden">
+                            
+                            <!-- Placeholder State -->
+                            <div id="photoPlaceholder" class="flex flex-col items-center justify-center p-3 text-center space-y-2">
+                                <div class="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-110 transition shadow-2xs">
+                                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                                    </svg>
+                                </div>
+                                <span class="text-[11px] font-bold text-slate-700">اضغط لرفع الصورة</span>
+                                <span class="text-[10px] text-slate-400">JPG, PNG, WEBP</span>
+                            </div>
+
+                            <!-- Hover Overlay -->
+                            <div class="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
+                                تغيير الصورة 📷
+                            </div>
+                        </div>
+
+                        <input type="file" id="driverAvatarInput" name="avatar" accept="image/*" class="hidden" onchange="previewDriverAvatar(this)">
+                        <span class="text-[10px] text-slate-400 text-center mt-2">تظهر في البطاقة الفنية ودفتر المقررة</span>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">الاسم (Prénom) <span class="text-rose-500">*</span></label>
-                        <input type="text" name="first_name" required placeholder="مثال: يوسف"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+
+                    <!-- Right: Civil Status & Personal Details Form -->
+                    <div class="flex-1 w-full space-y-4">
+                        
+                        <div class="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 flex items-center gap-2 text-amber-900 font-bold text-xs">
+                            <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+                            <span>الصفحة 4 من دفتر المقررة: الحالة المدنية والهوية الشخصية</span>
+                        </div>
+
+                        <!-- Nom & Prénom -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">اللقب (Nom de famille) <span class="text-rose-500">*</span></label>
+                                <input type="text" name="last_name" id="inputLastName" required placeholder="مثال: حمو صالح"
+                                       oninput="updateDriverPreviewName()"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">الاسم (Prénom) <span class="text-rose-500">*</span></label>
+                                <input type="text" name="first_name" id="inputFirstName" required placeholder="مثال: يوسف"
+                                       oninput="updateDriverPreviewName()"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+
+                        <!-- Date & Lieu de Naissance -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">تاريخ الازدياد (Date de Naissance)</label>
+                                <input type="date" name="birth_date" value="1983-05-18"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">مكان الازدياد (Lieu de Naissance)</label>
+                                <input type="text" name="birth_place" placeholder="مثال: بعريانو تامست، أدرار" value="بعريانو تامست"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+
+                        <!-- Filiation: Père & Mère -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">اسم الأب (إبن)</label>
+                                <input type="text" name="father_name" placeholder="مثال: أحمد" value="أحمد"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">اسم ولقب الأم (وابن)</label>
+                                <input type="text" name="mother_name" placeholder="مثال: حمو صالح خيرة" value="حمو صالح خيرة"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+
+                        <!-- Contact & Location -->
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">رقم الهاتف <span class="text-rose-500">*</span></label>
+                                <div class="relative">
+                                    <input type="tel" name="phone" id="inputPhone" required placeholder="0661234567" dir="ltr" value="0661234567"
+                                           oninput="updateDriverPreviewPhone()"
+                                           class="w-full pl-12 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-slate-50/60 focus:bg-white text-right transition shadow-2xs">
+                                    <span class="absolute left-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[10px] font-num font-bold bg-slate-200 text-slate-700">🇩🇿 +213</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">ولاية الإقامة</label>
+                                <input type="text" name="wilaya" value="01 - أدرار"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">العنوان السكني</label>
+                                <input type="text" name="address" placeholder="حي الحطابة أدرار" value="حي الحطابة أدرار"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاريخ الازدياد (Date de Naissance)</label>
-                        <input type="date" name="birth_date"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">مكان الازدياد (Lieu de Naissance)</label>
-                        <input type="text" name="birth_place" placeholder="مثال: بعريانو تامست"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">اسم الأب (إبن)</label>
-                        <input type="text" name="father_name" placeholder="مثال: أحمد"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">اسم ولقب الأم (و)</label>
-                        <input type="text" name="mother_name" placeholder="مثال: حمو صالح خيرة"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div class="sm:col-span-2">
-                        <label class="block font-bold text-slate-700 mb-1">العنوان الشخصي</label>
-                        <input type="text" name="address" placeholder="مثال: حي الحطابة أدرار"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">الولاية</label>
-                        <input type="text" name="wilaya" value="01 - أدرار"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">رقم الهاتف <span class="text-rose-500">*</span></label>
-                        <input type="tel" name="phone" required placeholder="0661234567" dir="ltr"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">صورة السائق (Photo Portrait)</label>
-                        <input type="file" name="avatar" accept="image/*"
-                               class="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 transition">
-                    </div>
-                </div>
             </div>
 
-            <!-- Tab 2: رخصة السياقة والكفاءة المهنية -->
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
-                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                    <span>2. رخصة السياقة وبطاقة الكفاءة المهنية</span>
-                </h4>
+            <!-- ==============================================
+                 STEP 2: رخصة السياقة ودفتر المقررة
+                 ============================================== -->
+            <div id="stepSection-2" class="wizard-section space-y-5 hidden">
+                
+                <div class="p-3 bg-blue-50/60 rounded-xl border border-blue-200/80 flex items-center gap-2 text-blue-900 font-bold text-xs">
+                    <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z"/></svg>
+                    <span>الصفحة 4 و 7 من دفتر المقررة: رخصة السياقة والكفاءة المهنية وبداية النشاط</span>
+                </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">رقم رخصة السياقة</label>
-                        <input type="text" name="license_number" placeholder="مثال: A02669719" dir="ltr"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
+                <!-- Driver's License Info -->
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-4">
+                    <h4 class="font-black text-slate-800 text-xs flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                        <span>بيانات رخصة السياقة (Permis de Conduire)</span>
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">رقم رخصة السياقة</label>
+                            <input type="text" name="license_number" placeholder="مثال: A02669719" dir="ltr" value="A02669719"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num text-right bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ الإصدار (Délivré le)</label>
+                            <input type="date" name="license_issue_date" value="2008-03-24"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">جهة الإصدار (Délivré par)</label>
+                            <input type="text" name="license_issue_place" placeholder="مثال: بلدية أدرار" value="بلدية أدرار"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                        </div>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاريخ الإصدار</label>
-                        <input type="date" name="license_issue_date"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">جهة الإصدار (من طرف)</label>
-                        <input type="text" name="license_issue_place" placeholder="مثال: بلدية أدرار"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء صلاحية الرخصة</label>
+                            <input type="date" name="license_expiry" value="2028-03-23"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">رقم دفتر المقررة / البطاقة المهنية DTW</label>
+                            <input type="text" name="card_number" placeholder="مثال: LIV-01-2024-047" dir="ltr" value="LIV-01-2024-047"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num text-right bg-white transition shadow-2xs">
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء صلاحية الرخصة</label>
-                        <input type="date" name="license_expiry"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                <!-- Driver Status Type (Radio Cards) -->
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
+                    <label class="block font-black text-slate-800 text-xs">صفة السائق في الاستغلال (Qualité du Chauffeur)</label>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-amber-500 bg-amber-50/50 cursor-pointer flex items-start gap-3 transition">
+                            <input type="radio" name="driver_type" value="ajir" checked class="mt-0.5 text-amber-600 focus:ring-amber-500">
+                            <div>
+                                <span class="font-black text-slate-900 block text-xs">أجير (Salarié)</span>
+                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">عقد عمل خاضع للقانون 90-11 والتصريح لدى CNAS</span>
+                            </div>
+                        </label>
+                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-slate-200 bg-white hover:border-slate-300 cursor-pointer flex items-start gap-3 transition">
+                            <input type="radio" name="driver_type" value="loueur" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+                            <div>
+                                <span class="font-black text-slate-900 block text-xs">مؤجر رخصة (Loueur)</span>
+                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">عقد إيجار واستغلال رخصة سيارة الأجرة</span>
+                            </div>
+                        </label>
+                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-slate-200 bg-white hover:border-slate-300 cursor-pointer flex items-start gap-3 transition">
+                            <input type="radio" name="driver_type" value="artisan" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+                            <div>
+                                <span class="font-black text-slate-900 block text-xs">حرفي تاكسي (Artisan)</span>
+                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">بطاقة الحرفي واستغلال فردي مباشر</span>
+                            </div>
+                        </label>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">رقم دفتر المقررة / البطاقة المهنية</label>
-                        <input type="text" name="card_number" placeholder="مثال: LIV-01-2024-047" dir="ltr"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ بداية النشاط (Début d'activité)</label>
+                            <input type="date" name="activity_start_date" value="2024-09-03"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تأشيرة مديرية النقل (Visa DTW)</label>
+                            <input type="date" name="dtw_visa_date" value="2024-09-03"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
                     </div>
                 </div>
+
             </div>
 
-            <!-- Tab 3: عقد استغلال رخصة الأجرة والفحص الطبي وبداية النشاط -->
-            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
-                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>3. عقد رخصة الأجرة، الفحص الطبي الدوري وبداية النشاط (الصفحة 7)</span>
-                </h4>
+            <!-- ==============================================
+                 STEP 3: المراقبة والفحوصات الطبية DTW
+                 ============================================== -->
+            <div id="stepSection-3" class="wizard-section space-y-5 hidden">
+                
+                <div class="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/80 flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                    <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+                    <span>الصفحة 8-9 من دفتر المقررة: الفحص الطبي الإجباري الدوري (صلاحية سنتين وفق المرسوم 12-230)</span>
+                </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">صفة السائق</label>
-                        <select name="driver_type" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition">
-                            <option value="ajir" selected>أجير (Salarié) - القانون 90-11</option>
-                            <option value="loueur">مؤجر (Loueur de licence)</option>
-                            <option value="artisan">حرفي تاكسي (Artisan Taxi)</option>
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-4">
+                    <h4 class="font-black text-slate-800 text-xs flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <span>فترة صلاحية الفحص الطبي الحالي وتأشيرة DTW</span>
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">صلاحية الفحص الطبي: من (Date début)</label>
+                            <input type="date" name="medical_exam_start" id="medStartInput" value="2024-09-01"
+                                   onchange="autoCalculateMedicalDates()"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">
+                                <span>صلاحية الفحص الطبي: إلى (Fin - سنتين)</span>
+                                <span class="text-[10px] text-emerald-600 font-normal mr-1">(محسوب تلقائياً)</span>
+                            </label>
+                            <input type="date" name="medical_exam_end" id="medEndInput" value="2026-08-31"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تأشيرة الفحص الطبي من مديرية النقل (DTW)</label>
+                            <input type="date" name="medical_visa_date" id="medVisaInput" value="2024-09-20"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ إجراء الفحص الطبي (Date Examen)</label>
+                            <input type="date" value="2024-09-01"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Next Checkup Reminder -->
+                <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3">
+                    <h4 class="font-black text-amber-900 text-xs flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <span>موعد الفحص الطبي الدوري القادم (Visite Médicale Prochaine)</span>
+                    </h4>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ الفحص القادم: من</label>
+                            <input type="date" name="next_medical_start" value="2026-09-01"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ الفحص القادم: إلى</label>
+                            <input type="date" name="next_medical_end" value="2028-08-31"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
+                        <span>💡</span>
+                        <span>يقوم رادار الصلاحية في لوحة التحكم بتنبيهك تلقائياً قبل 30 يوماً من حلول هذا الموعد.</span>
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- ==============================================
+                 STEP 4: تعيين المركبة وعقد الاستغلال ومعاينة البطاقة
+                 ============================================== -->
+            <div id="stepSection-4" class="wizard-section space-y-5 hidden">
+                
+                <div class="p-3 bg-purple-50/60 rounded-xl border border-purple-200/80 flex items-center gap-2 text-purple-900 font-bold text-xs">
+                    <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25"/></svg>
+                    <span>ربط السائق بمركبة من الأسطول وصلاحية عقد استغلال رخصة الأجرة</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    
+                    <!-- Vehicle Assignment Selection -->
+                    <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
+                        <label class="block font-black text-slate-800 text-xs">تعيين سيارة أجرة من الأسطول (Véhicule Assigné)</label>
+                        
+                        <select name="assigned_vehicle_id" id="assignedVehicleSelect" onchange="updateDriverPreviewVehicle()"
+                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                            <option value="">-- بدون تعيين مركبة حالياً (تعيين لاحقاً) --</option>
+                            <?php foreach ($activeVehicles as $veh): 
+                                $isOccupied = !empty($veh['current_driver_id']);
+                            ?>
+                                <option value="<?= $veh['id'] ?>" data-plate="<?= htmlspecialchars($veh['plate_number']) ?>" data-brand="<?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?>">
+                                    <?= htmlspecialchars($veh['plate_number']) ?> - <?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?> (باب: <?= htmlspecialchars($veh['door_number']) ?>) <?= $isOccupied ? '[مع سائق: ' . htmlspecialchars($veh['current_driver_name']) . ']' : '[شاغرة]' ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
+
+                        <p class="text-[11px] text-slate-400">يمكنك ربط السائق بسيارة الأجرة مباشرة لتظهر في تتبع الأسطول الميداني ومخطط المناوبات.</p>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاريخ بداية النشاط</label>
-                        <input type="date" name="activity_start_date" value="2024-09-03"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+
+                    <!-- Contract Validity Period -->
+                    <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
+                        <label class="block font-black text-slate-800 text-xs">صلاحية عقد العمل ورخصة الأجرة (3 سنوات)</label>
+                        
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <div>
+                                <label class="block font-bold text-slate-600 text-[11px] mb-1">من (Début)</label>
+                                <input type="date" name="taxi_contract_start" value="2024-09-01"
+                                       class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-600 text-[11px] mb-1">إلى (Fin)</label>
+                                <input type="date" name="taxi_contract_end" value="2027-08-31"
+                                       class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+                        <p class="text-[11px] text-slate-400">عقد استغلال رخصة الأجرة وفق المرسوم التنفيذي 12-230.</p>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تأشيرة مديرية النقل (DTW)</label>
-                        <input type="date" name="dtw_visa_date" value="2024-09-03"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+
+                </div>
+
+                <!-- LIVE DRIVER CARD PREVIEW -->
+                <div class="p-4 rounded-2xl bg-slate-900 text-white space-y-3 shadow-xl">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span class="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                            <span>🔍</span>
+                            <span>معاينة البطاقة الفنية للسائق قبل الحفظ النهائي</span>
+                        </span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 font-num">
+                            TAXI CHAUFFEUR
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-4">
+                        <div class="w-14 h-18 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                            <img id="livePreviewImg" src="" class="w-full h-full object-cover hidden">
+                            <span id="livePreviewInitials" class="text-lg font-black text-amber-500 font-num">?</span>
+                        </div>
+                        <div class="min-w-0 flex-1 space-y-1">
+                            <div class="flex items-center gap-2">
+                                <h4 id="livePreviewName" class="font-black text-sm text-white truncate">يوسف حمو صالح</h4>
+                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">نشط</span>
+                            </div>
+                            <div class="text-[11px] text-slate-300 flex items-center gap-2 font-num">
+                                <span id="livePreviewPhone">0661234567</span>
+                                <span>•</span>
+                                <span>01 - أدرار</span>
+                            </div>
+                            <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2">
+                                <span>المركبة: <strong id="livePreviewVehicle" class="text-white font-num font-bold">لم تعين بعد</strong></span>
+                                <span>•</span>
+                                <span>دفتر المقررة: LIV-01-2024-047</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">صلاحية عقد رخصة الأجرة (من)</label>
-                        <input type="date" name="taxi_contract_start" value="2024-09-01"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">صلاحية عقد رخصة الأجرة (إلى)</label>
-                        <input type="date" name="taxi_contract_end" value="2027-08-31"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">الفحص الطبي (من)</label>
-                        <input type="date" name="medical_exam_start" value="2024-09-01"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">الفحص الطبي (إلى - سنتين)</label>
-                        <input type="date" name="medical_exam_end" value="2026-08-31"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تأشيرة الفحص الطبي DTW</label>
-                        <input type="date" name="medical_visa_date" value="2024-09-20"
-                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
-                    </div>
-                </div>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onclick="document.getElementById('addDriverModal').classList.add('hidden')"
-                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+        </form>
+
+        <!-- Sticky Bottom Actions Footer -->
+        <div class="px-6 py-4 bg-slate-50/90 border-t border-slate-200/80 flex items-center justify-between shrink-0">
+            <button type="button" id="prevStepBtn" onclick="prevWizardStep()" 
+                    class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-white transition text-xs hidden items-center gap-1.5 shadow-2xs">
+                <span>🠔 السابق</span>
+            </button>
+            
+            <div class="text-xs font-bold text-slate-400" id="wizardStepIndicator">
+                الخطوة <span id="currentStepNum" class="font-num text-slate-900 font-black">1</span> من <span class="font-num">4</span>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+                <button type="button" onclick="closeAddDriverModal()" 
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-white transition text-xs shadow-2xs">
                     إلغاء
                 </button>
-                <button type="submit" class="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition shadow-xs flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                    <span>حفظ وتسجيل البطاقة الفنية</span>
+
+                <button type="button" id="nextStepBtn" onclick="nextWizardStep()" 
+                        class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black transition text-xs flex items-center gap-1.5 shadow-xs cursor-pointer">
+                    <span>التالي</span>
+                    <span>➔</span>
+                </button>
+
+                <button type="button" id="submitDriverBtn" onclick="submitAddDriverForm()" 
+                        class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-slate-950 font-black transition text-xs hidden items-center gap-2 shadow-md cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    <span>حفظ وتسجيل البطاقة الفنية الرسمية</span>
                 </button>
             </div>
-        </form>
+        </div>
+
     </div>
 </div>
 
+<!-- Add Driver Wizard Interactive JavaScript -->
+<script>
+    let currentWizardStep = 1;
+    const totalWizardSteps = 4;
+
+    function openAddDriverModal() {
+        const modal = document.getElementById('addDriverModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.body.classList.add('overflow-hidden');
+        goToWizardStep(1);
+        updateDriverPreviewName();
+        updateDriverPreviewPhone();
+        updateDriverPreviewVehicle();
+    }
+
+    function closeAddDriverModal() {
+        const modal = document.getElementById('addDriverModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        document.body.classList.remove('overflow-hidden');
+    }
+
+    function goToWizardStep(step) {
+        if (step < 1 || step > totalWizardSteps) return;
+
+        // Validation before moving forward from step 1
+        if (step > 1 && currentWizardStep === 1) {
+            const lastName = document.getElementById('inputLastName');
+            const firstName = document.getElementById('inputFirstName');
+            const phone = document.getElementById('inputPhone');
+            if (!lastName.value.trim() || !firstName.value.trim() || !phone.value.trim()) {
+                alert('يرجى ملء الاسم، اللقب، ورقم الهاتف لمتابعة التسجيل.');
+                if (!lastName.value.trim()) lastName.focus();
+                else if (!firstName.value.trim()) firstName.focus();
+                else phone.focus();
+                return;
+            }
+        }
+
+        currentWizardStep = step;
+
+        // Show active section, hide others
+        for (let i = 1; i <= totalWizardSteps; i++) {
+            const section = document.getElementById('stepSection-' + i);
+            const tab = document.getElementById('stepTab-' + i);
+            if (section) {
+                if (i === step) {
+                    section.classList.remove('hidden');
+                } else {
+                    section.classList.add('hidden');
+                }
+            }
+            if (tab) {
+                if (i === step) {
+                    tab.className = 'wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-900 text-white border-slate-900 shadow-xs';
+                    tab.querySelector('span:first-child').className = 'w-5 h-5 rounded-full bg-white/20 text-white flex items-center justify-center text-[11px] font-num font-black shrink-0';
+                } else if (i < step) {
+                    tab.className = 'wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-amber-50 text-amber-900 border-amber-200/80 shadow-2xs';
+                    tab.querySelector('span:first-child').className = 'w-5 h-5 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center text-[11px] font-num font-black shrink-0';
+                } else {
+                    tab.className = 'wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100';
+                    tab.querySelector('span:first-child').className = 'w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-num font-black shrink-0';
+                }
+            }
+        }
+
+        // Progress bar width
+        const progressLine = document.getElementById('wizardProgressLine');
+        if (progressLine) {
+            progressLine.style.width = ((step / totalWizardSteps) * 100) + '%';
+        }
+
+        // Indicator numbers
+        document.getElementById('currentStepNum').textContent = step;
+
+        // Bottom buttons visibility
+        const prevBtn = document.getElementById('prevStepBtn');
+        const nextBtn = document.getElementById('nextStepBtn');
+        const submitBtn = document.getElementById('submitDriverBtn');
+
+        if (step === 1) {
+            prevBtn.classList.add('hidden');
+            prevBtn.classList.remove('flex');
+        } else {
+            prevBtn.classList.remove('hidden');
+            prevBtn.classList.add('flex');
+        }
+
+        if (step === totalWizardSteps) {
+            nextBtn.classList.add('hidden');
+            submitBtn.classList.remove('hidden');
+            submitBtn.classList.add('flex');
+        } else {
+            nextBtn.classList.remove('hidden');
+            submitBtn.classList.add('hidden');
+            submitBtn.classList.remove('flex');
+        }
+    }
+
+    function nextWizardStep() {
+        goToWizardStep(currentWizardStep + 1);
+    }
+
+    function prevWizardStep() {
+        goToWizardStep(currentWizardStep - 1);
+    }
+
+    function submitAddDriverForm() {
+        const form = document.getElementById('addDriverForm');
+        const lastName = document.getElementById('inputLastName');
+        const firstName = document.getElementById('inputFirstName');
+        const phone = document.getElementById('inputPhone');
+
+        if (!lastName.value.trim() || !firstName.value.trim() || !phone.value.trim()) {
+            goToWizardStep(1);
+            alert('يرجى استيفاء الحقول الإجبارية (الاسم، اللقب، الهاتف) قبل الحفظ.');
+            return;
+        }
+        form.submit();
+    }
+
+    // Live avatar preview
+    function previewDriverAvatar(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const previewImg = document.getElementById('driverAvatarPreview');
+                const placeholder = document.getElementById('photoPlaceholder');
+                const livePreviewImg = document.getElementById('livePreviewImg');
+                const livePreviewInitials = document.getElementById('livePreviewInitials');
+
+                previewImg.src = e.target.result;
+                previewImg.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+
+                if (livePreviewImg) {
+                    livePreviewImg.src = e.target.result;
+                    livePreviewImg.classList.remove('hidden');
+                }
+                if (livePreviewInitials) {
+                    livePreviewInitials.classList.add('hidden');
+                }
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    // Live preview name
+    function updateDriverPreviewName() {
+        const first = document.getElementById('inputFirstName')?.value.trim() || '';
+        const last = document.getElementById('inputLastName')?.value.trim() || '';
+        const fullName = (first + ' ' + last).trim() || 'اسم السائق';
+        
+        const previewName = document.getElementById('livePreviewName');
+        const previewInitials = document.getElementById('livePreviewInitials');
+
+        if (previewName) previewName.textContent = fullName;
+        if (previewInitials && first) {
+            previewInitials.textContent = first.charAt(0);
+        }
+    }
+
+    // Live preview phone
+    function updateDriverPreviewPhone() {
+        const phone = document.getElementById('inputPhone')?.value.trim() || '0661000000';
+        const previewPhone = document.getElementById('livePreviewPhone');
+        if (previewPhone) previewPhone.textContent = phone;
+    }
+
+    // Live preview vehicle
+    function updateDriverPreviewVehicle() {
+        const select = document.getElementById('assignedVehicleSelect');
+        const previewVeh = document.getElementById('livePreviewVehicle');
+        if (!select || !previewVeh) return;
+
+        const selectedOption = select.options[select.selectedIndex];
+        if (selectedOption && selectedOption.value) {
+            const plate = selectedOption.getAttribute('data-plate') || '';
+            const brand = selectedOption.getAttribute('data-brand') || '';
+            previewVeh.textContent = plate + ' (' + brand + ')';
+        } else {
+            previewVeh.textContent = 'لم تعين بعد (شاغرة)';
+        }
+    }
+
+    // Auto-calculate medical dates (+2 years)
+    function autoCalculateMedicalDates() {
+        const startInput = document.getElementById('medStartInput');
+        const endInput = document.getElementById('medEndInput');
+        if (startInput && startInput.value && endInput) {
+            const startDate = new Date(startInput.value);
+            if (!isNaN(startDate.getTime())) {
+                const endDate = new Date(startDate);
+                endDate.setFullYear(endDate.getFullYear() + 2);
+                endDate.setDate(endDate.getDate() - 1);
+                endInput.value = endDate.toISOString().split('T')[0];
+            }
+        }
+    }
+
+    // Keyboard support: Escape closes modal
+    window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('addDriverModal');
+            if (modal && !modal.classList.contains('hidden')) {
+                closeAddDriverModal();
+            }
+        }
+    });
+
+    // Close when clicking modal backdrop
+    document.getElementById('addDriverModal')?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeAddDriverModal();
+        }
+    });
+</script>
+
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
+
 
