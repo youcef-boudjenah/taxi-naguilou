@@ -578,6 +578,30 @@ function migrateDriverFicheFields(PDO $pdo): void {
             } catch (\Throwable $ex) {}
         }
     } catch (\Throwable $e) {}
+
+    // 5. Driver Debts table columns
+    try {
+        $ddCols = $pdo->query("SHOW COLUMNS FROM `driver_debts`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $ddColMap = array_flip($ddCols);
+        $addDDCols = [
+            'user_id' => "INT NULL AFTER `id`",
+            'chauffeur_name' => "VARCHAR(150) NOT NULL AFTER `user_id`",
+            'phone' => "VARCHAR(30) NOT NULL AFTER `chauffeur_name`",
+            'total_credits' => "DECIMAL(12, 2) DEFAULT 0.00 AFTER `phone`",
+            'total_versements' => "DECIMAL(12, 2) DEFAULT 0.00 AFTER `total_credits`",
+            'driver_type' => "ENUM('actif', 'ancien') DEFAULT 'actif' AFTER `total_versements`",
+            'status' => "ENUM('endette', 'a_jour') DEFAULT 'endette' AFTER `driver_type`",
+            'last_versement_date' => "DATE NULL AFTER `status`",
+            'notes' => "VARCHAR(255) NULL AFTER `last_versement_date`"
+        ];
+        foreach ($addDDCols as $col => $def) {
+            if (!isset($ddColMap[$col])) {
+                try {
+                    $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `$col` $def");
+                } catch (\Throwable $ex) {}
+            }
+        }
+    } catch (\Throwable $e) {}
 }
 
 function seedDefaultData(PDO $pdo) {

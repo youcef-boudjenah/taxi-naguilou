@@ -263,51 +263,87 @@ if ($statusFilter === 'regle') {
 }
 
 $sql .= " ORDER BY u.id ASC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$rows = $stmt->fetchAll();
-
-// Accurate Dynamic KPI Figures
-$stmtPaid = $pdo->prepare("SELECT COALESCE(SUM(paid_amount), 0) FROM driver_subscriptions WHERE period_month = ?");
-$stmtPaid->execute([$selectedPeriod]);
-$kpiRevenusPercus = (float)$stmtPaid->fetchColumn();
-
-$stmtDue = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(0, total_due - paid_amount)), 0) FROM driver_subscriptions WHERE period_month = ?");
-$stmtDue->execute([$selectedPeriod]);
-$kpiRevenusAttente = (float)$stmtDue->fetchColumn();
-
-// If no subscriptions generated yet for this period, estimate pending from active drivers
-if ($kpiRevenusAttente == 0 && $kpiRevenusPercus == 0) {
-    $stmtEst = $pdo->query("
-        SELECT COUNT(DISTINCT u.id) as drivers_count, COUNT(DISTINCT v.id) as veh_count
-        FROM users u
-        LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id)
-        WHERE u.role = 'driver' AND u.status = 'active'
-    ");
-    $est = $stmtEst->fetch();
-    if ($est && $est['drivers_count'] > 0) {
-        $kpiRevenusAttente = ($est['drivers_count'] * $feeSpaceMonthly) + ($est['veh_count'] * $feeVehicleMonthly);
+$rows = [];
+if ($pdo) {
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("billing.php - Main query error: " . $e->getMessage());
+        $rows = [];
     }
 }
 
-// Total vehicles and settled vehicles
-$totalVehicles = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status != 'out_of_service'")->fetchColumn();
-$stmtPaidVeh = $pdo->prepare("
-    SELECT COUNT(DISTINCT v.id)
-    FROM vehicles v
-    JOIN driver_subscriptions s ON (s.driver_id = v.current_driver_id OR s.driver_id = v.replacement_driver_id)
-    WHERE s.period_month = ? AND s.status = 'regle'
-");
-$stmtPaidVeh->execute([$selectedPeriod]);
-$paidVehiclesCount = (int)$stmtPaidVeh->fetchColumn();
+// Accurate Dynamic KPI Figures
+$kpiRevenusPercus = 0.0;
+$kpiRevenusAttente = 0.0;
+$paidVehiclesCount = 0;
+$totalVehicles = 0;
+$allDriversList = [];
+
+if ($pdo) {
+    try {
+        $stmtPaid = $pdo->prepare("SELECT COALESCE(SUM(paid_amount), 0) FROM driver_subscriptions WHERE period_month = ?");
+        $stmtPaid->execute([$selectedPeriod]);
+        $kpiRevenusPercus = (float)$stmtPaid->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    try {
+        $stmtDue = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(0, total_due - paid_amount)), 0) FROM driver_subscriptions WHERE period_month = ?");
+        $stmtDue->execute([$selectedPeriod]);
+        $kpiRevenusAttente = (float)$stmtDue->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    // If no subscriptions generated yet for this period, estimate pending from active drivers
+    if ($kpiRevenusAttente == 0 && $kpiRevenusPercus == 0) {
+        try {
+            $stmtEst = $pdo->query("
+                SELECT COUNT(DISTINCT u.id) as drivers_count, COUNT(DISTINCT v.id) as veh_count
+                FROM users u
+                LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id)
+                WHERE u.role = 'driver' AND u.status = 'active'
+            ");
+            $est = $stmtEst ? $stmtEst->fetch() : null;
+            if ($est && $est['drivers_count'] > 0) {
+                $kpiRevenusAttente = ($est['drivers_count'] * $feeSpaceMonthly) + ($est['veh_count'] * $feeVehicleMonthly);
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    // Total vehicles and settled vehicles
+    try {
+        $totalVehicles = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status != 'out_of_service'")->fetchColumn();
+    } catch (\Throwable $e) {
+        $totalVehicles = 0;
+    }
+
+    try {
+        $stmtPaidVeh = $pdo->prepare("
+            SELECT COUNT(DISTINCT v.id)
+            FROM vehicles v
+            JOIN driver_subscriptions s ON (s.driver_id = v.current_driver_id OR s.driver_id = v.replacement_driver_id)
+            WHERE s.period_month = ? AND s.status = 'regle'
+        ");
+        $stmtPaidVeh->execute([$selectedPeriod]);
+        $paidVehiclesCount = (int)$stmtPaidVeh->fetchColumn();
+    } catch (\Throwable $e) {
+        $paidVehiclesCount = 0;
+    }
+
+    // Fetch all drivers for manual payment dropdown
+    try {
+        $stmtAllD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' ORDER BY full_name ASC");
+        $allDriversList = $stmtAllD ? $stmtAllD->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $allDriversList = [];
+    }
+}
 
 $kpiVehiculesReglesCount = $paidVehiclesCount;
 $kpiVehiculesTotalCount = max(1, $totalVehicles);
 $kpiVehiculesRegles = "{$paidVehiclesCount} / {$totalVehicles}";
 $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCount / $kpiVehiculesTotalCount) * 100, 1) : 0;
-
-// Fetch all drivers for manual payment dropdown
-$allDriversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' ORDER BY full_name ASC")->fetchAll();
 ?>
 
 <div class="space-y-6">

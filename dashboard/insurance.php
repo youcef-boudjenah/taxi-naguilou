@@ -62,48 +62,64 @@ $filterCompany = trim($_GET['company'] ?? 'all');
 $filterStatus = trim($_GET['status'] ?? 'all'); // all, imminent, active, expired
 
 // Fetch All Vehicles for selector
-$allVehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll();
+$allVehicles = [];
+if ($pdo) {
+    try {
+        $stmtAllV = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC");
+        $allVehicles = $stmtAllV ? $stmtAllV->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $allVehicles = [];
+    }
+}
 
 // Query Insurance list with vehicles & drivers
-$sql = "
-    SELECT v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.insurance_expiry, v.insurance_company,
-           u.full_name as driver_name, u.phone as driver_phone,
-           p.id as policy_id, p.policy_number, p.company as pol_company, p.coverage_type, p.start_date, p.end_date,
-           p.premium_amount, p.attestation_number,
-           DATEDIFF(COALESCE(p.end_date, v.insurance_expiry), CURDATE()) as days_left
-    FROM vehicles v
-    LEFT JOIN (
-        SELECT p1.*
-        FROM insurance_policies p1
-        INNER JOIN (
-            SELECT vehicle_id, MAX(id) as max_id
-            FROM insurance_policies
-            GROUP BY vehicle_id
-        ) p2 ON p1.id = p2.max_id
-    ) p ON v.id = p.vehicle_id
-    LEFT JOIN users u ON v.current_driver_id = u.id
-    WHERE 1=1
-";
+$rows = [];
+if ($pdo) {
+    $sql = "
+        SELECT v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.insurance_expiry, v.insurance_company,
+               u.full_name as driver_name, u.phone as driver_phone,
+               p.id as policy_id, p.policy_number, p.company as pol_company, p.coverage_type, p.start_date, p.end_date,
+               p.premium_amount, p.attestation_number,
+               DATEDIFF(COALESCE(p.end_date, v.insurance_expiry), CURDATE()) as days_left
+        FROM vehicles v
+        LEFT JOIN (
+            SELECT p1.*
+            FROM insurance_policies p1
+            INNER JOIN (
+                SELECT vehicle_id, MAX(id) as max_id
+                FROM insurance_policies
+                GROUP BY vehicle_id
+            ) p2 ON p1.id = p2.max_id
+        ) p ON v.id = p.vehicle_id
+        LEFT JOIN users u ON v.current_driver_id = u.id
+        WHERE 1=1
+    ";
 
-$params = [];
+    $params = [];
 
-if (!empty($search)) {
-    $sql .= " AND (v.plate_number LIKE ? OR v.door_number LIKE ? OR p.policy_number LIKE ? OR v.brand LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
+    if (!empty($search)) {
+        $sql .= " AND (v.plate_number LIKE ? OR v.door_number LIKE ? OR p.policy_number LIKE ? OR v.brand LIKE ?)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+    }
+
+    if ($filterCompany !== 'all' && !empty($filterCompany)) {
+        $sql .= " AND (p.company = ? OR v.insurance_company = ?)";
+        $params[] = $filterCompany;
+        $params[] = $filterCompany;
+    }
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("insurance.php - Query policies error: " . $e->getMessage());
+        $rows = [];
+    }
 }
-
-if ($filterCompany !== 'all' && !empty($filterCompany)) {
-    $sql .= " AND (p.company = ? OR v.insurance_company = ?)";
-    $params[] = $filterCompany;
-    $params[] = $filterCompany;
-}
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$rows = $stmt->fetchAll();
 
 // Filter in-memory for days_left
 $filteredRows = [];

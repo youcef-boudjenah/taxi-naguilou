@@ -4,8 +4,17 @@ $pageTitle = 'Garde de Nuit & Planning des Chauffeurs';
 require_once __DIR__ . '/../includes/header.php';
 
 $pdo = getDBConnection();
-$drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
-$vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll();
+$drivers = [];
+$vehicles = [];
+if ($pdo) {
+    try {
+        $drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll() ?: [];
+    } catch (\Throwable $e) { $drivers = []; }
+
+    try {
+        $vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll() ?: [];
+    } catch (\Throwable $e) { $vehicles = []; }
+}
 
 // Handle New Shift Schedule
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_shift') {
@@ -16,15 +25,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $shiftType = $_POST['shift_type'] ?? 'matin';
     $isPermanence = isset($_POST['is_permanence']) ? 1 : 0;
 
-    if ($driverId > 0 && $vehicleId > 0) {
-        $stmt = $pdo->prepare("
-            INSERT INTO driver_schedules (driver_id, vehicle_id, shift_date, shift_type, is_permanence)
-            VALUES (?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([$driverId, $vehicleId, $shiftDate, $shiftType, $isPermanence]);
-        $sId = (int)$pdo->lastInsertId();
-        log_audit($pdo, 'shift_scheduled', 'driver_schedules', $sId, "برمجة مناوبة للسائق $driverId على المركبة $vehicleId بتاريخ $shiftDate");
-        set_flash('success', 'تم تسجيل مناوبة السائق بنجاح في الجدول التقديري');
+    if ($driverId > 0 && $vehicleId > 0 && $pdo) {
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO driver_schedules (driver_id, vehicle_id, shift_date, shift_type, is_permanence)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([$driverId, $vehicleId, $shiftDate, $shiftType, $isPermanence]);
+            $sId = (int)$pdo->lastInsertId();
+            log_audit($pdo, 'shift_scheduled', 'driver_schedules', $sId, "برمجة مناوبة للسائق $driverId على المركبة $vehicleId بتاريخ $shiftDate");
+            set_flash('success', 'تم تسجيل مناوبة السائق بنجاح في الجدول التقديري');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر تسجيل المناوبة: ' . $e->getMessage());
+        }
         redirect('/dashboard/planning.php');
     }
 }
@@ -37,15 +50,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $slot = trim($_POST['park_slot'] ?? 'Zone A');
     $notes = trim($_POST['notes'] ?? '');
 
-    if ($vId > 0) {
-        $stmt = $pdo->prepare("
-            INSERT INTO night_watch (vehicle_id, guardian_name, park_slot, entry_time, status, notes)
-            VALUES (?, ?, ?, NOW(), 'in_park', ?)
-        ");
-        $stmt->execute([$vId, $guardian, $slot, $notes]);
-        $nwId = (int)$pdo->lastInsertId();
-        log_audit($pdo, 'night_watch_entry', 'night_watch', $nwId, "إيواء المركبة $vId في الحظيرة بموقف $slot تحت حراسة $guardian");
-        set_flash('success', 'تم تسجيل إيواء المركبة في حراسة الحظيرة الليلية (Garde de nuit)');
+    if ($vId > 0 && $pdo) {
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO night_watch (vehicle_id, guardian_name, park_slot, entry_time, status, notes)
+                VALUES (?, ?, ?, NOW(), 'in_park', ?)
+            ");
+            $stmt->execute([$vId, $guardian, $slot, $notes]);
+            $nwId = (int)$pdo->lastInsertId();
+            log_audit($pdo, 'night_watch_entry', 'night_watch', $nwId, "إيواء المركبة $vId في الحظيرة بموقف $slot تحت حراسة $guardian");
+            set_flash('success', 'تم تسجيل إيواء المركبة في حراسة الحظيرة الليلية (Garde de nuit)');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر تسجيل دخول الحظيرة: ' . $e->getMessage());
+        }
         redirect('/dashboard/planning.php');
     }
 }
@@ -54,39 +71,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'exit_park') {
     require_csrf_token();
     $nwId = intval($_POST['night_watch_id'] ?? 0);
-    if ($nwId > 0) {
-        $pdo->prepare("UPDATE night_watch SET status = 'sorti', exit_time = NOW() WHERE id = ?")->execute([$nwId]);
-        log_audit($pdo, 'night_watch_exit', 'night_watch', $nwId, "تسجيل خروج المركبة من الحظيرة إلى الخدمة");
-        set_flash('success', 'تم تسجيل خروج سيارة الأجرة من الحظيرة إلى الخدمة الصباحية');
+    if ($nwId > 0 && $pdo) {
+        try {
+            $pdo->prepare("UPDATE night_watch SET status = 'sorti', exit_time = NOW() WHERE id = ?")->execute([$nwId]);
+            log_audit($pdo, 'night_watch_exit', 'night_watch', $nwId, "تسجيل خروج المركبة من الحظيرة إلى الخدمة");
+            set_flash('success', 'تم تسجيل خروج سيارة الأجرة من الحظيرة إلى الخدمة الصباحية');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر تسجيل الخروج: ' . $e->getMessage());
+        }
     }
     redirect('/dashboard/planning.php');
 }
 
 // Fetch Night Watch records
-$nightWatch = $pdo->query("
-    SELECT nw.*, v.brand, v.model, v.plate_number, v.door_number
-    FROM night_watch nw
-    JOIN vehicles v ON nw.vehicle_id = v.id
-    WHERE nw.status = 'in_park'
-    ORDER BY nw.entry_time DESC
-")->fetchAll();
+$nightWatch = [];
+if ($pdo) {
+    try {
+        $stmtNW = $pdo->query("
+            SELECT nw.*, v.brand, v.model, v.plate_number, v.door_number
+            FROM night_watch nw
+            JOIN vehicles v ON nw.vehicle_id = v.id
+            WHERE nw.status = 'in_park'
+            ORDER BY nw.entry_time DESC
+        ");
+        $nightWatch = $stmtNW ? $stmtNW->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $nightWatch = [];
+    }
+}
 
 // Fetch 3-day schedules (Today, Tomorrow, Day+2)
 $today = date('Y-m-d');
 $day1 = date('Y-m-d', strtotime('+1 day'));
 $day2 = date('Y-m-d', strtotime('+2 days'));
 
-$schedules = $pdo->prepare("
-    SELECT s.*, u.full_name as driver_name, u.phone as driver_phone,
-           v.brand, v.model, v.plate_number, v.door_number
-    FROM driver_schedules s
-    JOIN users u ON s.driver_id = u.id
-    JOIN vehicles v ON s.vehicle_id = v.id
-    WHERE s.shift_date IN (?, ?, ?)
-    ORDER BY s.shift_date ASC, s.shift_type ASC
-");
-$schedules->execute([$today, $day1, $day2]);
-$allShifts = $schedules->fetchAll();
+$allShifts = [];
+if ($pdo) {
+    try {
+        $schedules = $pdo->prepare("
+            SELECT s.*, u.full_name as driver_name, u.phone as driver_phone,
+                   v.brand, v.model, v.plate_number, v.door_number
+            FROM driver_schedules s
+            JOIN users u ON s.driver_id = u.id
+            JOIN vehicles v ON s.vehicle_id = v.id
+            WHERE s.shift_date IN (?, ?, ?)
+            ORDER BY s.shift_date ASC, s.shift_type ASC
+        ");
+        $schedules->execute([$today, $day1, $day2]);
+        $allShifts = $schedules->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        $allShifts = [];
+    }
+}
 
 // Group shifts by date
 $shiftsByDate = [

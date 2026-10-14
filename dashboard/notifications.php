@@ -68,16 +68,38 @@ if ($filterType === 'unread') {
     $where[] = "type IN ('info', 'warning', 'success')";
 }
 
-$sql = "SELECT * FROM notifications WHERE " . implode(' AND ', $where) . " ORDER BY created_at DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$notificationsList = $stmt->fetchAll();
+$notificationsList = [];
+$totalNotifs = 0;
+$unreadCount = 0;
+$urgentCount = 0;
+$infoCount = 0;
 
-// KPI Counts
-$totalNotifs = (int)$pdo->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
-$unreadCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
-$urgentCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('urgent', 'alert')")->fetchColumn();
-$infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('info', 'warning', 'success')")->fetchColumn();
+if ($pdo) {
+    try {
+        $sql = "SELECT * FROM notifications WHERE " . implode(' AND ', $where) . " ORDER BY created_at DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $notificationsList = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        $notificationsList = [];
+    }
+
+    try {
+        $totalNotifs = (int)$pdo->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
+    } catch (\Throwable $e) { $totalNotifs = 0; }
+
+    try {
+        $unreadCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
+    } catch (\Throwable $e) { $unreadCount = 0; }
+
+    try {
+        $urgentCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('urgent', 'alert')")->fetchColumn();
+    } catch (\Throwable $e) { $urgentCount = 0; }
+
+    try {
+        $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('info', 'warning', 'success')")->fetchColumn();
+    } catch (\Throwable $e) { $infoCount = 0; }
+}
 ?>
 
 <div class="space-y-6">

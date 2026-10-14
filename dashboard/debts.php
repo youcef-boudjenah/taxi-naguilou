@@ -144,49 +144,85 @@ $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, endette, a_jour
 $driverType = $_GET['type'] ?? 'all'; // all, actif, ancien
 
-$registeredDrivers = $pdo ? $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' ORDER BY full_name ASC")->fetchAll() : [];
+$registeredDrivers = [];
+$debts = [];
+$dettesActifs = 0.0;
+$creancesAnciens = 0.0;
+$countActifs = 0;
+$countAnciens = 0;
 
-$where = ["1=1"];
-$params = [];
+if ($pdo) {
+    try {
+        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' ORDER BY full_name ASC");
+        $registeredDrivers = $stmtD ? $stmtD->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $registeredDrivers = [];
+    }
 
-if (!empty($search)) {
-    $where[] = "(chauffeur_name LIKE ? OR phone LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
+    $where = ["1=1"];
+    $params = [];
+
+    if (!empty($search)) {
+        $where[] = "(chauffeur_name LIKE ? OR phone LIKE ?)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+    }
+
+    if ($filter === 'endette') {
+        $where[] = "status = 'endette'";
+    } elseif ($filter === 'a_jour') {
+        $where[] = "status = 'a_jour'";
+    }
+
+    if ($driverType === 'actif') {
+        $where[] = "driver_type = 'actif'";
+    } elseif ($driverType === 'ancien') {
+        $where[] = "driver_type = 'ancien'";
+    }
+
+    try {
+        $sql = "SELECT * FROM driver_debts WHERE " . implode(' AND ', $where) . " ORDER BY (total_credits - total_versements) DESC, id ASC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $debts = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("debts.php - Query debts notice: " . $e->getMessage());
+        $debts = [];
+    }
+
+    // Dynamic KPI Calculations from Real Database Data
+    try {
+        $dettesActifs = (float)$pdo->query("
+            SELECT COALESCE(SUM(total_credits - total_versements), 0) 
+            FROM driver_debts 
+            WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0
+        ")->fetchColumn();
+    } catch (\Throwable $e) {
+        $dettesActifs = 0.0;
+    }
+
+    try {
+        $creancesAnciens = (float)$pdo->query("
+            SELECT COALESCE(SUM(total_credits - total_versements), 0) 
+            FROM driver_debts 
+            WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0
+        ")->fetchColumn();
+    } catch (\Throwable $e) {
+        $creancesAnciens = 0.0;
+    }
+
+    try {
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'actif'")->fetchColumn();
+    } catch (\Throwable $e) {
+        $countActifs = 0;
+    }
+
+    try {
+        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien'")->fetchColumn();
+    } catch (\Throwable $e) {
+        $countAnciens = 0;
+    }
 }
-
-if ($filter === 'endette') {
-    $where[] = "status = 'endette'";
-} elseif ($filter === 'a_jour') {
-    $where[] = "status = 'a_jour'";
-}
-
-if ($driverType === 'actif') {
-    $where[] = "driver_type = 'actif'";
-} elseif ($driverType === 'ancien') {
-    $where[] = "driver_type = 'ancien'";
-}
-
-$sql = "SELECT * FROM driver_debts WHERE " . implode(' AND ', $where) . " ORDER BY (total_credits - total_versements) DESC, id ASC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$debts = $stmt->fetchAll();
-
-// Dynamic KPI Calculations from Real Database Data
-$dettesActifs = (float)$pdo->query("
-    SELECT COALESCE(SUM(total_credits - total_versements), 0) 
-    FROM driver_debts 
-    WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0
-")->fetchColumn();
-
-$creancesAnciens = (float)$pdo->query("
-    SELECT COALESCE(SUM(total_credits - total_versements), 0) 
-    FROM driver_debts 
-    WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0
-")->fetchColumn();
-
-$countActifs = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'actif'")->fetchColumn();
-$countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien'")->fetchColumn();
 ?>
 
 <div class="space-y-6">

@@ -6,8 +6,19 @@ require_once __DIR__ . '/../includes/header.php';
 $pdo = getDBConnection();
 
 // Fetch vehicles and drivers for selector
-$vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll();
-$drivers = $pdo->query("SELECT id, full_name, phone, license_number FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+$vehicles = [];
+$drivers = [];
+if ($pdo) {
+    try {
+        $stmtV = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC");
+        $vehicles = $stmtV ? $stmtV->fetchAll() : [];
+    } catch (\Throwable $e) { $vehicles = []; }
+
+    try {
+        $stmtD = $pdo->query("SELECT id, full_name, phone, license_number FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC");
+        $drivers = $stmtD ? $stmtD->fetchAll() : [];
+    } catch (\Throwable $e) { $drivers = []; }
+}
 
 // Active tab
 $activeTab = $_GET['tab'] ?? 'generator'; // 'generator' or 'history'
@@ -64,34 +75,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch History of Slips
-$slipsHistory = $pdo->query("
-    SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
-           u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
-    FROM transmission_slips s
-    JOIN vehicles v ON s.vehicle_id = v.id
-    JOIN users u ON s.driver_id = u.id
-    ORDER BY s.id DESC
-")->fetchAll();
+$slipsHistory = [];
+if ($pdo) {
+    try {
+        $stmtH = $pdo->query("
+            SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
+                   u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
+            FROM transmission_slips s
+            JOIN vehicles v ON s.vehicle_id = v.id
+            JOIN users u ON s.driver_id = u.id
+            ORDER BY s.id DESC
+        ");
+        $slipsHistory = $stmtH ? $stmtH->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $slipsHistory = [];
+    }
+}
 
 // If a slip print ID is requested directly via GET
-if (isset($_GET['print_id'])) {
-    $pId = intval($_GET['print_id']);
-    $stmtPrint = $pdo->prepare("
-        SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
-               u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
-        FROM transmission_slips s
-        JOIN vehicles v ON s.vehicle_id = v.id
-        JOIN users u ON s.driver_id = u.id
-        WHERE s.id = ?
-    ");
-    $stmtPrint->execute([$pId]);
-    $generatedSlip = $stmtPrint->fetch();
-    if ($generatedSlip) {
-        $parts = explode(' | ', $generatedSlip['route_line']);
-        $generatedSlip['subject'] = $parts[0] ?? 'Bordereau d\'envoi officiel';
-        $generatedSlip['recipient'] = $parts[1] ?? 'Direction des Transports de la Wilaya';
-        $generatedSlip['route_line_clean'] = $parts[2] ?? $generatedSlip['route_line'];
-        $generatedSlip['notes'] = 'Dossier administratif certifié conforme pour contrôle réglementaire.';
+if (isset($_GET['print_id']) && $pdo) {
+    try {
+        $pId = intval($_GET['print_id']);
+        $stmtPrint = $pdo->prepare("
+            SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
+                   u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
+            FROM transmission_slips s
+            JOIN vehicles v ON s.vehicle_id = v.id
+            JOIN users u ON s.driver_id = u.id
+            WHERE s.id = ?
+        ");
+        $stmtPrint->execute([$pId]);
+        $generatedSlip = $stmtPrint->fetch();
+        if ($generatedSlip) {
+            $parts = explode(' | ', $generatedSlip['route_line']);
+            $generatedSlip['subject'] = $parts[0] ?? 'Bordereau d\'envoi officiel';
+            $generatedSlip['recipient'] = $parts[1] ?? 'Direction des Transports de la Wilaya';
+            $generatedSlip['route_line_clean'] = $parts[2] ?? $generatedSlip['route_line'];
+            $generatedSlip['notes'] = 'Dossier administratif certifié conforme pour contrôle réglementaire.';
+        }
+    } catch (\Throwable $e) {
+        $generatedSlip = null;
     }
 }
 ?>

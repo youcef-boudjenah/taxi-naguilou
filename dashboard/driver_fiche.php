@@ -8,21 +8,36 @@ $pdo = getDBConnection();
 
 $driver = null;
 if ($pdo && $driverId > 0) {
-    $stmt = $pdo->prepare("
-        SELECT u.*, 
-               v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.color,
-               v.insurance_expiry, v.technical_control_expiry,
-               c.id as contract_id, c.contract_number, c.start_date as contract_start, c.end_date as contract_end, 
-               c.monthly_wage, c.status as contract_status,
-               u_owner.full_name as owner_name, u_owner.phone as owner_phone
-        FROM users u
-        LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id)
-        LEFT JOIN contracts c ON (c.driver_id = u.id AND c.status = 'signed')
-        LEFT JOIN users u_owner ON (c.owner_id = u_owner.id OR v.owner_id = u_owner.id)
-        WHERE u.id = ? AND u.role = 'driver'
-    ");
-    $stmt->execute([$driverId]);
-    $driver = $stmt->fetch();
+    try {
+        $hasVehReplCol = false;
+        try {
+            $pdo->query("SELECT replacement_driver_id FROM vehicles LIMIT 0");
+            $hasVehReplCol = true;
+        } catch (\Throwable $e) {}
+
+        $joinVehOn = $hasVehReplCol 
+            ? "(v.current_driver_id = u.id OR v.replacement_driver_id = u.id)"
+            : "v.current_driver_id = u.id";
+
+        $stmt = $pdo->prepare("
+            SELECT u.*, 
+                   v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.color,
+                   v.insurance_expiry, v.technical_control_expiry,
+                   c.id as contract_id, c.contract_number, c.start_date as contract_start, c.end_date as contract_end, 
+                   c.monthly_wage, c.status as contract_status,
+                   u_owner.full_name as owner_name, u_owner.phone as owner_phone
+            FROM users u
+            LEFT JOIN vehicles v ON $joinVehOn
+            LEFT JOIN contracts c ON (c.driver_id = u.id AND c.status = 'signed')
+            LEFT JOIN users u_owner ON (c.owner_id = u_owner.id OR v.owner_id = u_owner.id)
+            WHERE u.id = ? AND u.role = 'driver'
+        ");
+        $stmt->execute([$driverId]);
+        $driver = $stmt->fetch();
+    } catch (\Throwable $e) {
+        error_log("driver_fiche query error: " . $e->getMessage());
+        $driver = null;
+    }
 }
 
 // Handle stage update from driver fiche

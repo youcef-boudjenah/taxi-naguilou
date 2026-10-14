@@ -73,20 +73,37 @@ $totalCotisationsPaid = 0.00;
 $pendingCotisations = 0.00;
 
 if ($pdo) {
-    $stmtDec = $pdo->query("
-        SELECT c.*, u.full_name as driver_name, u.phone as driver_phone, u.wilaya,
-               DATEDIFF(c.attestation_expiry, CURDATE()) as days_to_expiry
-        FROM cnas_declarations c
-        JOIN users u ON c.driver_id = u.id
-        ORDER BY c.created_at DESC
-    ");
-    $declarations = $stmtDec->fetchAll();
+    try {
+        $stmtDec = $pdo->query("
+            SELECT c.*, u.full_name as driver_name, u.phone as driver_phone, u.wilaya,
+                   DATEDIFF(c.attestation_expiry, CURDATE()) as days_to_expiry
+            FROM cnas_declarations c
+            JOIN users u ON c.driver_id = u.id
+            ORDER BY c.created_at DESC
+        ");
+        $declarations = $stmtDec ? $stmtDec->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $declarations = [];
+    }
 
-    $driversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+    try {
+        $stmtDrv = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC");
+        $driversList = $stmtDrv ? $stmtDrv->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $driversList = [];
+    }
 
-    $totalDeclaredDrivers = (int)$pdo->query("SELECT COUNT(DISTINCT driver_id) FROM cnas_declarations")->fetchColumn();
-    $totalCotisationsPaid = (float)$pdo->query("SELECT COALESCE(SUM(total_cotisation), 0) FROM cnas_declarations WHERE payment_status = 'regle'")->fetchColumn();
-    $pendingCotisations = (float)$pdo->query("SELECT COALESCE(SUM(total_cotisation), 0) FROM cnas_declarations WHERE payment_status != 'regle'")->fetchColumn();
+    try {
+        $totalDeclaredDrivers = (int)$pdo->query("SELECT COUNT(DISTINCT driver_id) FROM cnas_declarations")->fetchColumn();
+    } catch (\Throwable $e) { $totalDeclaredDrivers = 0; }
+
+    try {
+        $totalCotisationsPaid = (float)$pdo->query("SELECT COALESCE(SUM(total_cotisation), 0) FROM cnas_declarations WHERE payment_status = 'regle'")->fetchColumn();
+    } catch (\Throwable $e) { $totalCotisationsPaid = 0.0; }
+
+    try {
+        $pendingCotisations = (float)$pdo->query("SELECT COALESCE(SUM(total_cotisation), 0) FROM cnas_declarations WHERE payment_status != 'regle'")->fetchColumn();
+    } catch (\Throwable $e) { $pendingCotisations = 0.0; }
 }
 ?>
 

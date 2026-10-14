@@ -70,13 +70,25 @@ $distinctActions = [];
 $distinctEntities = [];
 
 if ($pdo) {
-    $totalLogsCount = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
-    $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs ORDER BY action ASC")->fetchAll(PDO::FETCH_COLUMN);
-    $distinctEntities = $pdo->query("SELECT DISTINCT entity FROM audit_logs ORDER BY entity ASC")->fetchAll(PDO::FETCH_COLUMN);
+    try {
+        $totalLogsCount = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
+    } catch (\Throwable $e) { $totalLogsCount = 0; }
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $logs = $stmt->fetchAll();
+    try {
+        $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs ORDER BY action ASC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (\Throwable $e) { $distinctActions = []; }
+
+    try {
+        $distinctEntities = $pdo->query("SELECT DISTINCT entity FROM audit_logs ORDER BY entity ASC")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (\Throwable $e) { $distinctEntities = []; }
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $logs = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        $logs = [];
+    }
 }
 ?>
 

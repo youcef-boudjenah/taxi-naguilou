@@ -93,15 +93,31 @@ $sql = "
     ORDER BY c.id DESC
 ";
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$contracts = $stmt->fetchAll();
+$contracts = [];
+$countTous = 0;
+$countActifs = 0;
+$countExpires = 0;
 
-// Display metrics
-$countTous = (int)$pdo->query("SELECT COUNT(*) FROM contracts")->fetchColumn();
-if ($countTous === 0) $countTous = count($contracts);
-$countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
-$countExpires = max(0, $countTous - $countActifs);
+if ($pdo) {
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $contracts = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("contracts.php - Query contracts error: " . $e->getMessage());
+        $contracts = [];
+    }
+
+    try {
+        $countTous = (int)$pdo->query("SELECT COUNT(*) FROM contracts")->fetchColumn();
+    } catch (\Throwable $e) { $countTous = count($contracts); }
+
+    try {
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
+    } catch (\Throwable $e) { $countActifs = 0; }
+
+    $countExpires = max(0, $countTous - $countActifs);
+}
 ?>
 
 <div class="space-y-6">

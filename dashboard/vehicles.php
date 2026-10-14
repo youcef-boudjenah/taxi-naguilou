@@ -124,48 +124,85 @@ $pageTitle = 'سجل المركبات والوثائق';
 require_once __DIR__ . '/../includes/header.php';
 
 // Stats for Quick KPI Strip
-$totalVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
-$assignedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE current_driver_id IS NOT NULL")->fetchColumn();
-$expiringDocsCount = (int)$pdo->query("
-    SELECT COUNT(*) FROM vehicles 
-    WHERE (technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND technical_control_expiry IS NOT NULL)
-       OR (insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND insurance_expiry IS NOT NULL)
-")->fetchColumn();
-$conformityCount = max(0, $totalVehiclesCount - $expiringDocsCount);
+$totalVehiclesCount = 0;
+$assignedVehiclesCount = 0;
+$expiringDocsCount = 0;
+$conformityCount = 0;
+$vehicles = [];
 
-// Fetch vehicles with filters
-$search = trim($_GET['search'] ?? '');
-$filter = $_GET['filter'] ?? 'all';
+if ($pdo) {
+    try {
+        $totalVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+    } catch (\Throwable $e) {}
 
-$query = "SELECT v.*, u.full_name as driver_name, u.phone as driver_phone, r.full_name as replacement_driver_name, r.phone as replacement_driver_phone FROM vehicles v LEFT JOIN users u ON v.current_driver_id = u.id LEFT JOIN users r ON v.replacement_driver_id = r.id WHERE 1=1";
-$params = [];
+    try {
+        $assignedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE current_driver_id IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
 
-if (!empty($search)) {
-    $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR v.door_number LIKE ?)";
-    $params = ["%$search%", "%$search%", "%$search%", "%$search%", "%$search%"];
+    try {
+        $expiringDocsCount = (int)$pdo->query("
+            SELECT COUNT(*) FROM vehicles 
+            WHERE (technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND technical_control_expiry IS NOT NULL)
+               OR (insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND insurance_expiry IS NOT NULL)
+        ")->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    $conformityCount = max(0, $totalVehiclesCount - $expiringDocsCount);
+
+    // Fetch vehicles with filters
+    $search = trim($_GET['search'] ?? '');
+    $filter = $_GET['filter'] ?? 'all';
+
+    $hasReplacementCol = false;
+    try {
+        $pdo->query("SELECT replacement_driver_id FROM vehicles LIMIT 0");
+        $hasReplacementCol = true;
+    } catch (\Throwable $e) {}
+
+    $joinRepl = $hasReplacementCol ? "LEFT JOIN users r ON v.replacement_driver_id = r.id" : "";
+    $selectRepl = $hasReplacementCol ? "r.full_name as replacement_driver_name, r.phone as replacement_driver_phone," : "NULL as replacement_driver_name, NULL as replacement_driver_phone,";
+
+    $query = "SELECT v.*, u.full_name as driver_name, u.phone as driver_phone, $selectRepl v.id FROM vehicles v LEFT JOIN users u ON v.current_driver_id = u.id $joinRepl WHERE 1=1";
+    $params = [];
+
+    if (!empty($search)) {
+        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR v.door_number LIKE ?)";
+        $params = ["%$search%", "%$search%", "%$search%", "%$search%", "%$search%"];
+    }
+
+    if ($filter === 'expiring') {
+        $query .= " AND ((v.technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.technical_control_expiry IS NOT NULL) OR (v.insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.insurance_expiry IS NOT NULL))";
+    } elseif ($filter === 'unassigned') {
+        $query .= " AND v.current_driver_id IS NULL";
+    }
+
+    if (is_driver()) {
+        $dId = intval($_SESSION['user_id']);
+        if ($hasReplacementCol) {
+            $query .= " AND (v.current_driver_id = ? OR v.replacement_driver_id = ?)";
+            $params[] = $dId;
+            $params[] = $dId;
+        } else {
+            $query .= " AND v.current_driver_id = ?";
+            $params[] = $dId;
+        }
+    } elseif (is_owner() && !is_admin()) {
+        $oId = intval($_SESSION['user_id']);
+        $query .= " AND (v.owner_id = ? OR v.owner_id IS NULL)";
+        $params[] = $oId;
+    }
+
+    $query .= " ORDER BY v.id DESC";
+
+    try {
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+        $vehicles = $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("vehicles.php - Query vehicles error: " . $e->getMessage());
+        $vehicles = [];
+    }
 }
-
-if ($filter === 'expiring') {
-    $query .= " AND ((v.technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.technical_control_expiry IS NOT NULL) OR (v.insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.insurance_expiry IS NOT NULL))";
-} elseif ($filter === 'unassigned') {
-    $query .= " AND v.current_driver_id IS NULL";
-}
-
-if (is_driver()) {
-    $dId = intval($_SESSION['user_id']);
-    $query .= " AND (v.current_driver_id = ? OR v.replacement_driver_id = ?)";
-    $params[] = $dId;
-    $params[] = $dId;
-} elseif (is_owner() && !is_admin()) {
-    $oId = intval($_SESSION['user_id']);
-    $query .= " AND (v.owner_id = ? OR v.owner_id IS NULL)";
-    $params[] = $oId;
-}
-
-$query .= " ORDER BY v.id DESC";
-$stmt = $pdo->prepare($query);
-$stmt->execute($params);
-$vehicles = $stmt->fetchAll();
 
 // Vehicle to edit if edit param present
 $editVehicle = null;
