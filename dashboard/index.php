@@ -54,23 +54,22 @@ if ($pdo) {
          Category 1: الأسطول والمركبات (Fleet & Vehicles)
          ============================================== -->
 
-    <!-- 1. تتبع الأسطول الميداني -->
-    <a href="<?= url('/dashboard/fleet.php') ?>" data-category="fleet" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+    <!-- 1. السائقون والبطاقات المهنية -->
+    <a href="<?= url('/dashboard/drivers.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
+            <div class="p-2.5 rounded-lg bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white transition">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                 </svg>
             </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 font-num">
-                <?= $counts['fleet_tracking'] ?> نشطة
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 font-num">
+                <?= $counts['drivers'] ?> سائق
             </span>
         </div>
         <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-blue-600 transition">تتبع الأسطول الميداني</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">خريطة ومواقع المركبات في الخدمة</p>
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-violet-600 transition">السائقون والبطاقات المهنية</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">دفاتر المقررة والبطاقات الفنية</p>
         </div>
     </a>
 
@@ -93,7 +92,65 @@ if ($pdo) {
         </div>
     </a>
 
-    <!-- 3. إدارة التأمين والمراقبة التقنية -->
+    <!-- 3. عقود العمل (قانون 90-11) -->
+    <a href="<?= url('/dashboard/contracts.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-teal-50 text-teal-600 group-hover:bg-teal-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 font-num">
+                <?= $counts['contracts'] ?> موثق
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-teal-600 transition">عقود العمل (قانون 90-11)</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">عقود إيجار واستغلال رخصة الأجرة</p>
+        </div>
+    </a>
+
+    <!-- 4. الضمان الاجتماعي (CNAS) -->
+    <a href="<?= url('/dashboard/cnas.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.333A12.016 12.016 0 0012 9c-2.474 0-4.78.747-6.75 2.033V21" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 font-num">
+                <?= $counts['cnas'] ?> تصريح
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-sky-600 transition">الضمان الاجتماعي (CNAS)</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">تصريحات الأجراء والاشتراكات</p>
+        </div>
+    </a>
+
+    <!-- 5. تتبع الأسطول الميداني -->
+    <a href="<?= url('/dashboard/fleet.php') ?>" data-category="fleet" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 font-num">
+                <?= $counts['fleet_tracking'] ?> نشطة
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-blue-600 transition">تتبع الأسطول الميداني</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">خريطة ومواقع المركبات في الخدمة</p>
+        </div>
+    </a>
+
+    <!-- 6. إدارة التأمين والمراقبة التقنية -->
     <a href="<?= url('/dashboard/insurance.php') ?>" data-category="fleet" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -115,67 +172,6 @@ if ($pdo) {
         <div class="mt-4">
             <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-emerald-600 transition">التأمين والمراقبة التقنية</h3>
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">بوالص التأمين، فحص GPL والعداد</p>
-        </div>
-    </a>
-
-    <!-- ==============================================
-         Category 2: السائقون والتشغيل (Drivers & Operations)
-         ============================================== -->
-
-    <!-- 4. السائقون والبطاقات المهنية -->
-    <a href="<?= url('/dashboard/drivers.php') ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 font-num">
-                <?= $counts['drivers'] ?> سائق
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-violet-600 transition">السائقون والبطاقات المهنية</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">دفاتر المقررة والبطاقات الفنية</p>
-        </div>
-    </a>
-
-    <!-- 5. عقود العمل (قانون 90-11) -->
-    <a href="<?= url('/dashboard/contracts.php') ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-teal-50 text-teal-600 group-hover:bg-teal-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 font-num">
-                <?= $counts['contracts'] ?> موثق
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-teal-600 transition">عقود العمل (قانون 90-11)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">عقود إيجار واستغلال رخصة الأجرة</p>
-        </div>
-    </a>
-
-    <!-- 6. الضمان الاجتماعي (CNAS) -->
-    <a href="<?= url('/dashboard/cnas.php') ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-sky-50 text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.333A12.016 12.016 0 0012 9c-2.474 0-4.78.747-6.75 2.033V21" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-sky-700 font-num">
-                <?= $counts['cnas'] ?> تصريح
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-sky-600 transition">الضمان الاجتماعي (CNAS)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">تصريحات الأجراء والاشتراكات</p>
         </div>
     </a>
 

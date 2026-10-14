@@ -730,45 +730,15 @@ if ($pdo) {
                     </div>
                 </div>
 
-                <!-- Driver Status Type (Radio Cards) -->
-                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                    <label class="block font-black text-slate-800 text-xs">صفة السائق في الاستغلال (Qualité du Chauffeur)</label>
-                    
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-amber-500 bg-amber-50/50 cursor-pointer flex items-start gap-3 transition">
-                            <input type="radio" name="driver_type" value="ajir" checked class="mt-0.5 text-amber-600 focus:ring-amber-500">
-                            <div>
-                                <span class="font-black text-slate-900 block text-xs">أجير (Salarié)</span>
-                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">عقد عمل خاضع للقانون 90-11 والتصريح لدى CNAS</span>
-                            </div>
-                        </label>
-                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-slate-200 bg-white hover:border-slate-300 cursor-pointer flex items-start gap-3 transition">
-                            <input type="radio" name="driver_type" value="loueur" class="mt-0.5 text-amber-600 focus:ring-amber-500">
-                            <div>
-                                <span class="font-black text-slate-900 block text-xs">مؤجر رخصة (Loueur)</span>
-                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">عقد إيجار واستغلال رخصة سيارة الأجرة</span>
-                            </div>
-                        </label>
-                        <label class="driver-type-card p-3.5 rounded-xl border-2 border-slate-200 bg-white hover:border-slate-300 cursor-pointer flex items-start gap-3 transition">
-                            <input type="radio" name="driver_type" value="artisan" class="mt-0.5 text-amber-600 focus:ring-amber-500">
-                            <div>
-                                <span class="font-black text-slate-900 block text-xs">حرفي تاكسي (Artisan)</span>
-                                <span class="text-[11px] text-slate-500 leading-relaxed block mt-0.5">بطاقة الحرفي واستغلال فردي مباشر</span>
-                            </div>
-                        </label>
-                    </div>
+                <!-- Driver Status Type (Default to 'ajir' as requested) -->
+                <input type="hidden" name="driver_type" value="ajir">
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ بداية النشاط (Début d'activité)</label>
-                            <input type="date" name="activity_start_date" value="2024-09-03"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تأشيرة مديرية النقل (Visa DTW)</label>
-                            <input type="date" name="dtw_visa_date" value="2024-09-03"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
+                    <label class="block font-black text-slate-800 text-xs">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
+                    <div>
+                        <input type="date" name="activity_start_date" value="2024-09-03"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                        <p class="text-[11px] text-slate-400 mt-1.5">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة المعتمد في السجلات الرسمية.</p>
                     </div>
                 </div>
 
@@ -807,17 +777,10 @@ if ($pdo) {
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تأشيرة الفحص الطبي من مديرية النقل (DTW)</label>
-                            <input type="date" name="medical_visa_date" id="medVisaInput" value="2024-09-20"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ إجراء الفحص الطبي (Date Examen)</label>
-                            <input type="date" value="2024-09-01"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1.5">تاريخ إجراء الفحص الطبي (Date Examen)</label>
+                        <input type="date" value="2024-09-01"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                     </div>
                 </div>
 
@@ -882,21 +845,38 @@ if ($pdo) {
 
                     <!-- Contract Validity Period -->
                     <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                        <label class="block font-black text-slate-800 text-xs">صلاحية عقد العمل ورخصة الأجرة (3 سنوات)</label>
+                        <div class="flex items-center justify-between">
+                            <label class="block font-black text-slate-800 text-xs">صلاحية عقد العمل ورخصة الأجرة</label>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="autoCalculateTaxiContractDates(3)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-slate-950 hover:bg-amber-600 transition shadow-2xs font-num">
+                                    3 سنوات (قياسي)
+                                </button>
+                                <button type="button" onclick="autoCalculateTaxiContractDates(5)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition font-num">
+                                    5 سنوات
+                                </button>
+                                <button type="button" onclick="autoCalculateTaxiContractDates(1)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition font-num">
+                                    سنة واحدة
+                                </button>
+                            </div>
+                        </div>
                         
                         <div class="grid grid-cols-2 gap-2.5">
                             <div>
                                 <label class="block font-bold text-slate-600 text-[11px] mb-1">من (Début)</label>
-                                <input type="date" name="taxi_contract_start" value="2024-09-01"
+                                <input type="date" name="taxi_contract_start" id="taxiContractStart" value="2024-09-01"
+                                       onchange="autoCalculateTaxiContractDates(3)"
                                        class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                             </div>
                             <div>
-                                <label class="block font-bold text-slate-600 text-[11px] mb-1">إلى (Fin)</label>
-                                <input type="date" name="taxi_contract_end" value="2027-08-31"
+                                <label class="block font-bold text-slate-600 text-[11px] mb-1">
+                                    <span>إلى (Fin)</span>
+                                    <span class="text-[10px] text-emerald-600 font-normal mr-1">(محسوب تلقائياً)</span>
+                                </label>
+                                <input type="date" name="taxi_contract_end" id="taxiContractEnd" value="2027-08-31"
                                        class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                             </div>
                         </div>
-                        <p class="text-[11px] text-slate-400">عقد استغلال رخصة الأجرة وفق المرسوم التنفيذي 12-230.</p>
+                        <p class="text-[11px] text-slate-400">عقد استغلال رخصة الأجرة وفق المرسوم التنفيذي 12-230. يحسب تاريخ الانتهاء تلقائياً بمجرد إدخال تاريخ البداية.</p>
                     </div>
 
                 </div>
@@ -1170,6 +1150,21 @@ if ($pdo) {
             if (!isNaN(startDate.getTime())) {
                 const endDate = new Date(startDate);
                 endDate.setFullYear(endDate.getFullYear() + 2);
+                endDate.setDate(endDate.getDate() - 1);
+                endInput.value = endDate.toISOString().split('T')[0];
+            }
+        }
+    }
+
+    // Auto-calculate Taxi Contract dates (+3 years default)
+    function autoCalculateTaxiContractDates(years = 3) {
+        const startInput = document.getElementById('taxiContractStart');
+        const endInput = document.getElementById('taxiContractEnd');
+        if (startInput && startInput.value && endInput) {
+            const startDate = new Date(startInput.value);
+            if (!isNaN(startDate.getTime())) {
+                const endDate = new Date(startDate);
+                endDate.setFullYear(endDate.getFullYear() + parseInt(years));
                 endDate.setDate(endDate.getDate() - 1);
                 endInput.value = endDate.toISOString().split('T')[0];
             }

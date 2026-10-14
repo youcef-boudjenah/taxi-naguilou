@@ -346,22 +346,9 @@ $countExpires = max(0, $countTous - $countActifs);
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_contract">
 
-            <!-- Vehicle -->
-            <div>
-                <label class="block font-bold text-slate-700 mb-1.5">
-                    اختر سيارة الأجرة من الأسطول (Véhicule) <span class="text-rose-500">*</span>
-                </label>
-                <select name="vehicle_id" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
-                    <option value="">-- حدد السيارة من الأسطول --</option>
-                    <?php foreach ($vehicles as $v): ?>
-                        <option value="<?= $v['id'] ?>">
-                            <?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (لوحة: <?= htmlspecialchars($v['plate_number']) ?> - باب: <?= htmlspecialchars($v['door_number']) ?>)
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+            <input type="hidden" name="monthly_wage" value="45000">
 
-            <!-- Driver -->
+            <!-- 1. Driver First -->
             <div>
                 <label class="block font-bold text-slate-700 mb-1.5">
                     اختر السائق الأجير (Chauffeur) <span class="text-rose-500">*</span>
@@ -371,6 +358,21 @@ $countExpires = max(0, $countTous - $countActifs);
                     <?php foreach ($drivers as $d): ?>
                         <option value="<?= $d['id'] ?>">
                             <?= htmlspecialchars($d['full_name']) ?> (هاتف: <?= htmlspecialchars($d['phone']) ?> - رخصة: <?= htmlspecialchars($d['license_number'] ?? 'غير مسجل') ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- 2. Vehicle Second -->
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">
+                    اختر سيارة الأجرة من الأسطول (Véhicule) <span class="text-rose-500">*</span>
+                </label>
+                <select name="vehicle_id" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
+                    <option value="">-- حدد السيارة من الأسطول --</option>
+                    <?php foreach ($vehicles as $v): ?>
+                        <option value="<?= $v['id'] ?>">
+                            <?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (لوحة: <?= htmlspecialchars($v['plate_number']) ?> - باب: <?= htmlspecialchars($v['door_number']) ?>)
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -386,20 +388,12 @@ $countExpires = max(0, $countTous - $countActifs);
                 <div>
                     <label class="block font-bold text-slate-700 mb-1.5">مدة العقد (Durée)</label>
                     <select name="duration_years" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
-                        <option value="1" selected>سنة واحدة (1 an)</option>
-                        <option value="2">سنتان (2 ans)</option>
+                        <option value="5" selected>5 سنوات (5 ans - نظامي)</option>
                         <option value="3">3 سنوات (3 ans)</option>
-                        <option value="5">5 سنوات (5 ans)</option>
+                        <option value="2">سنتان (2 ans)</option>
+                        <option value="1">سنة واحدة (1 an)</option>
                     </select>
                 </div>
-            </div>
-
-            <!-- Wage / Redevance -->
-            <div>
-                <label class="block font-bold text-slate-700 mb-1.5">الأجر المرجعي الشهري أو نسبة الإيراد (DZD)</label>
-                <input type="number" name="monthly_wage" value="45000" min="20000" step="1000" required
-                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num font-bold transition">
-                <span class="text-[11px] text-slate-500 mt-1 block">يضمن الحد الأدنى للأجر المضمون SNMG وتغطية الضمان الاجتماعي CNAS</span>
             </div>
 
             <!-- Notes -->

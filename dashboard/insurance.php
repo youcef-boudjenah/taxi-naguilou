@@ -12,13 +12,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $policyNumber = trim($_POST['policy_number'] ?? '');
     $company = trim($_POST['company'] ?? 'SAA');
+    if (empty($policyNumber)) {
+        $policyNumber = 'POL-' . $company . '-' . date('Y') . '-' . rand(10000, 99999);
+    }
     $coverageType = trim($_POST['coverage_type'] ?? 'Tous Risques + Transport Public Voyageurs');
     $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
     $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d', strtotime('+1 year'));
     $premium = floatval($_POST['premium_amount'] ?? 35000);
     $attestation = trim($_POST['attestation_number'] ?? ('ATT-' . $company . '-' . date('Y') . '-' . rand(100, 999)));
 
-    if ($vehicleId > 0 && !empty($policyNumber) && !empty($endDate)) {
+    if ($vehicleId > 0 && !empty($endDate)) {
         try {
             $pdo->beginTransaction();
             // Insert into insurance_policies
@@ -429,27 +432,10 @@ foreach ($rows as $r) {
                 </select>
             </div>
 
-            <!-- Insurance Company -->
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">شركة التأمين <span class="text-rose-500">*</span></label>
-                    <select name="company" id="modalCompanySelect" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                        <option value="SAA">SAA (الشركة الوطنية للتأمين)</option>
-                        <option value="CAAT">CAAT (الصندوق الجزائري للتأمين)</option>
-                        <option value="CIAR">CIAR (التأمين الدولي الجزائري)</option>
-                        <option value="CASH">CASH Assurances</option>
-                        <option value="Alliance">Alliance Assurances</option>
-                        <option value="Macir Vie">Macir Vie</option>
-                        <option value="GAM">GAM Assurances</option>
-                        <option value="AXA">AXA Algérie</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">رقم بوليصة التأمين <span class="text-rose-500">*</span></label>
-                    <input type="text" name="policy_number" id="modalPolicyInput" required placeholder="مثال: POL-2026-9901"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-mono text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                </div>
-            </div>
+            <!-- Hidden Company & Policy fields for background default -->
+            <input type="hidden" name="company" id="modalCompanySelect" value="SAA">
+            <input type="hidden" name="policy_number" id="modalPolicyInput" value="">
+            <input type="hidden" name="start_date" value="<?= date('Y-m-d') ?>">
 
             <!-- Coverage Type -->
             <div>
@@ -461,18 +447,12 @@ foreach ($rows as $r) {
                 </select>
             </div>
 
-            <!-- Start and End Dates -->
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ بداية العقد</label>
-                    <input type="date" name="start_date" value="<?= date('Y-m-d') ?>" required
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء الصلاحية <span class="text-rose-500">*</span></label>
-                    <input type="date" name="end_date" value="<?= date('Y-m-d', strtotime('+1 year')) ?>" required
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-bold text-xs bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
-                </div>
+            <!-- Expiry Date (End Date) -->
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء صلاحية التأمين <span class="text-rose-500">*</span></label>
+                <input type="date" name="end_date" value="<?= date('Y-m-d', strtotime('+1 year')) ?>" required
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-bold text-xs bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition shadow-2xs">
+                <p class="text-[11px] text-slate-400 mt-1">تاريخ انتهاء وثيقة التأمين المسجل على شهادة التأمين الرسمية.</p>
             </div>
 
             <!-- Premium & Attestation Ref -->
