@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: { amber: { 500: '#f59e0b', 600: '#d97706' } },
@@ -68,9 +69,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         };
     </script>
+    <?= render_theme_head() ?>
     <style>body { font-family: 'Cairo', sans-serif; }</style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Floating Theme Toggle -->
+    <div class="fixed top-4 left-4 z-50">
+        <?= render_theme_toggle_btn('shadow-md') ?>
+    </div>
 
     <div class="max-w-md w-full space-y-6">
         

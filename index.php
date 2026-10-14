@@ -1,6 +1,6 @@
 <?php
 // index.php - Taxi Naguilou Clean & Simple Landing Page
-require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/auth.php';
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl" class="scroll-smooth">
@@ -19,6 +19,7 @@ require_once __DIR__ . '/config/db.php';
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -35,6 +36,7 @@ require_once __DIR__ . '/config/db.php';
             }
         };
     </script>
+    <?= render_theme_head() ?>
 
     <style>
         body {
@@ -75,6 +77,7 @@ require_once __DIR__ . '/config/db.php';
             </nav>
 
             <div class="flex items-center gap-2">
+                <?= render_theme_toggle_btn() ?>
                 <a href="<?= url('/auth/login.php') ?>" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition">
                     دخول المنصة
                 </a>

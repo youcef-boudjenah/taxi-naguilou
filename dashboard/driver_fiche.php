@@ -67,10 +67,11 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
     <title>البطاقة الفنية للسائق <?= htmlspecialchars($driver['full_name']) ?> | تاكسي نقيلو</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -88,6 +89,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             }
         };
     </script>
+    <?= render_theme_head() ?>
     <style>
         body { font-family: 'Cairo', sans-serif; font-feature-settings: "tnum"; text-rendering: optimizeLegibility; }
         .font-num, .font-mono, [dir="ltr"] { font-feature-settings: "tnum"; unicode-bidi: isolate; }
@@ -148,6 +150,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                 </svg>
                 <span>طباعة البطاقة الفنية (PDF)</span>
             </button>
+            <?= render_theme_toggle_btn('p-2') ?>
         </div>
     </div>
 

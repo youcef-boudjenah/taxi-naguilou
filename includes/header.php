@@ -146,6 +146,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -166,6 +167,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
             }
         };
     </script>
+    <?= render_theme_head() ?>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -498,6 +500,9 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         </div>
                     </div>
 
+                    <!-- Global Theme Toggle (Sun/Moon) -->
+                    <?= render_theme_toggle_btn() ?>
+
                     <div class="h-6 w-px bg-slate-200"></div>
 
                     <!-- User Status Pill -->
@@ -548,8 +553,14 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <a href="<?= url('/dashboard/leaves.php') ?>" class="p-2 rounded-lg bg-indigo-50 text-indigo-700">🌴 العطل والبديل</a>
             </div>
             <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                <span>المستخدم: <?= htmlspecialchars($user['name']) ?></span>
-                <a href="<?= url('/auth/logout.php') ?>" class="text-rose-600 font-bold">تسجيل الخروج ←</a>
+                <div class="flex items-center gap-2">
+                    <?= render_theme_toggle_btn() ?>
+                    <span class="theme-toggle-label font-bold text-slate-700">الوضع الليلي</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span>المستخدم: <?= htmlspecialchars($user['name']) ?></span>
+                    <a href="<?= url('/auth/logout.php') ?>" class="text-rose-600 font-bold">تسجيل الخروج ←</a>
+                </div>
             </div>
         </div>
 

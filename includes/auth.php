@@ -184,3 +184,49 @@ function logout_user() {
     }
     session_destroy();
 }
+
+/**
+ * Render Theme Head Tags (Flash-prevention script + CSS + JS)
+ */
+function render_theme_head(): string {
+    $themeCss = url('/assets/css/theme.css');
+    $themeJs = url('/assets/js/theme.js');
+    return '
+    <!-- Theme Flash-Prevention & Global Tokens -->
+    <script>
+        (function() {
+            try {
+                var stored = localStorage.getItem("tn_theme");
+                var isDark = stored === "dark" || (!stored && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                if (isDark) {
+                    document.documentElement.classList.add("dark");
+                } else {
+                    document.documentElement.classList.remove("dark");
+                }
+            } catch(e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="' . htmlspecialchars($themeCss) . '">
+    <script src="' . htmlspecialchars($themeJs) . '" defer></script>
+    ';
+}
+
+/**
+ * Render Theme Toggle Button (Sun/Moon Accessible Control)
+ */
+function render_theme_toggle_btn(string $extraClasses = ''): string {
+    return '
+    <button type="button" onclick="window.TaxiTheme && window.TaxiTheme.toggle()" 
+            class="theme-toggle-btn ' . htmlspecialchars($extraClasses) . '" 
+            title="تبديل الوضع الليلي / الفاتح" aria-label="تبديل الوضع الليلي / الفاتح">
+        <!-- Sun Icon (Active in Dark mode) -->
+        <svg class="theme-icon-sun w-4 h-4 hidden text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+        </svg>
+        <!-- Moon Icon (Active in Light mode) -->
+        <svg class="theme-icon-moon w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+        </svg>
+    </button>';
+}
+
