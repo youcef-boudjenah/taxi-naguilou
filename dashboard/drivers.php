@@ -139,83 +139,129 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, actifs, permanence, anciens, trial_1, trial_2, trial_3, official
 
-// Fetch Expiration Imminente Drivers (< 30 days or expired)
-$stmtExpiring = $pdo->query("
-    SELECT u.*, v.plate_number, v.door_number,
-           DATEDIFF(u.license_expiry, CURDATE()) as license_days,
-           DATEDIFF(u.medical_cert_expiry, CURDATE()) as med_days
-    FROM users u
-    LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id)
-    WHERE u.role = 'driver'
-      AND (
-          (u.license_expiry IS NOT NULL AND u.license_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
-          OR
-          (u.medical_cert_expiry IS NOT NULL AND u.medical_cert_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
-      )
-    ORDER BY LEAST(
-        COALESCE(u.license_expiry, '2099-12-31'),
-        COALESCE(u.medical_cert_expiry, '2099-12-31')
-    ) ASC
-");
-$imminentDrivers = $stmtExpiring->fetchAll();
-
-// Fetch Permanence Drivers IDs from driver_schedules
-$permanenceDriverIds = $pdo->query("
-    SELECT DISTINCT driver_id 
-    FROM driver_schedules 
-    WHERE is_permanence = 1 AND shift_date >= CURDATE()
-")->fetchAll(PDO::FETCH_COLUMN);
-
-// Fetch Main Drivers List
-$sql = "
-    SELECT u.*, v.plate_number, v.brand, v.model, v.door_number
-    FROM users u
-    LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id)
-    WHERE u.role = 'driver'
-";
-$params = [];
-
-if (!empty($search)) {
-    $sql .= " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.license_number LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-}
-
-$sql .= " ORDER BY u.id DESC";
-$stmtD = $pdo->prepare($sql);
-$stmtD->execute($params);
-$allDrivers = $stmtD->fetchAll();
-
-// If filter is permanence or specific stage
+$imminentDrivers = [];
+$permanenceDriverIds = [];
+$allDrivers = [];
 $drivers = [];
-foreach ($allDrivers as $d) {
-    $isPerm = in_array($d['id'], $permanenceDriverIds);
-    $d['is_permanence'] = $isPerm;
+$countActifs = 0;
+$countAnciens = 0;
+$countPermanence = 0;
+$countTrial1 = 0;
+$countTrial2 = 0;
+$countTrial3 = 0;
+$countOfficial = 0;
+$activeVehicles = [];
 
-    if ($filter === 'permanence' && !$isPerm) {
-        continue;
+if ($pdo) {
+    // Determine vehicle join condition safely based on available columns
+    $joinVehOn = "v.current_driver_id = u.id";
+    try {
+        $checkCol = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'replacement_driver_id'")->fetchColumn();
+        if ($checkCol) {
+            $joinVehOn = "(v.current_driver_id = u.id OR v.replacement_driver_id = u.id)";
+        }
+    } catch (\Throwable $e) {}
+
+    // 1. Fetch Expiration Imminente Drivers (< 30 days or expired)
+    try {
+        $stmtExpiring = $pdo->query("
+            SELECT u.*, v.plate_number, v.door_number,
+                   DATEDIFF(u.license_expiry, CURDATE()) as license_days,
+                   DATEDIFF(u.medical_cert_expiry, CURDATE()) as med_days
+            FROM users u
+            LEFT JOIN vehicles v ON $joinVehOn
+            WHERE u.role = 'driver'
+              AND (
+                  (u.license_expiry IS NOT NULL AND u.license_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+                  OR
+                  (u.medical_cert_expiry IS NOT NULL AND u.medical_cert_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+              )
+            ORDER BY LEAST(
+                COALESCE(u.license_expiry, '2099-12-31'),
+                COALESCE(u.medical_cert_expiry, '2099-12-31')
+            ) ASC
+        ");
+        $imminentDrivers = $stmtExpiring ? $stmtExpiring->fetchAll() : [];
+    } catch (\Throwable $e) {
+        error_log("drivers.php - Expiring query notice: " . $e->getMessage());
+        $imminentDrivers = [];
     }
-    if (in_array($filter, ['trial_1', 'trial_2', 'trial_3', 'official'])) {
-        if (($d['probation_stage'] ?? 'trial_1') !== $filter) {
+
+    // 2. Fetch Permanence Drivers IDs from driver_schedules
+    try {
+        $stmtPerm = $pdo->query("
+            SELECT DISTINCT driver_id 
+            FROM driver_schedules 
+            WHERE is_permanence = 1 AND shift_date >= CURDATE()
+        ");
+        if ($stmtPerm) {
+            $permanenceDriverIds = $stmtPerm->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        }
+    } catch (\Throwable $e) {
+        error_log("drivers.php - Permanence query notice: " . $e->getMessage());
+        $permanenceDriverIds = [];
+    }
+
+    // 3. Fetch Main Drivers List
+    try {
+        $sql = "
+            SELECT u.*, v.plate_number, v.brand, v.model, v.door_number
+            FROM users u
+            LEFT JOIN vehicles v ON $joinVehOn
+            WHERE u.role = 'driver'
+        ";
+        $params = [];
+
+        if (!empty($search)) {
+            $sql .= " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.license_number LIKE ?)";
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+        }
+
+        $sql .= " ORDER BY u.id DESC";
+        $stmtD = $pdo->prepare($sql);
+        $stmtD->execute($params);
+        $allDrivers = $stmtD->fetchAll() ?: [];
+    } catch (\Throwable $e) {
+        error_log("drivers.php - Main drivers query notice: " . $e->getMessage());
+        $allDrivers = [];
+    }
+
+    // Filter and assign permanence flags
+    foreach ($allDrivers as $d) {
+        $isPerm = in_array($d['id'], $permanenceDriverIds);
+        $d['is_permanence'] = $isPerm;
+
+        if ($filter === 'permanence' && !$isPerm) {
             continue;
         }
+        if (in_array($filter, ['trial_1', 'trial_2', 'trial_3', 'official'])) {
+            if (($d['probation_stage'] ?? 'trial_1') !== $filter) {
+                continue;
+            }
+        }
+        $drivers[] = $d;
     }
-    $drivers[] = $d;
-}
 
-// Display counts
-$countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
-$countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
-$countPermanence = count($permanenceDriverIds);
-$countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
-$countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_2'")->fetchColumn();
-$countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_3'")->fetchColumn();
-$countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'official'")->fetchColumn();
+    // 4. Counts
+    try {
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
+        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
+    } catch (\Throwable $e) {}
 
-// Fetch Active Vehicles for assignment
-$activeVehicles = [];
-if ($pdo) {
+    $countPermanence = count($permanenceDriverIds);
+
+    try {
+        $countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
+        $countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_2'")->fetchColumn();
+        $countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_3'")->fetchColumn();
+        $countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'official'")->fetchColumn();
+    } catch (\Throwable $e) {
+        $countTrial1 = $countActifs;
+    }
+
+    // 5. Fetch Active Vehicles for assignment modal
     try {
         $stmtV = $pdo->query("
             SELECT v.id, v.plate_number, v.brand, v.model, v.door_number, v.current_driver_id,
@@ -226,7 +272,9 @@ if ($pdo) {
             ORDER BY v.plate_number ASC
         ");
         $activeVehicles = $stmtV ? $stmtV->fetchAll() : [];
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) {
+        $activeVehicles = [];
+    }
 }
 ?>
 

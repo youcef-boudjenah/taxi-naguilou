@@ -120,12 +120,31 @@ function getDBConnection() {
 }
 
 function initAllTables(PDO $pdo) {
+    static $alreadyRun = false;
+    if ($alreadyRun) {
+        return;
+    }
+    $alreadyRun = true;
+
+    // Check if key tables already exist to avoid running schema queries repeatedly
+    $keyTables = [
+        'users', 'vehicles', 'contracts', 'leaves', 'billings', 
+        'transmission_slips', 'driver_debts', 'versements', 'night_watch', 
+        'driver_schedules', 'insurance_policies', 'driver_subscriptions', 
+        'leads', 'notifications', 'settings', 'audit_logs', 
+        'cnas_declarations', 'traveler_reports', 'traveler_passengers'
+    ];
+
     try {
-        $check = $pdo->query("SHOW TABLES LIKE 'users'")->fetchColumn();
-        if ($check) {
-            return; // Tables already initialized!
+        $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $existing = array_map('strtolower', $existing);
+        $missing = array_diff($keyTables, $existing);
+        if (empty($missing)) {
+            return; // All required tables already exist!
         }
-    } catch (\Throwable $e) {}
+    } catch (\Throwable $e) {
+        // Continue to table creation
+    }
 
     $schema = "
     -- Users Table (Admins, Owners, Drivers & Fiche Technique)
@@ -183,6 +202,7 @@ function initAllTables(PDO $pdo) {
         technical_control_expiry DATE NULL,
         extinguisher_expiry DATE NULL,
         gpl_expiry DATE NULL,
+        gpl_text VARCHAR(100) NULL,
         saccuriometre_expiry DATE NULL,
         saccuriometre_text VARCHAR(100) DEFAULT 'معاير ومختوم',
         status ENUM('active', 'suspended', 'in_maintenance') DEFAULT 'active',
@@ -464,8 +484,9 @@ function initAllTables(PDO $pdo) {
 }
 
 function migrateDriverFicheFields(PDO $pdo): void {
+    // 1. Users table columns
     try {
-        $cols = $pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
+        $cols = $pdo->query("SHOW COLUMNS FROM `users`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
         $colMap = array_flip($cols);
 
         $addCols = [
@@ -485,6 +506,7 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'address' => "VARCHAR(255) NULL AFTER `mother_name`",
             'license_issue_date' => "DATE NULL AFTER `license_number`",
             'license_issue_place' => "VARCHAR(100) NULL AFTER `license_issue_date`",
+            'medical_cert_expiry' => "DATE NULL AFTER `license_expiry`",
             'medical_exam_start' => "DATE NULL AFTER `medical_cert_expiry`",
             'medical_exam_end' => "DATE NULL AFTER `medical_exam_start`",
             'medical_visa_date' => "DATE NULL AFTER `medical_exam_end`",
@@ -496,12 +518,66 @@ function migrateDriverFicheFields(PDO $pdo): void {
 
         foreach ($addCols as $col => $def) {
             if (!isset($colMap[$col])) {
-                $pdo->exec("ALTER TABLE `users` ADD COLUMN `$col` $def");
+                try {
+                    $pdo->exec("ALTER TABLE `users` ADD COLUMN `$col` $def");
+                } catch (\Throwable $ex) {}
             }
         }
     } catch (\Throwable $e) {
-        error_log("Fiche technique migration notice: " . $e->getMessage());
+        error_log("Users table migration notice: " . $e->getMessage());
     }
+
+    // 2. Vehicles table columns
+    try {
+        $vCols = $pdo->query("SHOW COLUMNS FROM `vehicles`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $vColMap = array_flip($vCols);
+
+        $addVCols = [
+            'owner_id' => "INT NULL AFTER `id`",
+            'current_driver_id' => "INT NULL AFTER `owner_id`",
+            'replacement_driver_id' => "INT NULL AFTER `current_driver_id`",
+            'insurance_company' => "VARCHAR(80) DEFAULT 'SAA' AFTER `insurance_expiry`",
+            'technical_control_expiry' => "DATE NULL AFTER `insurance_company`",
+            'extinguisher_expiry' => "DATE NULL AFTER `technical_control_expiry`",
+            'gpl_expiry' => "DATE NULL AFTER `extinguisher_expiry`",
+            'gpl_text' => "VARCHAR(100) NULL AFTER `gpl_expiry`",
+            'saccuriometre_expiry' => "DATE NULL AFTER `gpl_text`",
+            'saccuriometre_text' => "VARCHAR(100) DEFAULT 'معاير ومختوم' AFTER `saccuriometre_expiry`",
+            'suspended_reason' => "VARCHAR(255) NULL AFTER `status`"
+        ];
+
+        foreach ($addVCols as $col => $def) {
+            if (!isset($vColMap[$col])) {
+                try {
+                    $pdo->exec("ALTER TABLE `vehicles` ADD COLUMN `$col` $def");
+                } catch (\Throwable $ex) {}
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log("Vehicles table migration notice: " . $e->getMessage());
+    }
+
+    // 3. Leaves table columns
+    try {
+        $lCols = $pdo->query("SHOW COLUMNS FROM `leaves`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $lColMap = array_flip($lCols);
+        if (!isset($lColMap['replacement_driver_id'])) {
+            try {
+                $pdo->exec("ALTER TABLE `leaves` ADD COLUMN `replacement_driver_id` INT NULL AFTER `vehicle_id`");
+            } catch (\Throwable $ex) {}
+        }
+    } catch (\Throwable $e) {}
+
+    // 4. Driver Schedules table columns
+    try {
+        $dsCols = $pdo->query("SHOW COLUMNS FROM `driver_schedules`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $dsColMap = array_flip($dsCols);
+        if (!isset($dsColMap['is_permanence'])) {
+            try {
+                $pdo->exec("ALTER TABLE `driver_schedules` ADD COLUMN `is_permanence` BOOLEAN DEFAULT 0 AFTER `shift_type`");
+            } catch (\Throwable $ex) {}
+        }
+    } catch (\Throwable $e) {}
 }
 
 function seedDefaultData(PDO $pdo) {
