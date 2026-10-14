@@ -2,13 +2,15 @@
 // dashboard/audit_logs.php - Security Audit Trail & Activity Monitoring
 $pageTitle = 'سجل التدقيق والرقابة الأمنية';
 require_once __DIR__ . '/../includes/header.php';
+require_admin();
 
 $pdo = getDBConnection();
 
 // Export to CSV if requested
 if (isset($_GET['export']) && $_GET['export'] === 'csv' && $pdo) {
     if (!is_admin()) {
-        die('غير مصرح لك بتصدير سجل التدقيق.');
+        set_flash('error', 'غير مصرح لك بتصدير سجل التدقيق.');
+        redirect('/dashboard/index.php');
     }
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename=audit_logs_taxinaguilou_' . date('Y-m-d') . '.csv');

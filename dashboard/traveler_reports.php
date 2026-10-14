@@ -1,7 +1,7 @@
 <?php
 // dashboard/traveler_reports.php - Inter-Wilaya Traveler Reports & Manifests (PV de Voyageurs)
-$pageTitle = 'محاضر ودفاتر المسافرين (PV de Voyageurs)';
-require_once __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_login();
 
 $pdo = getDBConnection();
 $message = null;
@@ -35,7 +35,8 @@ if (isset($_GET['print_id']) && $pdo) {
             <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
             <script src="https://cdn.tailwindcss.com"></script>
             <style>
-                body { font-family: 'Cairo', sans-serif; }
+                body { font-family: 'Cairo', sans-serif; font-feature-settings: "tnum"; }
+                .font-num, .font-mono, [dir="ltr"] { font-feature-settings: "tnum"; unicode-bidi: isolate; }
                 @media print {
                     .no-print { display: none; }
                     body { background: white; margin: 0; padding: 0; }
@@ -65,7 +66,7 @@ if (isset($_GET['print_id']) && $pdo) {
                     <div class="text-xs font-bold text-slate-500">وزارة النقل — مديرية النقل البري</div>
                     <h1 class="text-lg font-black text-slate-900 pt-2">محضر وقائمة ركاب سيارة الأجرة ما بين الولايات</h1>
                     <div class="text-xs font-bold text-amber-600 font-mono tracking-wider">FEUILLE DE ROUTE & PV DE TRANSPORT VOYAGEURS</div>
-                    <div class="text-xs font-bold text-slate-700 pt-1">رقم المحضر: <span class="font-mono text-slate-950 font-black"><?= htmlspecialchars($report['report_number']) ?></span></div>
+                    <div class="text-xs font-bold text-slate-700 pt-1">رقم المحضر: <span class="font-mono text-slate-950 font-black inline-block" dir="ltr"><?= htmlspecialchars($report['report_number']) ?></span></div>
                 </div>
 
                 <!-- Company & Trip Meta -->
@@ -73,7 +74,7 @@ if (isset($_GET['print_id']) && $pdo) {
                     <div>
                         <span class="text-slate-500 block">المؤسسة المشغلة:</span>
                         <strong class="text-slate-900 text-sm"><?= htmlspecialchars($settings['company_name'] ?? 'EURL TAXI NAGUILOU') ?></strong>
-                        <div class="text-[11px] text-slate-600 mt-1">سجل تجاري: <?= htmlspecialchars($settings['legal_rc'] ?? '-') ?></div>
+                        <div class="text-[11px] text-slate-600 mt-1">سجل تجاري: <span class="font-mono" dir="ltr"><?= htmlspecialchars($settings['legal_rc'] ?? '-') ?></span></div>
                     </div>
                     <div>
                         <span class="text-slate-500 block">الخط المرخص به:</span>
@@ -87,17 +88,17 @@ if (isset($_GET['print_id']) && $pdo) {
                     <div>
                         <span class="text-slate-400 block text-[10px]">السائق المعتمد:</span>
                         <strong class="text-slate-900"><?= htmlspecialchars($report['driver_name']) ?></strong>
-                        <div class="text-[10px] text-slate-600">رخصة: <?= htmlspecialchars($report['license_number'] ?? '-') ?></div>
+                        <div class="text-[10px] text-slate-600">رخصة: <span class="font-mono" dir="ltr"><?= htmlspecialchars($report['license_number'] ?? '-') ?></span></div>
                     </div>
                     <div>
                         <span class="text-slate-400 block text-[10px]">المركبة ولوحة الترقيم:</span>
                         <strong class="text-slate-900"><?= htmlspecialchars($report['brand'] . ' ' . $report['model']) ?></strong>
-                        <div class="text-[10px] text-slate-800 font-bold" dir="ltr"><?= htmlspecialchars($report['plate_number']) ?></div>
+                        <div class="text-[10px] text-slate-800 font-bold font-mono" dir="ltr"><?= htmlspecialchars($report['plate_number']) ?></div>
                     </div>
                     <div>
                         <span class="text-slate-400 block text-[10px]">تاريخ وتوقيت الرحلة:</span>
-                        <strong class="text-slate-900"><?= htmlspecialchars($report['departure_date']) ?></strong>
-                        <div class="text-[10px] text-slate-700">الساعة: <?= htmlspecialchars($report['departure_time']) ?></div>
+                        <strong class="text-slate-900 font-num inline-block" dir="ltr"><?= htmlspecialchars($report['departure_date']) ?></strong>
+                        <div class="text-[10px] text-slate-700">الساعة: <span class="font-num inline-block" dir="ltr"><?= htmlspecialchars($report['departure_time']) ?></span></div>
                     </div>
                 </div>
 
@@ -145,8 +146,13 @@ if (isset($_GET['print_id']) && $pdo) {
     }
 }
 
+// Main Dashboard Layout
+$pageTitle = 'محاضر ودفاتر المسافرين (PV de Voyageurs)';
+require_once __DIR__ . '/../includes/header.php';
+
 // Handle Add New Trip Manifest
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf_token();
     if (!is_admin()) {
         $message = 'عذراً، فقط إدارة المنصة مخولة بإصدار محاضر المسافرين الرسمية.';
         $messageType = 'error';
@@ -161,34 +167,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
         $pricePerSeat = floatval($_POST['price_per_seat'] ?? 1200.00);
         $seatsCount = intval($_POST['seats_count'] ?? 4);
         $totalRev = $pricePerSeat * $seatsCount;
-        $reportNumber = 'PV-' . date('Y') . '-' . str_pad((string)rand(1000, 9999), 4, '0', STR_PAD_LEFT);
         $notes = trim($_POST['notes'] ?? '');
 
         if ($vehicleId > 0 && $driverId > 0 && !empty($lineName)) {
-            $stmtIns = $pdo->prepare("
-                INSERT INTO traveler_reports (report_number, vehicle_id, driver_id, line_name, departure_station, arrival_station, departure_date, departure_time, seats_count, price_per_seat, total_revenue, status, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
-            ");
-            $stmtIns->execute([$reportNumber, $vehicleId, $driverId, $lineName, $depStation, $arrStation, $depDate, $depTime, $seatsCount, $pricePerSeat, $totalRev, $notes]);
-            $newRepId = $pdo->lastInsertId();
+            try {
+                $pdo->beginTransaction();
 
-            // Insert Passengers
-            $stmtPassIns = $pdo->prepare("
-                INSERT INTO traveler_passengers (report_id, seat_number, passenger_name, passenger_cni, phone)
-                VALUES (?, ?, ?, ?, ?)
-            ");
-            for ($i = 1; $i <= $seatsCount; $i++) {
-                $pName = trim($_POST["passenger_name_$i"] ?? '');
-                $pCni = trim($_POST["passenger_cni_$i"] ?? '');
-                $pPhone = trim($_POST["passenger_phone_$i"] ?? '');
-                if (!empty($pName)) {
-                    $stmtPassIns->execute([$newRepId, $i, $pName, $pCni, $pPhone]);
+                // Sequential numbering for PV: PV-YYYY-XXXX
+                $currYear = date('Y');
+                $stmtMax = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(report_number, 9) AS UNSIGNED)) as max_num FROM traveler_reports WHERE report_number LIKE ?");
+                $stmtMax->execute(["PV-$currYear-%"]);
+                $rowMax = $stmtMax->fetch();
+                $nextSeq = ($rowMax && $rowMax['max_num']) ? intval($rowMax['max_num']) + 1 : 1;
+                $reportNumber = sprintf("PV-%s-%04d", $currYear, $nextSeq);
+
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO traveler_reports (report_number, vehicle_id, driver_id, line_name, departure_station, arrival_station, departure_date, departure_time, seats_count, price_per_seat, total_revenue, status, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
+                ");
+                $stmtIns->execute([$reportNumber, $vehicleId, $driverId, $lineName, $depStation, $arrStation, $depDate, $depTime, $seatsCount, $pricePerSeat, $totalRev, $notes]);
+                $newRepId = $pdo->lastInsertId();
+
+                // Insert Passengers
+                $stmtPassIns = $pdo->prepare("
+                    INSERT INTO traveler_passengers (report_id, seat_number, passenger_name, passenger_cni, phone)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                for ($i = 1; $i <= $seatsCount; $i++) {
+                    $pName = trim($_POST["passenger_name_$i"] ?? '');
+                    $pCni = trim($_POST["passenger_cni_$i"] ?? '');
+                    $pPhone = trim($_POST["passenger_phone_$i"] ?? '');
+                    if (!empty($pName)) {
+                        $stmtPassIns->execute([$newRepId, $i, $pName, $pCni, $pPhone]);
+                    }
                 }
-            }
 
-            log_audit($pdo, 'traveler_report_created', 'traveler_reports', (int)$newRepId, "إصدار محضر سفر جديد: $reportNumber على خط $lineName");
-            $message = "تم إصدار محضر المسافرين رقم $reportNumber بنجاح.";
-            $messageType = 'success';
+                log_audit($pdo, 'traveler_report_created', 'traveler_reports', (int)$newRepId, "إصدار محضر سفر جديد: $reportNumber على خط $lineName");
+                $pdo->commit();
+
+                $message = "تم إصدار محضر المسافرين رقم $reportNumber بنجاح.";
+                $messageType = 'success';
+            } catch (Exception $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $message = 'حدث خطأ أثناء إصدار المحضر: ' . $e->getMessage();
+                $messageType = 'error';
+            }
         } else {
             $message = 'يرجى اختيار المركبة والسائق وتحديد مسار الخط.';
             $messageType = 'error';
@@ -202,18 +227,22 @@ $vehiclesList = [];
 $driversList = [];
 
 if ($pdo) {
-    $stmtR = $pdo->query("
-        SELECT r.*, v.plate_number, v.brand, v.model, u.full_name as driver_name, u.phone as driver_phone,
-               (SELECT COUNT(*) FROM traveler_passengers WHERE report_id = r.id) as registered_passengers
-        FROM traveler_reports r
-        JOIN vehicles v ON r.vehicle_id = v.id
-        JOIN users u ON r.driver_id = u.id
-        ORDER BY r.departure_date DESC, r.departure_time DESC
-    ");
-    $reports = $stmtR->fetchAll();
+    try {
+        $stmtR = $pdo->query("
+            SELECT r.*, v.plate_number, v.brand, v.model, u.full_name as driver_name, u.phone as driver_phone,
+                   (SELECT COUNT(*) FROM traveler_passengers WHERE report_id = r.id) as registered_passengers
+            FROM traveler_reports r
+            JOIN vehicles v ON r.vehicle_id = v.id
+            JOIN users u ON r.driver_id = u.id
+            ORDER BY r.departure_date DESC, r.departure_time DESC
+        ");
+        $reports = $stmtR ? $stmtR->fetchAll() : [];
 
-    $vehiclesList = $pdo->query("SELECT id, brand, model, plate_number FROM vehicles WHERE status = 'active' ORDER BY brand ASC")->fetchAll();
-    $driversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+        $vehiclesList = $pdo->query("SELECT id, brand, model, plate_number FROM vehicles WHERE status = 'active' ORDER BY brand ASC")->fetchAll();
+        $driversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+    } catch (\Throwable $e) {
+        error_log("traveler_reports fetch error: " . $e->getMessage());
+    }
 }
 ?>
 
@@ -287,25 +316,25 @@ if ($pdo) {
                         ?>
                             <tr class="hover:bg-slate-50/80 transition">
                                 <td class="p-4 font-mono font-bold text-slate-900">
-                                    <?= htmlspecialchars($r['report_number']) ?>
+                                    <span class="inline-block" dir="ltr"><?= htmlspecialchars($r['report_number']) ?></span>
                                 </td>
                                 <td class="p-4">
                                     <div class="font-bold text-slate-900"><?= htmlspecialchars($r['line_name']) ?></div>
                                     <div class="text-[10px] text-slate-400">من: <?= htmlspecialchars($r['departure_station']) ?></div>
                                 </td>
                                 <td class="p-4">
-                                    <div class="font-bold text-slate-800"><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?> (<span class="font-mono text-[10px]" dir="ltr"><?= htmlspecialchars($r['plate_number']) ?></span>)</div>
+                                    <div class="font-bold text-slate-800"><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?> (<span class="font-mono text-[10px] inline-block font-bold" dir="ltr"><?= htmlspecialchars($r['plate_number']) ?></span>)</div>
                                     <div class="text-[10px] text-slate-500">السائق: <?= htmlspecialchars($r['driver_name']) ?></div>
                                 </td>
                                 <td class="p-4 font-num text-slate-700">
-                                    <div class="font-bold"><?= htmlspecialchars($r['departure_date']) ?></div>
-                                    <div class="text-[10px] text-slate-400"><?= htmlspecialchars($r['departure_time']) ?></div>
+                                    <div class="font-bold inline-block" dir="ltr"><?= htmlspecialchars($r['departure_date']) ?></div>
+                                    <div class="text-[10px] text-slate-400" dir="ltr"><?= htmlspecialchars($r['departure_time']) ?></div>
                                 </td>
                                 <td class="p-4 font-bold text-slate-800">
-                                    <span class="font-num text-amber-700"><?= $r['registered_passengers'] ?></span> / <?= $r['seats_count'] ?> ركاب
+                                    <span class="font-num text-amber-700 inline-block" dir="ltr"><?= $r['registered_passengers'] ?> / <?= $r['seats_count'] ?></span> ركاب
                                 </td>
                                 <td class="p-4 font-num font-bold text-slate-900">
-                                    <?= number_format($r['total_revenue'], 2, ',', ' ') ?> دج
+                                    <span class="inline-block" dir="ltr"><?= number_format($r['total_revenue'], 2, '.', ' ') ?></span> دج
                                 </td>
                                 <td class="p-4">
                                     <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border <?= $statusBadge ?>">
@@ -338,6 +367,7 @@ if ($pdo) {
         </div>
 
         <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label class="block font-bold text-slate-700 mb-1">المركبة المعنية *</label>

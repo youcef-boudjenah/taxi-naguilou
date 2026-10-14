@@ -50,54 +50,108 @@ function redirect(string $path): void {
     exit;
 }
 
+function getDBLastError(): ?string {
+    global $g_dbLastError;
+    return $g_dbLastError ?? null;
+}
+
 function getDBConnection() {
     static $pdo = null;
     if ($pdo !== null) {
         return $pdo;
     }
 
-    try {
-        $dsnWithoutDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
-        $rawPdo = new PDO($dsnWithoutDb, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_TIMEOUT => 2
-        ]);
+    global $g_dbLastError;
+    $g_dbLastError = null;
 
-        $rawPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        
+    $pdoOptions = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_TIMEOUT => 4
+    ];
+    if (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) {
+        $pdoOptions[PDO::MYSQL_ATTR_MULTI_STATEMENTS] = true;
+    }
+
+    // 1. Direct connection to target database (Standard for Bluehost, cPanel & production)
+    try {
         $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_TIMEOUT => 2
-        ]);
+        $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
 
         initAllTables($pdo);
+        migrateDriverFicheFields($pdo);
         seedDefaultData($pdo);
 
         return $pdo;
-    } catch (Exception $e) {
-        error_log("DB Connection Warning: " . $e->getMessage());
-        return null;
+    } catch (\Throwable $directEx) {
+        $g_dbLastError = $directEx->getMessage();
+
+        // 2. Fallback: attempt to connect without dbname and create database (for Localhost / Laragon dev)
+        try {
+            $dsnWithoutDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
+            $rawPdo = new PDO($dsnWithoutDb, DB_USER, DB_PASS, $pdoOptions);
+            $rawPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+            $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+            $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
+
+            initAllTables($pdo);
+            migrateDriverFicheFields($pdo);
+            seedDefaultData($pdo);
+
+            $g_dbLastError = null;
+            return $pdo;
+        } catch (\Throwable $fallbackEx) {
+            error_log("DB Connection Warning: Direct failed: " . $directEx->getMessage() . " | Fallback failed: " . $fallbackEx->getMessage());
+            return null;
+        }
     }
 }
 
 function initAllTables(PDO $pdo) {
+    try {
+        $check = $pdo->query("SHOW TABLES LIKE 'users'")->fetchColumn();
+        if ($check) {
+            return; // Tables already initialized!
+        }
+    } catch (\Throwable $e) {}
+
     $schema = "
-    -- Users Table (Admins, Owners, Drivers)
+    -- Users Table (Admins, Owners, Drivers & Fiche Technique)
     CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        card_number VARCHAR(50) NULL,
+        avatar_url VARCHAR(255) NULL,
         full_name VARCHAR(150) NOT NULL,
+        first_name VARCHAR(80) NULL,
+        last_name VARCHAR(80) NULL,
         email VARCHAR(150) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         phone VARCHAR(30) NOT NULL,
         role ENUM('super_admin', 'admin', 'owner', 'driver') DEFAULT 'driver',
         status ENUM('active', 'pending', 'suspended') DEFAULT 'active',
+        driver_type VARCHAR(50) DEFAULT 'ajir',
+        activity_start_date DATE NULL,
+        activity_status VARCHAR(50) DEFAULT 'active',
+        dtw_visa_date DATE NULL,
         wilaya VARCHAR(100) DEFAULT '16 - الجزائر العاصمة',
+        birth_date DATE NULL,
+        birth_place VARCHAR(150) NULL,
+        father_name VARCHAR(100) NULL,
+        mother_name VARCHAR(100) NULL,
+        address VARCHAR(255) NULL,
         license_number VARCHAR(50) NULL,
+        license_issue_date DATE NULL,
+        license_issue_place VARCHAR(100) NULL,
         license_expiry DATE NULL,
         medical_cert_expiry DATE NULL,
+        medical_exam_start DATE NULL,
+        medical_exam_end DATE NULL,
+        medical_visa_date DATE NULL,
+        next_medical_start DATE NULL,
+        next_medical_end DATE NULL,
+        taxi_contract_start DATE NULL,
+        taxi_contract_end DATE NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -387,14 +441,62 @@ function initAllTables(PDO $pdo) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
-    $pdo->exec($schema);
+    $queries = array_filter(array_map('trim', explode(';', $schema)));
+    foreach ($queries as $q) {
+        if (!empty($q)) {
+            try {
+                $pdo->exec($q);
+            } catch (\Throwable $e) {}
+        }
+    }
+}
+
+function migrateDriverFicheFields(PDO $pdo): void {
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
+        $colMap = array_flip($cols);
+
+        $addCols = [
+            'card_number' => "VARCHAR(50) NULL AFTER `id`",
+            'avatar_url' => "VARCHAR(255) NULL AFTER `card_number`",
+            'first_name' => "VARCHAR(80) NULL AFTER `full_name`",
+            'last_name' => "VARCHAR(80) NULL AFTER `first_name`",
+            'driver_type' => "VARCHAR(50) DEFAULT 'ajir' AFTER `status`",
+            'activity_start_date' => "DATE NULL AFTER `driver_type`",
+            'activity_status' => "VARCHAR(50) DEFAULT 'active' AFTER `activity_start_date`",
+            'dtw_visa_date' => "DATE NULL AFTER `activity_status`",
+            'birth_date' => "DATE NULL AFTER `wilaya`",
+            'birth_place' => "VARCHAR(150) NULL AFTER `birth_date`",
+            'father_name' => "VARCHAR(100) NULL AFTER `birth_place`",
+            'mother_name' => "VARCHAR(100) NULL AFTER `father_name`",
+            'address' => "VARCHAR(255) NULL AFTER `mother_name`",
+            'license_issue_date' => "DATE NULL AFTER `license_number`",
+            'license_issue_place' => "VARCHAR(100) NULL AFTER `license_issue_date`",
+            'medical_exam_start' => "DATE NULL AFTER `medical_cert_expiry`",
+            'medical_exam_end' => "DATE NULL AFTER `medical_exam_start`",
+            'medical_visa_date' => "DATE NULL AFTER `medical_exam_end`",
+            'next_medical_start' => "DATE NULL AFTER `medical_visa_date`",
+            'next_medical_end' => "DATE NULL AFTER `next_medical_start`",
+            'taxi_contract_start' => "DATE NULL AFTER `next_medical_end`",
+            'taxi_contract_end' => "DATE NULL AFTER `taxi_contract_start`"
+        ];
+
+        foreach ($addCols as $col => $def) {
+            if (!isset($colMap[$col])) {
+                $pdo->exec("ALTER TABLE `users` ADD COLUMN `$col` $def");
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log("Fiche technique migration notice: " . $e->getMessage());
+    }
 }
 
 function seedDefaultData(PDO $pdo) {
-    $defaultPassword = password_hash('password123', PASSWORD_BCRYPT);
-    $usersCount = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    
-    if ($usersCount == 0) {
+    try {
+        $defaultPassword = password_hash('password123', PASSWORD_BCRYPT);
+        $usersCount = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+        
+        if ($usersCount == 0) {
 
     // 1. Seed Users (Super Admin, Owner, Drivers)
     $stmtUser = $pdo->prepare("
@@ -595,23 +697,22 @@ function seedDefaultData(PDO $pdo) {
         ");
         $stmtVers->execute([$d1Id, 45000.00, 'baridimob', date('Y-m-d', strtotime('-4 days')), 'VER-2026-081', 'دفعة شهر سبتمبر']);
         $stmtVers->execute([$d2Id, 50000.00, 'ccp', date('Y-m-d', strtotime('-8 days')), 'VER-2026-079', 'تسديد نقدي بالحساب']);
-    }
 
-    // 8. Seed Garde de nuit du parc
-    $nightCount = $pdo->query("SELECT COUNT(*) FROM night_watch")->fetchColumn();
-    if ($nightCount == 0) {
-        $stmtNight = $pdo->prepare("
-            INSERT INTO night_watch (vehicle_id, driver_id, guardian_name, park_slot, entry_time, status, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmtNight->execute([$v1Id, $driver1Id, 'عمي عيسى (حارس ليلي)', 'موقف A-04', date('Y-m-d 20:30:00'), 'in_park', 'السيارة مغلقة والعداد مطفأ']);
-        $stmtNight->execute([$v2Id, $driver2Id, 'عمي عيسى (حارس ليلي)', 'موقف A-08', date('Y-m-d 21:15:00'), 'in_park', 'مفتاح بحوزة الحراسة']);
+        // 8. Seed Garde de nuit du parc
+        $nightCount = $pdo->query("SELECT COUNT(*) FROM night_watch")->fetchColumn();
+        if ($nightCount == 0 && !empty($v1Id)) {
+            $stmtNight = $pdo->prepare("
+                INSERT INTO night_watch (vehicle_id, driver_id, guardian_name, park_slot, entry_time, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmtNight->execute([$v1Id, $driver1Id, 'عمي عيسى (حارس ليلي)', 'موقف A-04', date('Y-m-d 20:30:00'), 'in_park', 'السيارة مغلقة والعداد مطفأ']);
+            $stmtNight->execute([$v2Id, $driver2Id, 'عمي عيسى (حارس ليلي)', 'موقف A-08', date('Y-m-d 21:15:00'), 'in_park', 'مفتاح بحوزة الحراسة']);
         $stmtNight->execute([$v3Id, $driver3Id, 'عمي رابح (حارس المداومة)', 'موقف B-02', date('Y-m-d 19:45:00'), 'in_park', 'جاهزة للمداومة الصباحية']);
     }
 
     // 9. Seed Planning des chauffeurs (3 jours) & Permanence
     $schedCount = $pdo->query("SELECT COUNT(*) FROM driver_schedules")->fetchColumn();
-    if ($schedCount == 0) {
+    if ($schedCount == 0 && !empty($v1Id)) {
         $stmtSched = $pdo->prepare("
             INSERT INTO driver_schedules (driver_id, vehicle_id, shift_date, shift_type, is_permanence)
             VALUES (?, ?, ?, ?, ?)
@@ -718,7 +819,86 @@ function seedDefaultData(PDO $pdo) {
         ]);
     }
 
-    // 13. Seed Platform Settings (إعدادات المنصة والهوية الجبائية)
+        // 14. Seed CNAS Social Security Declarations (الضمان الاجتماعي 90-11)
+        $cnasCount = $pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
+        if ($cnasCount == 0) {
+            $stmtCnas = $pdo->prepare("
+                INSERT INTO cnas_declarations (driver_id, cnas_number, affiliation_date, declaration_type, period_quarter, base_salary, cotisation_patronale, cotisation_ouvriere, total_cotisation, payment_status, payment_date, receipt_ref, attestation_expiry, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmtCnas->execute([
+                $driver1Id ?? 3, '16-84910294-88', '2022-03-15', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+                45000.00, 11700.00, 4050.00, 15750.00, 'regle', '2026-09-28', 'QUITT-CNAS-16-9921',
+                date('Y-m-d', strtotime('+80 days')), 'شهادة تحيين سارية ومطابقة لقانون العمل 90-11'
+            ]);
+            $stmtCnas->execute([
+                $driver2Id ?? 4, '16-91024811-45', '2023-01-10', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+                48000.00, 12480.00, 4320.00, 16800.00, 'regle', '2026-09-30', 'QUITT-CNAS-16-9954',
+                date('Y-m-d', strtotime('+75 days')), 'تسوية فصلية تامة لدى وكالة تيقصراين'
+            ]);
+            $stmtCnas->execute([
+                $driver3Id ?? 5, '16-77381920-12', '2024-05-01', 'principale', 'T3-2026 (جويلية - سبتمبر)',
+                45000.00, 11700.00, 4050.00, 15750.00, 'en_attente', null, null,
+                date('Y-m-d', strtotime('+12 days')), 'استحقاق دفع ثلاثي وشيك - إشعار موجه للإدارة'
+            ]);
+        }
+
+        // 15. Seed Traveler Reports (محاضر ودفاتر المسافرين بين الولايات)
+        $repCount = $pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+        if ($repCount == 0) {
+            $stmtRep = $pdo->prepare("
+                INSERT INTO traveler_reports (report_number, vehicle_id, driver_id, line_name, departure_station, arrival_station, departure_date, departure_time, seats_count, price_per_seat, total_revenue, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            
+            // Trip 1: Alger - Oran
+            $stmtRep->execute([
+                'PV-2026-1042', $v1Id ?? 1, $driver1Id ?? 3,
+                'خط: الجزائر العاصمة ⇄ وهران (الباهية)',
+                'محطة نقل المسافرين خروبة (الجزائر)', 'محطة الحطاب / الباهية (وهران)',
+                date('Y-m-d'), '06:30:00', 4, 1500.00, 6000.00, 'completed',
+                'رحلة صباحية مباشرة عبر الطريق السيار شرق-غرب دون حوادث'
+            ]);
+            $rep1Id = $pdo->lastInsertId();
+
+            $stmtPass = $pdo->prepare("
+                INSERT INTO traveler_passengers (report_id, seat_number, passenger_name, passenger_cni, phone)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $stmtPass->execute([$rep1Id, 1, 'مراد شريفي', '11827401928374', '0551223344']);
+            $stmtPass->execute([$rep1Id, 2, 'سميرة بن عودة', '10938472910293', '0662334455']);
+            $stmtPass->execute([$rep1Id, 3, 'محمد طاهر رحماني', '12093847192847', '0773445566']);
+            $stmtPass->execute([$rep1Id, 4, 'فاطمة الزهراء قاسمي', '11548392019283', '0554556677']);
+
+            // Trip 2: Alger - Constantine
+            $stmtRep->execute([
+                'PV-2026-1043', $v3Id ?? 3, $driver3Id ?? 5,
+                'خط: الجزائر العاصمة ⇄ قسنطينة (مدينة الجسور)',
+                'محطة خروبة (الجزائر)', 'محطة زواغي سليمان (قسنطينة)',
+                date('Y-m-d', strtotime('+1 day')), '07:00:00', 4, 1400.00, 5600.00, 'scheduled',
+                'رحلة مبرمجة لمناوبة السائق البديل'
+            ]);
+            $rep2Id = $pdo->lastInsertId();
+            $stmtPass->execute([$rep2Id, 1, 'عبد النور براهيمي', '11928374659281', '0665667788']);
+            $stmtPass->execute([$rep2Id, 2, 'كمال عماري', '11483920192837', '0776778899']);
+        }
+
+        // 16. Seed Audit Logs (سجل التدقيق والرقابة)
+        $auditCount = $pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
+        if ($auditCount == 0) {
+            $stmtAud = $pdo->prepare("
+                INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, details, ip_address, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)
+            ");
+            $stmtAud->execute([1, 'مدير المنصة', 'login_success', 'auth', 1, 'تسجيل دخول ناجح إلى لوحة التحكم', '127.0.0.1', 180]);
+            $stmtAud->execute([1, 'مدير المنصة', 'contract_signed', 'contracts', 1, 'توثيق العقد النظامي رقم CT-2026-001 للسائق أحمد بلقاسم', '127.0.0.1', 120]);
+            $stmtAud->execute([1, 'مدير المنصة', 'slip_issued', 'transmission_slips', 1, 'إصدار جدول إرسال ومناوبة رقم BRD-2026-0042', '127.0.0.1', 60]);
+            $stmtAud->execute([1, 'مدير المنصة', 'billing_payment', 'billings', 1, 'تأكيد استلام اشتراك شهري عبر BaridiMob بمبلغ 4,500 دج', '127.0.0.1', 25]);
+        }
+
+    } // End if ($usersCount == 0)
+
+    // 13. Seed Platform Settings (إعدادات المنصة واشتراكات SAAS والهوية الجبائية)
     $settingsCount = $pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();
     if ($settingsCount == 0) {
         $stmtSet = $pdo->prepare("INSERT INTO settings (`key`, `value`, `category`) VALUES (?, ?, ?)");
@@ -737,8 +917,12 @@ function seedDefaultData(PDO $pdo) {
             ['bank_name', 'بنك الفلاحة والتنمية الريفية (BADR) - وكالة الجزائر الوسطى', 'bank'],
             ['bank_rib', '003 00016 0160004589 77', 'bank'],
             ['fee_space_monthly', '1000.00', 'billing'],
-            ['fee_vehicle_monthly', '4000.00', 'billing'],
-            ['alert_threshold_days', '15', 'alerts'],
+            ['fee_vehicle_monthly', '5000.00', 'billing'],
+            ['discount_prepay_3m', '500.00', 'billing'],
+            ['discount_prepay_6m', '1000.00', 'billing'],
+            ['discount_prepay_9m', '1500.00', 'billing'],
+            ['discount_prepay_12m', '2000.00', 'billing'],
+            ['alert_threshold_days', '30', 'alerts'],
             ['app_timezone', 'Africa/Algiers', 'system'],
             ['app_currency', 'دج (DZD)', 'system'],
             ['douxe_ai_enabled', '1', 'ai']
@@ -747,87 +931,47 @@ function seedDefaultData(PDO $pdo) {
             $stmtSet->execute($s);
         }
     }
-
-    // 14. Seed CNAS Social Security Declarations (الضمان الاجتماعي 90-11)
-    $cnasCount = $pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
-    if ($cnasCount == 0) {
-        $stmtCnas = $pdo->prepare("
-            INSERT INTO cnas_declarations (driver_id, cnas_number, affiliation_date, declaration_type, period_quarter, base_salary, cotisation_patronale, cotisation_ouvriere, total_cotisation, payment_status, payment_date, receipt_ref, attestation_expiry, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmtCnas->execute([
-            $driver1Id ?? 3, '16-84910294-88', '2022-03-15', 'principale', 'T3-2026 (جويلية - سبتمبر)',
-            45000.00, 11700.00, 4050.00, 15750.00, 'regle', '2026-09-28', 'QUITT-CNAS-16-9921',
-            date('Y-m-d', strtotime('+80 days')), 'شهادة تحيين سارية ومطابقة لقانون العمل 90-11'
-        ]);
-        $stmtCnas->execute([
-            $driver2Id ?? 4, '16-91024811-45', '2023-01-10', 'principale', 'T3-2026 (جويلية - سبتمبر)',
-            48000.00, 12480.00, 4320.00, 16800.00, 'regle', '2026-09-30', 'QUITT-CNAS-16-9954',
-            date('Y-m-d', strtotime('+75 days')), 'تسوية فصلية تامة لدى وكالة تيقصراين'
-        ]);
-        $stmtCnas->execute([
-            $driver3Id ?? 5, '16-77381920-12', '2024-05-01', 'principale', 'T3-2026 (جويلية - سبتمبر)',
-            45000.00, 11700.00, 4050.00, 15750.00, 'en_attente', null, null,
-            date('Y-m-d', strtotime('+12 days')), 'استحقاق دفع ثلاثي وشيك - إشعار موجه للإدارة'
-        ]);
-    }
-
-    // 15. Seed Traveler Reports (محاضر ودفاتر المسافرين بين الولايات)
-    $repCount = $pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
-    if ($repCount == 0) {
-        $stmtRep = $pdo->prepare("
-            INSERT INTO traveler_reports (report_number, vehicle_id, driver_id, line_name, departure_station, arrival_station, departure_date, departure_time, seats_count, price_per_seat, total_revenue, status, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        
-        // Trip 1: Alger - Oran
-        $stmtRep->execute([
-            'PV-2026-1042', $v1Id ?? 1, $driver1Id ?? 3,
-            'خط: الجزائر العاصمة ⇄ وهران (الباهية)',
-            'محطة نقل المسافرين خروبة (الجزائر)', 'محطة الحطاب / الباهية (وهران)',
-            date('Y-m-d'), '06:30:00', 4, 1500.00, 6000.00, 'completed',
-            'رحلة صباحية مباشرة عبر الطريق السيار شرق-غرب دون حوادث'
-        ]);
-        $rep1Id = $pdo->lastInsertId();
-
-        $stmtPass = $pdo->prepare("
-            INSERT INTO traveler_passengers (report_id, seat_number, passenger_name, passenger_cni, phone)
-            VALUES (?, ?, ?, ?, ?)
-        ");
-        $stmtPass->execute([$rep1Id, 1, 'مراد شريفي', '11827401928374', '0551223344']);
-        $stmtPass->execute([$rep1Id, 2, 'سميرة بن عودة', '10938472910293', '0662334455']);
-        $stmtPass->execute([$rep1Id, 3, 'محمد طاهر رحماني', '12093847192847', '0773445566']);
-        $stmtPass->execute([$rep1Id, 4, 'فاطمة الزهراء قاسمي', '11548392019283', '0554556677']);
-
-        // Trip 2: Alger - Constantine
-        $stmtRep->execute([
-            'PV-2026-1043', $v3Id ?? 3, $driver3Id ?? 5,
-            'خط: الجزائر العاصمة ⇄ قسنطينة (مدينة الجسور)',
-            'محطة خروبة (الجزائر)', 'محطة زواغي سليمان (قسنطينة)',
-            date('Y-m-d', strtotime('+1 day')), '07:00:00', 4, 1400.00, 5600.00, 'scheduled',
-            'رحلة مبرمجة لمناوبة السائق البديل'
-        ]);
-        $rep2Id = $pdo->lastInsertId();
-        $stmtPass->execute([$rep2Id, 1, 'عبد النور براهيمي', '11928374659281', '0665667788']);
-        $stmtPass->execute([$rep2Id, 2, 'كمال عماري', '11483920192837', '0776778899']);
-    }
-
-    // 16. Seed Audit Logs (سجل التدقيق والرقابة)
-    $auditCount = $pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
-    if ($auditCount == 0) {
-        $stmtAud = $pdo->prepare("
-            INSERT INTO audit_logs (user_id, user_name, action, entity, entity_id, details, ip_address, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)
-        ");
-        $stmtAud->execute([1, 'مدير المنصة', 'login_success', 'auth', 1, 'تسجيل دخول ناجح إلى لوحة التحكم', '127.0.0.1', 180]);
-        $stmtAud->execute([1, 'مدير المنصة', 'contract_signed', 'contracts', 1, 'توثيق العقد النظامي رقم CT-2026-001 للسائق أحمد بلقاسم', '127.0.0.1', 120]);
-        $stmtAud->execute([1, 'مدير المنصة', 'slip_issued', 'transmission_slips', 1, 'إصدار جدول إرسال ومناوبة رقم BRD-2026-0042', '127.0.0.1', 60]);
-        $stmtAud->execute([1, 'مدير المنصة', 'billing_payment', 'billings', 1, 'تأكيد استلام اشتراك شهري عبر BaridiMob بمبلغ 4,500 دج', '127.0.0.1', 25]);
+    } catch (\Throwable $e) {
+        error_log("seedDefaultData warning: " . $e->getMessage());
     }
 }
 
-function log_audit(PDO $pdo, string $action, string $entity, ?int $entityId = null, ?string $details = null): bool {
+function log_audit(...$args): bool {
     try {
+        $pdo = null;
+        $action = '';
+        $entity = '';
+        $entityId = null;
+        $details = null;
+
+        if (isset($args[0]) && $args[0] instanceof PDO) {
+            $pdo = $args[0];
+            $action = (string)($args[1] ?? 'action');
+            $entity = (string)($args[2] ?? 'general');
+            $entityId = isset($args[3]) && $args[3] !== null ? (int)$args[3] : null;
+            $details = $args[4] ?? null;
+        } else {
+            $action = (string)($args[0] ?? 'action');
+            $entity = (string)($args[1] ?? 'general');
+            $entityId = isset($args[2]) && $args[2] !== null ? (int)$args[2] : null;
+            if (isset($args[4])) {
+                $details = $args[4];
+            } elseif (isset($args[3])) {
+                $details = $args[3];
+            }
+            $pdo = getDBConnection();
+        }
+
+        if (!$pdo) {
+            return false;
+        }
+
+        if (is_array($details) || is_object($details)) {
+            $details = json_encode($details, JSON_UNESCAPED_UNICODE);
+        } elseif ($details !== null) {
+            $details = (string)$details;
+        }
+
         $user = function_exists('current_user') ? current_user() : null;
         $userId = $user['id'] ?? null;
         $userName = $user['name'] ?? 'النظام';
@@ -838,7 +982,8 @@ function log_audit(PDO $pdo, string $action, string $entity, ?int $entityId = nu
             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
         ");
         return $stmt->execute([$userId, $userName, $action, $entity, $entityId, $details, $ip]);
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
+        error_log("log_audit warning: " . $e->getMessage());
         return false;
     }
 }

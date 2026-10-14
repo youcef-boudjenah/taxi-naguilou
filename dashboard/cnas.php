@@ -2,6 +2,7 @@
 // dashboard/cnas.php - CNAS Social Security Declarations (Law 90-11)
 $pageTitle = 'تأمينات الضمان الاجتماعي (CNAS)';
 require_once __DIR__ . '/../includes/header.php';
+require_role(['super_admin', 'admin']);
 
 $pdo = getDBConnection();
 $message = null;
@@ -9,6 +10,7 @@ $messageType = null;
 
 // Handle New CNAS Declaration or Payment Update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf_token();
     if (!is_admin()) {
         $message = 'عذراً، فقط إدارة المنصة مخولة بإضافة وتحديث تصريحات الضمان الاجتماعي.';
         $messageType = 'error';
@@ -221,6 +223,7 @@ if ($pdo) {
                                 <td class="p-4 text-center">
                                     <?php if (!$isPaid): ?>
                                         <form method="POST" action="" class="inline">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="mark_paid">
                                             <input type="hidden" name="declaration_id" value="<?= $d['id'] ?>">
                                             <button type="submit" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] transition shadow-xs">
@@ -250,6 +253,7 @@ if ($pdo) {
         </div>
 
         <form method="POST" action="" class="space-y-3 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="create">
 
             <div>

@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/slips.php - Générateur de Bordereaux d'Envoi & Historique des Bordereaux
 $pageTitle = 'Générateur de Bordereaux d\'Envoi | جداول الإرسال الرسمية';
 require_once __DIR__ . '/../includes/header.php';
@@ -15,30 +15,28 @@ $activeTab = $_GET['tab'] ?? 'generator'; // 'generator' or 'history'
 // Handle New Slip Generation
 $generatedSlip = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'generate_slip') {
+    require_csrf_token();
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $driverId = intval($_POST['driver_id'] ?? 0);
     $recipient = trim($_POST['recipient'] ?? 'Direction des Transports de la Wilaya d\'Alger (DTW)');
     $routeLine = trim($_POST['route_line'] ?? 'Ligne Urbaine - Alger Centre / Aéroport Houari Boumediene');
     $subject = trim($_POST['subject'] ?? 'Déclaration d\'affectation de chauffeur titulaire et mise en service de permanence');
-    $issueDate = $_POST['issue_date'] ?? date('Y-m-d');
-    $validUntil = $_POST['valid_until'] ?? date('Y-m-d', strtotime('+30 days'));
+    $issueDate = !empty($_POST['issue_date']) ? $_POST['issue_date'] : date('Y-m-d');
+    $validUntil = !empty($_POST['valid_until']) ? $_POST['valid_until'] : date('Y-m-d', strtotime('+30 days'));
     $notes = trim($_POST['notes'] ?? 'Dossier complet comprenant copie du permis de conduire, certificat médical périodique et attestation d\'assurance.');
 
     if ($vehicleId > 0 && $driverId > 0) {
-        $slipNum = 'BRD-' . date('Y') . '-' . str_pad(rand(100, 9999), 4, '0', STR_PAD_LEFT);
+        $maxSlipId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM transmission_slips")->fetchColumn();
+        $slipNum = 'BRD-' . date('Y') . '-' . str_pad($maxSlipId + 1, 4, '0', STR_PAD_LEFT);
         try {
             $stmt = $pdo->prepare("
                 INSERT INTO transmission_slips (slip_number, vehicle_id, driver_id, route_line, issue_date, valid_until, status)
                 VALUES (?, ?, ?, ?, ?, ?, 'active')
             ");
             $stmt->execute([$slipNum, $vehicleId, $driverId, "$subject | $recipient | $routeLine", $issueDate, $validUntil]);
-            $slipId = $pdo->lastInsertId();
+            $slipId = (int)$pdo->lastInsertId();
 
-            log_audit('create', 'transmission_slips', $slipId, null, [
-                'slip_number' => $slipNum,
-                'vehicle_id' => $vehicleId,
-                'driver_id' => $driverId
-            ]);
+            log_audit($pdo, 'slip_generated', 'transmission_slips', $slipId, "إصدار جدول إرسال رقم $slipNum للمركبة $vehicleId والسائق $driverId");
 
             // Retrieve populated slip data for instant preview & printing
             $stmtGet = $pdo->prepare("
@@ -143,6 +141,7 @@ if (isset($_GET['print_id'])) {
                 </div>
 
                 <form method="POST" class="space-y-4 text-xs">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="action" value="generate_slip">
 
                     <!-- Destination / Recipient -->
@@ -359,7 +358,7 @@ if (isset($_GET['print_id'])) {
                             <?php foreach ($slipsHistory as $slip): ?>
                                 <tr class="hover:bg-slate-50/60 transition">
                                     <td class="p-3.5 whitespace-nowrap text-center font-num font-mono font-bold text-slate-900">
-                                        <?= htmlspecialchars($slip['slip_number']) ?>
+                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['slip_number']) ?></span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap">
                                         <div class="font-bold text-slate-900"><?= htmlspecialchars($slip['brand'] . ' ' . $slip['model']) ?></div>
@@ -373,10 +372,10 @@ if (isset($_GET['print_id'])) {
                                         <?= htmlspecialchars($slip['route_line']) ?>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap font-num text-slate-700">
-                                        <?= htmlspecialchars($slip['issue_date']) ?>
+                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['issue_date']) ?></span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800">
-                                        <?= htmlspecialchars($slip['valid_until']) ?>
+                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['valid_until']) ?></span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap text-center">
                                         <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/60">

@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/planning.php - Garde de nuit du parc & Prochain planning des chauffeurs (3 jours)
 $pageTitle = 'Garde de Nuit & Planning des Chauffeurs';
 require_once __DIR__ . '/../includes/header.php';
@@ -9,9 +9,10 @@ $vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM
 
 // Handle New Shift Schedule
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_shift') {
+    require_csrf_token();
     $driverId = intval($_POST['driver_id'] ?? 0);
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
-    $shiftDate = $_POST['shift_date'] ?? date('Y-m-d');
+    $shiftDate = !empty($_POST['shift_date']) ? $_POST['shift_date'] : date('Y-m-d');
     $shiftType = $_POST['shift_type'] ?? 'matin';
     $isPermanence = isset($_POST['is_permanence']) ? 1 : 0;
 
@@ -21,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             VALUES (?, ?, ?, ?, ?)
         ");
         $stmt->execute([$driverId, $vehicleId, $shiftDate, $shiftType, $isPermanence]);
-        log_audit('create', 'driver_schedules', $pdo->lastInsertId(), null, ['driver_id' => $driverId, 'shift_date' => $shiftDate, 'is_permanence' => $isPermanence]);
+        $sId = (int)$pdo->lastInsertId();
+        log_audit($pdo, 'shift_scheduled', 'driver_schedules', $sId, "برمجة مناوبة للسائق $driverId على المركبة $vehicleId بتاريخ $shiftDate");
         set_flash('success', 'تم تسجيل مناوبة السائق بنجاح في الجدول التقديري');
         redirect('/dashboard/planning.php');
     }
@@ -29,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Night Watch Entry
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_night_watch') {
+    require_csrf_token();
     $vId = intval($_POST['vehicle_id'] ?? 0);
     $guardian = trim($_POST['guardian_name'] ?? 'عمي عيسى (حارس الحظيرة)');
     $slot = trim($_POST['park_slot'] ?? 'Zone A');
@@ -40,18 +43,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             VALUES (?, ?, ?, NOW(), 'in_park', ?)
         ");
         $stmt->execute([$vId, $guardian, $slot, $notes]);
-        log_audit('create', 'night_watch', $pdo->lastInsertId(), null, ['vehicle_id' => $vId, 'park_slot' => $slot]);
+        $nwId = (int)$pdo->lastInsertId();
+        log_audit($pdo, 'night_watch_entry', 'night_watch', $nwId, "إيواء المركبة $vId في الحظيرة بموقف $slot تحت حراسة $guardian");
         set_flash('success', 'تم تسجيل إيواء المركبة في حراسة الحظيرة الليلية (Garde de nuit)');
         redirect('/dashboard/planning.php');
     }
 }
 
-// Handle Exit from park
-if (isset($_GET['exit_park'])) {
-    $nwId = intval($_GET['exit_park']);
-    $pdo->prepare("UPDATE night_watch SET status = 'sorti', exit_time = NOW() WHERE id = ?")->execute([$nwId]);
-    log_audit('update', 'night_watch', $nwId, null, ['status' => 'sorti']);
-    set_flash('success', 'تم تسجيل خروج سيارة الأجرة من الحظيرة إلى الخدمة الصباحية');
+// Handle Exit from park (POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'exit_park') {
+    require_csrf_token();
+    $nwId = intval($_POST['night_watch_id'] ?? 0);
+    if ($nwId > 0) {
+        $pdo->prepare("UPDATE night_watch SET status = 'sorti', exit_time = NOW() WHERE id = ?")->execute([$nwId]);
+        log_audit($pdo, 'night_watch_exit', 'night_watch', $nwId, "تسجيل خروج المركبة من الحظيرة إلى الخدمة");
+        set_flash('success', 'تم تسجيل خروج سيارة الأجرة من الحظيرة إلى الخدمة الصباحية');
+    }
     redirect('/dashboard/planning.php');
 }
 
@@ -169,10 +176,15 @@ foreach ($allShifts as $sh) {
                         </div>
 
                         <div class="pt-1">
-                            <a href="planning.php?exit_park=<?= $nw['id'] ?>" 
-                               class="block w-full py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-center text-xs font-bold text-slate-700 transition">
-                                تسجيل خروج للخدمة (Sortie du parc)
-                            </a>
+                            <form method="POST" action="">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="exit_park">
+                                <input type="hidden" name="night_watch_id" value="<?= $nw['id'] ?>">
+                                <button type="submit" 
+                                        class="block w-full py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-center text-xs font-bold text-slate-700 transition">
+                                    تسجيل خروج للخدمة (Sortie du parc)
+                                </button>
+                            </form>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -319,7 +331,8 @@ foreach ($allShifts as $sh) {
             </button>
         </div>
 
-        <form method="POST" action="/dashboard/planning.php" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="add_shift">
 
             <div>
@@ -384,7 +397,8 @@ foreach ($allShifts as $sh) {
             </button>
         </div>
 
-        <form method="POST" action="/dashboard/planning.php" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="add_night_watch">
 
             <div>

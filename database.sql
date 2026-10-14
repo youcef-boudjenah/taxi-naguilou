@@ -2,19 +2,41 @@
 CREATE DATABASE IF NOT EXISTS `taxi_naguilou` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `taxi_naguilou`;
 
--- 1. المستخدمون (المشرفون، الملاك، السائقون)
+-- 1. المستخدمون (المشرفون، الملاك، السائقون والبطاقة الفنية المهنية)
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `card_number` VARCHAR(50) NULL,
+    `avatar_url` VARCHAR(255) NULL,
     `full_name` VARCHAR(150) NOT NULL,
+    `first_name` VARCHAR(80) NULL,
+    `last_name` VARCHAR(80) NULL,
     `email` VARCHAR(150) UNIQUE NOT NULL,
     `password_hash` VARCHAR(255) NOT NULL,
     `phone` VARCHAR(30) NOT NULL,
     `role` ENUM('super_admin', 'admin', 'owner', 'driver') DEFAULT 'driver',
     `status` ENUM('active', 'pending', 'suspended') DEFAULT 'active',
+    `driver_type` VARCHAR(50) DEFAULT 'ajir',
+    `activity_start_date` DATE NULL,
+    `activity_status` VARCHAR(50) DEFAULT 'active',
+    `dtw_visa_date` DATE NULL,
     `wilaya` VARCHAR(100) DEFAULT '16 - الجزائر العاصمة',
+    `birth_date` DATE NULL,
+    `birth_place` VARCHAR(150) NULL,
+    `father_name` VARCHAR(100) NULL,
+    `mother_name` VARCHAR(100) NULL,
+    `address` VARCHAR(255) NULL,
     `license_number` VARCHAR(50) NULL,
+    `license_issue_date` DATE NULL,
+    `license_issue_place` VARCHAR(100) NULL,
     `license_expiry` DATE NULL,
     `medical_cert_expiry` DATE NULL,
+    `medical_exam_start` DATE NULL,
+    `medical_exam_end` DATE NULL,
+    `medical_visa_date` DATE NULL,
+    `next_medical_start` DATE NULL,
+    `next_medical_end` DATE NULL,
+    `taxi_contract_start` DATE NULL,
+    `taxi_contract_end` DATE NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

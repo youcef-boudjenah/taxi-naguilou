@@ -2,6 +2,7 @@
 // dashboard/users.php - User & Role Management
 $pageTitle = 'إدارة المستخدمين والصلاحيات';
 require_once __DIR__ . '/../includes/header.php';
+require_admin();
 
 $pdo = getDBConnection();
 $message = null;
@@ -9,6 +10,7 @@ $messageType = null;
 
 // Handle User Actions (Add, Toggle Status, Reset Password)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf_token();
     if (!is_admin()) {
         $message = 'عذراً، فقط مدير المنصة مخول بتعديل بيانات وحسابات المستخدمين.';
         $messageType = 'error';
@@ -281,6 +283,7 @@ $roleCounts = [
                                     <div class="flex items-center justify-center gap-1.5">
                                         <!-- Toggle Status Form -->
                                         <form method="POST" action="" class="inline">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="toggle_status">
                                             <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
                                             <?php if ($u['status'] === 'active'): ?>
@@ -298,6 +301,7 @@ $roleCounts = [
 
                                         <!-- Reset Password Form -->
                                         <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين كلمة المرور إلى (password123)؟')" class="inline">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="reset_password">
                                             <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
                                             <button type="submit" title="إعادة تعيين كلمة المرور" class="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition text-xs">
@@ -325,6 +329,7 @@ $roleCounts = [
         </div>
 
         <form method="POST" action="" class="space-y-3 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="create">
 
             <div>

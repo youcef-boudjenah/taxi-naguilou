@@ -33,6 +33,27 @@ if (empty($fullName) || empty($phone) || empty($wilaya)) {
     exit;
 }
 
+// Email validation
+if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => 'يرجى إدخال بريد إلكتروني صحيح'
+    ]);
+    exit;
+}
+
+// Phone format validation (Algerian numbers: 9 to 10 digits)
+$cleanPhone = preg_replace('/[^0-9]/', '', $phone);
+if (strlen($cleanPhone) < 9 || strlen($cleanPhone) > 12) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => 'يرجى إدخال رقم هاتف صالح (مثال: 0550123456)'
+    ]);
+    exit;
+}
+
 $validRoles = ['owner', 'driver', 'agency', 'investor'];
 if (!in_array($roleType, $validRoles)) {
     $roleType = 'owner';
@@ -40,36 +61,42 @@ if (!in_array($roleType, $validRoles)) {
 
 $pdo = getDBConnection();
 
-if ($pdo) {
-    try {
-        $stmt = $pdo->prepare("
-            INSERT INTO leads (full_name, phone, email, role_type, wilaya, fleet_size, message)
-            VALUES (:full_name, :phone, :email, :role_type, :wilaya, :fleet_size, :message)
-        ");
-        $stmt->execute([
-            ':full_name' => $fullName,
-            ':phone' => $phone,
-            ':email' => !empty($email) ? $email : null,
-            ':role_type' => $roleType,
-            ':wilaya' => $wilaya,
-            ':fleet_size' => max(1, $fleetSize),
-            ':message' => !empty($message) ? $message : null
-        ]);
-
-        echo json_encode([
-            'success' => true,
-            'message' => 'تم استلام طلبكم بنجاح! سيتواصل معكم فريق تاكسي نقيلو خلال 24 ساعة.',
-            'lead_id' => $pdo->lastInsertId()
-        ]);
-        exit;
-    } catch (PDOException $e) {
-        error_log("Database Insert Error: " . $e->getMessage());
-    }
+if (!$pdo) {
+    http_response_code(503);
+    echo json_encode([
+        'success' => false,
+        'message' => 'تعذر الاتصال بقاعدة البيانات حالياً. يرجى المحاولة لاحقاً.'
+    ]);
+    exit;
 }
 
-// Fallback response if DB is offline during dev/preview
-echo json_encode([
-    'success' => true,
-    'message' => 'تم تسجيل طلبك المبدئي بنجاح! سيتصل بك مستشارنا التقني لتفعيل حسابك التجريبي.',
-    'lead_id' => 'DEMO-' . time()
-]);
+try {
+    $stmt = $pdo->prepare("
+        INSERT INTO leads (full_name, phone, email, role_type, wilaya, fleet_size, message)
+        VALUES (:full_name, :phone, :email, :role_type, :wilaya, :fleet_size, :message)
+    ");
+    $stmt->execute([
+        ':full_name' => $fullName,
+        ':phone' => $phone,
+        ':email' => !empty($email) ? $email : null,
+        ':role_type' => $roleType,
+        ':wilaya' => $wilaya,
+        ':fleet_size' => max(1, $fleetSize),
+        ':message' => !empty($message) ? $message : null
+    ]);
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'تم استلام طلبكم بنجاح! سيتواصل معكم فريق تاكسي نقيلو خلال 24 ساعة.',
+        'lead_id' => (int)$pdo->lastInsertId()
+    ]);
+    exit;
+} catch (PDOException $e) {
+    error_log("Database Insert Error: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => 'حدث خطأ أثناء حفظ الطلب في النظام. يرجى المحاولة مرة أخرى.'
+    ]);
+    exit;
+}

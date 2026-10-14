@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/notifications.php - System Notifications Center (الإشعارات وتنبيهات النظام)
 $pageTitle = 'Notifications Système | مركز الإشعارات والتنبيهات';
 require_once __DIR__ . '/../includes/header.php';
@@ -6,18 +6,18 @@ require_once __DIR__ . '/../includes/header.php';
 $pdo = getDBConnection();
 
 // Handle Actions (Mark all read, mark single, delete, trigger audit scan)
-if (isset($_GET['action'])) {
-    $act = $_GET['action'];
+if (isset($_REQUEST['action'])) {
+    $act = $_REQUEST['action'];
     if ($act === 'mark_all_read') {
         $pdo->query("UPDATE notifications SET is_read = 1");
         set_flash('success', 'تم تحديد جميع الإشعارات كمقروءة');
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'toggle_read' && isset($_GET['id'])) {
-        $nId = intval($_GET['id']);
+    } elseif ($act === 'toggle_read' && isset($_REQUEST['id'])) {
+        $nId = intval($_REQUEST['id']);
         $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ?")->execute([$nId]);
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'delete' && isset($_GET['id'])) {
-        $nId = intval($_GET['id']);
+    } elseif ($act === 'delete' && isset($_REQUEST['id'])) {
+        $nId = intval($_REQUEST['id']);
         $pdo->prepare("DELETE FROM notifications WHERE id = ?")->execute([$nId]);
         set_flash('success', 'تم حذف الإشعار بنجاح');
         redirect('/dashboard/notifications.php');
@@ -41,7 +41,7 @@ if (isset($_GET['action'])) {
                 $addedCount++;
             }
         }
-        log_audit('create', 'notifications', null, null, ['action' => 'run_audit_scan', 'added_count' => $addedCount]);
+        log_audit($pdo, 'run_audit_scan', 'notifications', null, "مسح وتدقيق دوري للأسطول - إضافة $addedCount تنبيهات جديدة");
         set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول وتحديث مركز التنبيهات بنجاح");
         redirect('/dashboard/notifications.php');
     }

@@ -1,39 +1,102 @@
-﻿<?php
+<?php
 // dashboard/drivers.php - Liste Chauffeurs, Expiration Imminente & CHAUFFEURS PERMANENCE
 $pageTitle = 'Liste Chauffeurs | سجل السائقين والمداومة';
 require_once __DIR__ . '/../includes/header.php';
+require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
 
 // Handle Add Driver
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_driver') {
+    require_csrf_token();
     $fullName = trim($_POST['full_name'] ?? '');
+    $firstName = trim($_POST['first_name'] ?? '');
+    $lastName = trim($_POST['last_name'] ?? '');
+    if (empty($fullName) && (!empty($firstName) || !empty($lastName))) {
+        $fullName = trim($firstName . ' ' . $lastName);
+    }
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
+    $wilaya = trim($_POST['wilaya'] ?? '01 - أدرار');
+    $birthDate = !empty($_POST['birth_date']) ? $_POST['birth_date'] : null;
+    $birthPlace = trim($_POST['birth_place'] ?? '');
+    $fatherName = trim($_POST['father_name'] ?? '');
+    $motherName = trim($_POST['mother_name'] ?? '');
+    $address = trim($_POST['address'] ?? '');
+    
     $licenseNumber = trim($_POST['license_number'] ?? '');
+    $licenseIssueDate = !empty($_POST['license_issue_date']) ? $_POST['license_issue_date'] : null;
+    $licenseIssuePlace = trim($_POST['license_issue_place'] ?? '');
     $licenseExpiry = !empty($_POST['license_expiry']) ? $_POST['license_expiry'] : null;
+    
+    $driverType = trim($_POST['driver_type'] ?? 'ajir');
+    $activityStartDate = !empty($_POST['activity_start_date']) ? $_POST['activity_start_date'] : null;
+    $dtwVisaDate = !empty($_POST['dtw_visa_date']) ? $_POST['dtw_visa_date'] : null;
+    $cardNumber = trim($_POST['card_number'] ?? '');
+    
     $medExpiry = !empty($_POST['medical_cert_expiry']) ? $_POST['medical_cert_expiry'] : null;
-    $wilaya = trim($_POST['wilaya'] ?? '16 - الجزائر العاصمة');
+    $medStart = !empty($_POST['medical_exam_start']) ? $_POST['medical_exam_start'] : null;
+    $medEnd = !empty($_POST['medical_exam_end']) ? $_POST['medical_exam_end'] : $medExpiry;
+    $medVisaDate = !empty($_POST['medical_visa_date']) ? $_POST['medical_visa_date'] : null;
+    $nextMedStart = !empty($_POST['next_medical_start']) ? $_POST['next_medical_start'] : null;
+    $nextMedEnd = !empty($_POST['next_medical_end']) ? $_POST['next_medical_end'] : null;
+    
+    $taxiContractStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
+    $taxiContractEnd = !empty($_POST['taxi_contract_end']) ? $_POST['taxi_contract_end'] : null;
+
+    // Handle photo upload
+    $avatarUrl = null;
+    if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+        $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+        $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, $allowedExts)) {
+            $destDir = __DIR__ . '/../uploads/drivers';
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0777, true);
+            }
+            $fileName = 'driver_' . time() . '_' . rand(100, 999) . '.' . $ext;
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
+                $avatarUrl = '/uploads/drivers/' . $fileName;
+            }
+        }
+    }
 
     if (!empty($fullName) && !empty($phone)) {
         if (empty($email)) {
-            $email = 'driver_' . time() . '@taxinaguilou.dz';
+            $email = 'driver_' . time() . '_' . rand(100, 999) . '@taxinaguilou.dz';
         }
         try {
             $stmt = $pdo->prepare("
-                INSERT INTO users (full_name, email, password_hash, phone, role, status, wilaya, license_number, license_expiry, medical_cert_expiry)
-                VALUES (?, ?, ?, ?, 'driver', 'active', ?, ?, ?, ?)
+                INSERT INTO users (
+                    full_name, first_name, last_name, email, password_hash, phone, role, status, 
+                    wilaya, birth_date, birth_place, father_name, mother_name, address,
+                    license_number, license_issue_date, license_issue_place, license_expiry,
+                    driver_type, activity_start_date, dtw_visa_date, card_number,
+                    medical_cert_expiry, medical_exam_start, medical_exam_end, medical_visa_date,
+                    next_medical_start, next_medical_end, taxi_contract_start, taxi_contract_end, avatar_url
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, 'driver', 'active',
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?
+                )
             ");
             $stmt->execute([
-                $fullName, $email, password_hash('password123', PASSWORD_BCRYPT),
-                $phone, $wilaya, $licenseNumber, $licenseExpiry, $medExpiry
+                $fullName, $firstName, $lastName, $email, password_hash('driver123', PASSWORD_BCRYPT), $phone,
+                $wilaya, $birthDate, $birthPlace, $fatherName, $motherName, $address,
+                $licenseNumber, $licenseIssueDate, $licenseIssuePlace, $licenseExpiry,
+                $driverType, $activityStartDate, $dtwVisaDate, $cardNumber,
+                $medEnd, $medStart, $medEnd, $medVisaDate,
+                $nextMedStart, $nextMedEnd, $taxiContractStart, $taxiContractEnd, $avatarUrl
             ]);
-            $newDriverId = $pdo->lastInsertId();
-            log_audit('create', 'users', $newDriverId, null, ['name' => $fullName, 'phone' => $phone, 'role' => 'driver']);
-            set_flash('success', 'تم تسجيل السائق بنجاح وإصدار ملفه المهني');
-            redirect('/dashboard/drivers.php');
-        } catch (Exception $e) {
-            set_flash('error', 'حدث خطأ: قد يكون البريد الإلكتروني أو رقم الهاتف مسجلاً مسبقاً');
+            $newDriverId = (int)$pdo->lastInsertId();
+            log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
+            set_flash('success', 'تم تسجيل السائق بنجاح وإصدار بطاقته الفنية');
+            redirect('/dashboard/driver_fiche.php?id=' . $newDriverId);
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء التسجيل: ' . $e->getMessage());
         }
     }
 }
@@ -103,8 +166,8 @@ foreach ($allDrivers as $d) {
 }
 
 // Display counts
-$countActifs = 95;
-$countAnciens = 3;
+$countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
+$countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
 $countPermanence = count($permanenceDriverIds);
 ?>
 
@@ -301,14 +364,14 @@ $countPermanence = count($permanenceDriverIds);
             <table class="w-full text-right text-xs">
                 <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
                     <tr>
-                        <th class="p-3.5 whitespace-nowrap">السائق والمعلومات</th>
+                        <th class="p-3.5 whitespace-nowrap">السائق والهوية المهنية</th>
                         <th class="p-3.5 whitespace-nowrap">رقم الهاتف</th>
                         <th class="p-3.5 whitespace-nowrap">رخصة السياقة</th>
                         <th class="p-3.5 whitespace-nowrap">صلاحية الرخصة</th>
                         <th class="p-3.5 whitespace-nowrap">الفحص الطبي الدوري</th>
                         <th class="p-3.5 whitespace-nowrap">المركبة الحالية</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">المداومة (Permanence)</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">الوضعية</th>
+                        <th class="p-3.5 whitespace-nowrap text-center">المداومة</th>
+                        <th class="p-3.5 whitespace-nowrap text-center">البطاقة الفنية (Fiche)</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
@@ -317,29 +380,47 @@ $countPermanence = count($permanenceDriverIds);
                             <tr class="hover:bg-slate-50/60 transition <?= $d['is_permanence'] ? 'bg-amber-50/15' : '' ?>">
                                 
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 text-[13px]"><?= htmlspecialchars($d['full_name']) ?></div>
-                                    <div class="text-[11px] text-slate-400" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center shrink-0">
+                                            <?php if (!empty($d['avatar_url'])): ?>
+                                                <img src="<?= url($d['avatar_url']) ?>" alt="<?= htmlspecialchars($d['full_name']) ?>" class="w-full h-full object-cover">
+                                            <?php else: ?>
+                                                <span class="font-black text-slate-600 text-xs"><?= mb_substr($d['full_name'], 0, 1) ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div>
+                                            <div class="flex items-center gap-1.5">
+                                                <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 text-[13px] hover:text-amber-600 transition">
+                                                    <?= htmlspecialchars($d['full_name']) ?>
+                                                </a>
+                                                <span class="px-1.5 py-0.2 rounded text-[10px] font-bold <?= ($d['driver_type'] ?? 'ajir') === 'ajir' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-700' ?>">
+                                                    <?= ($d['driver_type'] ?? 'ajir') === 'ajir' ? 'أجير (90-11)' : 'مؤجر' ?>
+                                                </span>
+                                            </div>
+                                            <div class="text-[11px] text-slate-400 mt-0.5" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
+                                        </div>
+                                    </div>
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800" dir="ltr">
                                     <?= htmlspecialchars($d['phone']) ?>
                                 </td>
 
-                                <td class="p-3.5 whitespace-nowrap font-num text-slate-700">
+                                <td class="p-3.5 whitespace-nowrap font-num text-slate-700 font-semibold" dir="ltr">
                                     <?= htmlspecialchars($d['license_number'] ?? '—') ?>
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap font-num">
                                     <?php if (!empty($d['license_expiry'])): ?>
-                                        <span class="font-semibold text-slate-800"><?= htmlspecialchars($d['license_expiry']) ?></span>
+                                        <span class="font-semibold text-slate-800" dir="ltr"><?= htmlspecialchars($d['license_expiry']) ?></span>
                                     <?php else: ?>
                                         <span class="text-slate-400">—</span>
                                     <?php endif; ?>
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                                        <?= htmlspecialchars($d['medical_cert_expiry'] ?? 'صالح ومفحوص') ?>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num" dir="ltr">
+                                        <?= htmlspecialchars($d['medical_cert_expiry'] ?? $d['medical_exam_end'] ?? 'صالح ومفحوص') ?>
                                     </span>
                                 </td>
 
@@ -356,9 +437,7 @@ $countPermanence = count($permanenceDriverIds);
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <?php if ($d['is_permanence']): ?>
                                         <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] shadow-xs">
-                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                            </svg>
+                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
                                             <span>PERMANENCE</span>
                                         </span>
                                     <?php else: ?>
@@ -366,10 +445,15 @@ $countPermanence = count($permanenceDriverIds);
                                     <?php endif; ?>
                                 </td>
 
+                                <!-- FICHE TECHNIQUE ACTION -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                                        معتمد ونظامي
-                                    </span>
+                                    <a href="driver_fiche.php?id=<?= $d['id'] ?>" 
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition shadow-2xs">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                        </svg>
+                                        <span>البطاقة الفنية</span>
+                                    </a>
                                 </td>
 
                             </tr>
@@ -384,14 +468,14 @@ $countPermanence = count($permanenceDriverIds);
 
 </div>
 
-<!-- Modal: Add Driver -->
-<div id="addDriverModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right">
+<!-- Modal: Add Driver (Fiche Technique Complète) -->
+<div id="addDriverModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-5 text-right my-8 max-h-[90vh] overflow-y-auto">
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-                <h3 class="font-bold text-slate-900 text-lg">تسجيل سائق سيارة أجرة جديد</h3>
-                <span class="text-xs text-slate-500">إضافة ملف السائق وبطاقة الكفاءة المهنية</span>
+                <h3 class="font-black text-slate-900 text-lg">تسجيل سائق سيارة أجرة جديد (دفتر المقررة)</h3>
+                <span class="text-xs text-slate-500">إدخال البطاقة الفنية، رخصة السياقة، الفحوصات الطبية، وعقد استغلال رخصة الأجرة</span>
             </div>
             <button onclick="document.getElementById('addDriverModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -400,45 +484,180 @@ $countPermanence = count($permanenceDriverIds);
             </button>
         </div>
 
-        <form method="POST" action="/dashboard/drivers.php" class="space-y-4 text-xs">
+        <form method="POST" action="" enctype="multipart/form-data" class="space-y-5 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_driver">
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1.5">الاسم واللقب الكامل <span class="text-rose-500">*</span></label>
-                <input type="text" name="full_name" required placeholder="مثال: فاروق بوعلام"
-                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+            <!-- Tab 1: الحالة المدنية والهوية الشخصية -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span>1. الحالة المدنية والهوية الشخصية (الصفحة 4 من الدفتر)</span>
+                </h4>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اللقب (Nom) <span class="text-rose-500">*</span></label>
+                        <input type="text" name="last_name" required placeholder="مثال: حمو صالح"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الاسم (Prénom) <span class="text-rose-500">*</span></label>
+                        <input type="text" name="first_name" required placeholder="مثال: يوسف"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ الازدياد (Date de Naissance)</label>
+                        <input type="date" name="birth_date"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">مكان الازدياد (Lieu de Naissance)</label>
+                        <input type="text" name="birth_place" placeholder="مثال: بعريانو تامست"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اسم الأب (إبن)</label>
+                        <input type="text" name="father_name" placeholder="مثال: أحمد"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اسم ولقب الأم (و)</label>
+                        <input type="text" name="mother_name" placeholder="مثال: حمو صالح خيرة"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                        <label class="block font-bold text-slate-700 mb-1">العنوان الشخصي</label>
+                        <input type="text" name="address" placeholder="مثال: حي الحطابة أدرار"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الولاية</label>
+                        <input type="text" name="wilaya" value="01 - أدرار"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم الهاتف <span class="text-rose-500">*</span></label>
+                        <input type="tel" name="phone" required placeholder="0661234567" dir="ltr"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">صورة السائق (Photo Portrait)</label>
+                        <input type="file" name="avatar" accept="image/*"
+                               class="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 transition">
+                    </div>
+                </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">رقم الهاتف <span class="text-rose-500">*</span></label>
-                    <input type="tel" name="phone" required placeholder="0550112233" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-right font-num transition">
+            <!-- Tab 2: رخصة السياقة والكفاءة المهنية -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                    <span>2. رخصة السياقة وبطاقة الكفاءة المهنية</span>
+                </h4>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم رخصة السياقة</label>
+                        <input type="text" name="license_number" placeholder="مثال: A02669719" dir="ltr"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ الإصدار</label>
+                        <input type="date" name="license_issue_date"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">جهة الإصدار (من طرف)</label>
+                        <input type="text" name="license_issue_place" placeholder="مثال: بلدية أدرار"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
                 </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">البريد الإلكتروني</label>
-                    <input type="email" name="email" placeholder="اختياري" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-right transition">
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء صلاحية الرخصة</label>
+                        <input type="date" name="license_expiry"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم دفتر المقررة / البطاقة المهنية</label>
+                        <input type="text" name="card_number" placeholder="مثال: LIV-01-2024-047" dir="ltr"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num text-right transition">
+                    </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">رقم رخصة السياقة</label>
-                    <input type="text" name="license_number" placeholder="مثال: 998811/16" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-right font-num transition">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء رخصة السياقة</label>
-                    <input type="date" name="license_expiry"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition">
-                </div>
-            </div>
+            <!-- Tab 3: عقد استغلال رخصة الأجرة والفحص الطبي وبداية النشاط -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                <h4 class="font-bold text-slate-800 text-xs border-b border-slate-200 pb-1.5 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>3. عقد رخصة الأجرة، الفحص الطبي الدوري وبداية النشاط (الصفحة 7)</span>
+                </h4>
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء الشهادة الطبية الدورية</label>
-                <input type="date" name="medical_cert_expiry"
-                       class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">صفة السائق</label>
+                        <select name="driver_type" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition">
+                            <option value="ajir" selected>أجير (Salarié) - القانون 90-11</option>
+                            <option value="loueur">مؤجر (Loueur de licence)</option>
+                            <option value="artisan">حرفي تاكسي (Artisan Taxi)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ بداية النشاط</label>
+                        <input type="date" name="activity_start_date" value="2024-09-03"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تأشيرة مديرية النقل (DTW)</label>
+                        <input type="date" name="dtw_visa_date" value="2024-09-03"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">صلاحية عقد رخصة الأجرة (من)</label>
+                        <input type="date" name="taxi_contract_start" value="2024-09-01"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">صلاحية عقد رخصة الأجرة (إلى)</label>
+                        <input type="date" name="taxi_contract_end" value="2027-08-31"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الفحص الطبي (من)</label>
+                        <input type="date" name="medical_exam_start" value="2024-09-01"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الفحص الطبي (إلى - سنتين)</label>
+                        <input type="date" name="medical_exam_end" value="2026-08-31"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تأشيرة الفحص الطبي DTW</label>
+                        <input type="date" name="medical_visa_date" value="2024-09-20"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num bg-white transition">
+                    </div>
+                </div>
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
@@ -446,8 +665,9 @@ $countPermanence = count($permanenceDriverIds);
                         class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
                     إلغاء
                 </button>
-                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
-                    حفظ وتسجيل السائق
+                <button type="submit" class="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition shadow-xs flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                    <span>حفظ وتسجيل البطاقة الفنية</span>
                 </button>
             </div>
         </form>
@@ -455,3 +675,4 @@ $countPermanence = count($permanenceDriverIds);
 </div>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
+

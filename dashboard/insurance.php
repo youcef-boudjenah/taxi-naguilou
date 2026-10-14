@@ -1,29 +1,33 @@
-﻿<?php
+<?php
 // dashboard/insurance.php - Gérer Assurance: Gestion, Alertes et Renouvellement des Polices d'Assurance
 $pageTitle = 'Gérer Assurance | إدارة وثائق التأمين';
 require_once __DIR__ . '/../includes/header.php';
+require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
 
 // Handle New/Renew Insurance Policy
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_insurance') {
+    require_csrf_token();
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $policyNumber = trim($_POST['policy_number'] ?? '');
     $company = trim($_POST['company'] ?? 'SAA');
     $coverageType = trim($_POST['coverage_type'] ?? 'Tous Risques + Transport Public Voyageurs');
-    $startDate = $_POST['start_date'] ?? date('Y-m-d');
-    $endDate = $_POST['end_date'] ?? date('Y-m-d', strtotime('+1 year'));
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d', strtotime('+1 year'));
     $premium = floatval($_POST['premium_amount'] ?? 35000);
     $attestation = trim($_POST['attestation_number'] ?? ('ATT-' . $company . '-' . date('Y') . '-' . rand(100, 999)));
 
     if ($vehicleId > 0 && !empty($policyNumber) && !empty($endDate)) {
         try {
+            $pdo->beginTransaction();
             // Insert into insurance_policies
             $stmt = $pdo->prepare("
                 INSERT INTO insurance_policies (vehicle_id, policy_number, company, coverage_type, start_date, end_date, premium_amount, attestation_number, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ");
             $stmt->execute([$vehicleId, $policyNumber, $company, $coverageType, $startDate, $endDate, $premium, $attestation]);
+            $insId = (int)$pdo->lastInsertId();
 
             // Synchronize with vehicles table
             $stmtVeh = $pdo->prepare("
@@ -33,15 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmtVeh->execute([$endDate, $company, $vehicleId]);
 
-            log_audit('update', 'insurance_policies', $vehicleId, null, [
-                'policy_number' => $policyNumber,
-                'company' => $company,
-                'end_date' => $endDate
-            ]);
+            $pdo->commit();
+            log_audit($pdo, 'insurance_saved', 'insurance_policies', $insId, "تسجيل وتجديد وثيقة التأمين رقم $policyNumber لدى $company للمركبة رقم $vehicleId حتى $endDate");
 
             set_flash('success', "تم تسجيل وتجديد وثيقة التأمين رقم $policyNumber لدى شركة $company بنجاح");
             redirect('/dashboard/insurance.php');
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             set_flash('error', 'حدث خطأ أثناء حفظ وثيقة التأمين: ' . $e->getMessage());
         }
     } else {
@@ -409,7 +413,8 @@ foreach ($rows as $r) {
             </button>
         </div>
 
-        <form method="POST" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_insurance">
 
             <!-- Vehicle selection -->

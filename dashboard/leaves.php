@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/leaves.php - Driver Leaves & Relief Driver Dispatch
 $pageTitle = 'نظام السائق البديل والعطل';
 require_once __DIR__ . '/../includes/header.php';
@@ -9,28 +9,31 @@ $drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'dri
 
 // Handle New Leave & Relief Assignment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_leave') {
+    require_csrf_token();
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $driverId = intval($_POST['driver_id'] ?? 0);
     $reliefDriverId = intval($_POST['replacement_driver_id'] ?? 0);
-    $startDate = $_POST['start_date'] ?? date('Y-m-d');
-    $endDate = $_POST['end_date'] ?? date('Y-m-d', strtotime('+7 days'));
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d', strtotime('+7 days'));
     $reason = trim($_POST['reason'] ?? 'عطلة سنوية نظامية');
 
     if ($vehicleId > 0 && $driverId > 0) {
         try {
+            $pdo->beginTransaction();
             $stmt = $pdo->prepare("
                 INSERT INTO leaves (driver_id, vehicle_id, replacement_driver_id, start_date, end_date, reason, status)
                 VALUES (?, ?, ?, ?, ?, ?, 'approved')
             ");
             $stmt->execute([$driverId, $vehicleId, $reliefDriverId > 0 ? $reliefDriverId : null, $startDate, $endDate, $reason]);
-            $leaveId = $pdo->lastInsertId();
+            $leaveId = (int)$pdo->lastInsertId();
 
             // Assign replacement driver to vehicle
             if ($reliefDriverId > 0) {
                 $pdo->prepare("UPDATE vehicles SET replacement_driver_id = ? WHERE id = ?")->execute([$reliefDriverId, $vehicleId]);
 
                 // Also generate transmission slip automatically
-                $slipNum = 'BRD-' . date('Y') . '-' . str_pad(rand(10, 999), 4, '0', STR_PAD_LEFT);
+                $maxSlip = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM transmission_slips")->fetchColumn();
+                $slipNum = 'BRD-' . date('Y') . '-' . str_pad($maxSlip + 1, 4, '0', STR_PAD_LEFT);
                 $stmtSlip = $pdo->prepare("
                     INSERT INTO transmission_slips (slip_number, vehicle_id, driver_id, route_line, issue_date, valid_until, status)
                     VALUES (?, ?, ?, ?, ?, ?, 'active')
@@ -41,15 +44,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ]);
             }
 
-            log_audit('create', 'leaves', $leaveId, null, [
-                'driver_id' => $driverId,
-                'vehicle_id' => $vehicleId,
-                'replacement_driver_id' => $reliefDriverId
-            ]);
+            $pdo->commit();
+            log_audit($pdo, 'leave_approved', 'leaves', $leaveId, "تسجيل عطلة للسائق $driverId وتعيين البديل $reliefDriverId على المركبة $vehicleId");
 
             set_flash('success', 'تم اعتماد العطلة وتعيين السائق البديل واستخراج جدول الإرسال بنجاح');
             redirect('/dashboard/leaves.php');
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             set_flash('error', 'حدث خطأ أثناء تسجيل العطلة: ' . $e->getMessage());
         }
     }
@@ -214,7 +217,8 @@ $activeReliefCount = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE replace
             </button>
         </div>
 
-        <form method="POST" action="/dashboard/leaves.php" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_leave">
 
             <div>

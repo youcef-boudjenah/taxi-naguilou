@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/vehicles.php - Full Fleet & Vehicle Management
 $pageTitle = 'سجل المركبات والوثائق';
 require_once __DIR__ . '/../includes/header.php';
@@ -9,9 +9,34 @@ if ($pdo) {
     $drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
 }
 
-// Handle Add / Edit Vehicle
+// Handle Add / Edit / Delete Vehicle
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
+    require_csrf_token();
     $actionType = $_POST['action_type'];
+
+    if ($actionType === 'delete') {
+        if (!is_admin()) {
+            set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف المركبات.');
+            redirect('/dashboard/vehicles.php');
+        }
+        $delId = intval($_POST['vehicle_id'] ?? 0);
+        try {
+            $pdo->prepare("DELETE FROM vehicles WHERE id=?")->execute([$delId]);
+            log_audit($pdo, 'vehicle_deleted', 'vehicles', $delId, "حذف مركبة الأسطول رقم $delId");
+            set_flash('success', 'تم حذف المركبة بنجاح من الأسطول');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر حذف المركبة لوجود عقود أو بيانات تأمين وسجلات مرتبطة بها');
+        }
+        redirect('/dashboard/vehicles.php');
+    }
+
+    if ($actionType === 'create' || $actionType === 'update') {
+        if (is_driver()) {
+            set_flash('error', 'عذراً، إضافة وتعديل بيانات المركبات محصورة بمدير المنصة ومالك الأسطول.');
+            redirect('/dashboard/vehicles.php');
+        }
+    }
+
     $brand = trim($_POST['brand'] ?? '');
     $model = trim($_POST['model'] ?? '');
     $plateNumber = trim($_POST['plate_number'] ?? '');
@@ -36,11 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
                 $user['id'], $driverId, $brand, $model, $plateNumber, $color, $doorNumber,
                 $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $sacExpiry, $sacText
             ]);
-            $newId = $pdo->lastInsertId();
-            log_audit('create', 'vehicles', $newId, null, ['plate_number' => $plateNumber, 'brand' => "$brand $model"]);
+            $newId = (int)$pdo->lastInsertId();
+            log_audit($pdo, 'vehicle_created', 'vehicles', $newId, "إضافة مركبة أسطول جديدة: $brand $model ($plateNumber)");
             set_flash('success', 'تمت إضافة سيارة الأجرة بنجاح إلى الأسطول');
             redirect('/dashboard/vehicles.php');
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء الإضافة: رقم اللوحة قد يكون مسجلاً مسبقاً');
         }
     } elseif ($actionType === 'update') {
@@ -56,26 +81,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
                 $brand, $model, $plateNumber, $color, $doorNumber, $driverId,
                 $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $sacExpiry, $sacText, $vId
             ]);
-            log_audit('update', 'vehicles', $vId, null, ['plate_number' => $plateNumber]);
+            log_audit($pdo, 'vehicle_updated', 'vehicles', $vId, "تحديث بيانات ووثائق المركبة $plateNumber");
             set_flash('success', 'تم تحديث بيانات المركبة والوثائق بنجاح');
             redirect('/dashboard/vehicles.php');
-        } catch (Exception $e) {
-            set_flash('error', 'تعذر تحديث المركبة');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر تحديث المركبة: ' . $e->getMessage());
         }
     }
-}
-
-// Handle Delete
-if (isset($_GET['delete'])) {
-    $delId = intval($_GET['delete']);
-    try {
-        $pdo->prepare("DELETE FROM vehicles WHERE id=?")->execute([$delId]);
-        log_audit('delete', 'vehicles', $delId, null, []);
-        set_flash('success', 'تم حذف المركبة بنجاح');
-    } catch (Exception $e) {
-        set_flash('error', 'تعذر حذف المركبة لوجود عقود أو بيانات مرتبطة بها');
-    }
-    redirect('/dashboard/vehicles.php');
 }
 
 // Stats for Quick KPI Strip
@@ -104,6 +116,17 @@ if ($filter === 'expiring') {
     $query .= " AND ((v.technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.technical_control_expiry IS NOT NULL) OR (v.insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.insurance_expiry IS NOT NULL))";
 } elseif ($filter === 'unassigned') {
     $query .= " AND v.current_driver_id IS NULL";
+}
+
+if (is_driver()) {
+    $dId = intval($_SESSION['user_id']);
+    $query .= " AND (v.current_driver_id = ? OR v.replacement_driver_id = ?)";
+    $params[] = $dId;
+    $params[] = $dId;
+} elseif (is_owner() && !is_admin()) {
+    $oId = intval($_SESSION['user_id']);
+    $query .= " AND (v.owner_id = ? OR v.owner_id IS NULL)";
+    $params[] = $oId;
 }
 
 $query .= " ORDER BY v.id DESC";
@@ -135,6 +158,7 @@ if (isset($_GET['edit'])) {
             <p class="text-xs text-slate-500 mt-1">متابعة الفحص التقني الدوري، التأمين الشامل، خزان سيرغاز GPL، والساكوريومتر</p>
         </div>
         <div class="flex items-center gap-2">
+            <?php if (is_admin() || is_owner()): ?>
             <button onclick="document.getElementById('addVehicleModal').classList.toggle('hidden')" 
                     class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-all shadow-sm">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
@@ -142,6 +166,7 @@ if (isset($_GET['edit'])) {
                 </svg>
                 <span>إضافة سيارة جديدة</span>
             </button>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -323,6 +348,7 @@ if (isset($_GET['edit'])) {
                                 <!-- Actions -->
                                 <td class="p-3.5 text-center whitespace-nowrap">
                                     <div class="flex items-center justify-center gap-1.5">
+                                        <?php if (is_admin() || is_owner()): ?>
                                         <a href="vehicles.php?edit=<?= $v['id'] ?>" 
                                            title="تعديل البيانات والوثائق"
                                            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
@@ -333,14 +359,23 @@ if (isset($_GET['edit'])) {
                                            class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition text-xs border border-amber-200/60">
                                             عقد 90-11
                                         </a>
-                                        <a href="vehicles.php?delete=<?= $v['id'] ?>" 
-                                           onclick="return confirm('هل أنت متأكد من حذف هذه المركبة من الأسطول؟')" 
-                                           class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                                           title="حذف المركبة">
-                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                            </svg>
+                                        <?php else: ?>
+                                        <a href="slips.php" class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 font-bold transition text-xs border border-amber-200/60">
+                                            وصل السير
                                         </a>
+                                        <?php endif; ?>
+                                        <?php if (is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذه المركبة من الأسطول؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action_type" value="delete">
+                                            <input type="hidden" name="vehicle_id" value="<?= $v['id'] ?>">
+                                            <button type="submit" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition" title="حذف المركبة">
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -383,7 +418,8 @@ if (isset($_GET['edit'])) {
             </a>
         </div>
 
-        <form method="POST" action="/dashboard/vehicles.php" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action_type" value="<?= $editVehicle ? 'update' : 'create' ?>">
             <?php if ($editVehicle): ?>
                 <input type="hidden" name="vehicle_id" value="<?= $editVehicle['id'] ?>">

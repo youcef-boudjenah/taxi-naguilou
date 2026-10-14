@@ -9,6 +9,7 @@ if (is_logged_in()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_csrf_token();
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -67,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" action="" class="space-y-4">
+                <?= csrf_field() ?>
                 <div>
                     <label for="email" class="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
                     <input type="email" id="email" name="email" required dir="ltr"
@@ -112,8 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         </div>
 
-        <div class="text-center text-xs text-slate-500 flex justify-between px-2">
+        <div class="text-center text-xs text-slate-500 flex items-center justify-between px-2">
             <a href="<?= url('/') ?>" class="hover:text-amber-600 transition">← العودة للرئيسية</a>
+            <a href="<?= url('/install.php') ?>" class="text-slate-400 hover:text-amber-600 transition text-[11px]">معالج التثبيت (Installer)</a>
             <a href="<?= url('/auth/register.php') ?>" class="font-bold text-amber-600 hover:underline">تسجيل حساب جديد</a>
         </div>
 

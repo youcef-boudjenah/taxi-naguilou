@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // dashboard/contract_view.php - Official 16-Article Labor Contract (Law 90-11)
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
@@ -25,8 +25,18 @@ if ($pdo && $contractId > 0) {
 }
 
 if (!$contract) {
-    echo "العقد غير موجود";
-    exit;
+    set_flash('error', 'العقد المطلوب غير موجود أو تم حذفه.');
+    redirect('/dashboard/contracts.php');
+}
+
+// Role-based access restriction
+if (is_driver() && (int)$contract['driver_id'] !== (int)$_SESSION['user_id']) {
+    set_flash('error', 'عذراً، لا يمكنك الاطلاع على عقود السائقين الآخرين.');
+    redirect('/dashboard/index.php');
+}
+if (is_owner() && !is_admin() && (int)$contract['owner_id'] !== (int)$_SESSION['user_id']) {
+    set_flash('error', 'عذراً، هذا العقد لا يتبع لمركبات أسطولك.');
+    redirect('/dashboard/contracts.php');
 }
 ?>
 <!DOCTYPE html>
@@ -39,6 +49,7 @@ if (!$contract) {
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Cairo', sans-serif; font-feature-settings: "tnum"; }
+        .font-num, .font-mono, [dir="ltr"] { font-feature-settings: "tnum"; unicode-bidi: isolate; }
         @media print {
             .no-print { display: none !important; }
             body { background: white !important; padding: 0 !important; color: black !important; }
@@ -57,7 +68,7 @@ if (!$contract) {
                 </svg>
                 <span>العودة إلى قائمة العقود</span>
             </a>
-            <span class="text-xs font-bold text-slate-500">رقم العقد: <span class="font-num text-slate-900 font-mono"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
+            <span class="text-xs font-bold text-slate-500">رقم العقد: <span class="font-num text-slate-900 font-mono inline-block font-bold" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
         </div>
         <div class="flex items-center gap-2">
             <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs flex items-center gap-2">
@@ -83,7 +94,7 @@ if (!$contract) {
                 </div>
                 <div class="w-16 text-center text-[10px] text-slate-400 font-num shrink-0">
                     <div>اعتماد DTW</div>
-                    <div class="font-bold text-slate-800">16/2024</div>
+                    <div class="font-bold text-slate-800" dir="ltr">16/2024</div>
                 </div>
             </div>
             <div class="text-center pt-1">
@@ -92,7 +103,7 @@ if (!$contract) {
                 </span>
             </div>
             <div class="text-center text-[11px] text-slate-600 font-num">
-                الرقم التسلسلي للعقد: <strong><?= htmlspecialchars($contract['contract_number']) ?></strong> • تاريخ الإصدار: <?= date('Y/m/d') ?>
+                الرقم التسلسلي للعقد: <strong class="inline-block font-mono" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></strong> • تاريخ الإصدار: <span class="font-num inline-block" dir="ltr"><?= date('Y-m-d') ?></span>
             </div>
         </div>
 
@@ -101,21 +112,21 @@ if (!$contract) {
             <div>
                 <strong>الطرف الأول (المستخدم / صاحب رخصة الاستغلال):</strong><br>
                 السيد/المؤسسة: <strong class="text-slate-900"><?= htmlspecialchars($contract['owner_name']) ?></strong>، 
-                الهاتف: <span class="font-num"><?= htmlspecialchars($contract['owner_phone']) ?></span>، 
+                الهاتف: <span class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['owner_phone']) ?></span>، 
                 المقيم بـ: <?= htmlspecialchars($contract['owner_wilaya']) ?>.
             </div>
             <div class="border-t border-slate-200 pt-2">
                 <strong>الطرف الثاني (العامل / سائق سيارة الأجرة):</strong><br>
                 السيد: <strong class="text-slate-900"><?= htmlspecialchars($contract['driver_name']) ?></strong>، 
-                رقم رخصة السياقة: <span class="font-num"><?= htmlspecialchars($contract['driver_license'] ?? 'مسجل بالملف') ?></span>، 
-                الهاتف: <span class="font-num"><?= htmlspecialchars($contract['driver_phone']) ?></span>، 
+                رقم رخصة السياقة: <span class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['driver_license'] ?? 'مسجل بالملف') ?></span>، 
+                الهاتف: <span class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['driver_phone']) ?></span>، 
                 المقيم بـ: <?= htmlspecialchars($contract['driver_wilaya']) ?>.
             </div>
             <div class="border-t border-slate-200 pt-2 text-[11px] text-slate-600">
                 <strong>بيانات سيارة الأجرة المعنية:</strong> 
                 الصانع والنوع: <?= htmlspecialchars($contract['brand'] . ' ' . $contract['model']) ?> • 
-                رقم اللوحة: <strong class="font-num"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
-                رقم الباب المعتمد: <strong class="font-num"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
+                رقم اللوحة: <strong class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
+                رقم الباب المعتمد: <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
                 اللون: <?= htmlspecialchars($contract['color']) ?>.
             </div>
         </div>
@@ -134,7 +145,7 @@ if (!$contract) {
 
             <div>
                 <strong class="font-black text-slate-900">المادة 02: مدة العقد وفترة التجربة:</strong>
-                أبرم هذا العقد لمدة تبدأ من <strong><?= htmlspecialchars($contract['start_date']) ?></strong> وتنتهي في <strong><?= htmlspecialchars($contract['end_date']) ?></strong>، وتخضع العلاقة لفترة تجربة مدتها شهران طبقاً للمادة 18 من القانون 90-11، قابلة للتجديد باتفاق مكتوب.
+                أبرم هذا العقد لمدة تبدأ من <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['start_date']) ?></strong> وتنتهي في <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['end_date']) ?></strong>، وتخضع العلاقة لفترة تجربة مدتها شهران طبقاً للمادة 18 من القانون 90-11، قابلة للتجديد باتفاق مكتوب.
             </div>
 
             <div>
@@ -149,7 +160,7 @@ if (!$contract) {
 
             <div>
                 <strong class="font-black text-slate-900">المادة 05: الأجر ونظام التحصيل:</strong>
-                يتقاضى السائق مقابلاً متفقاً عليه بمبلغ شهري مرجعي قدره: <strong class="font-num"><?= number_format($contract['monthly_wage']) ?> دج</strong> (أو نسبة مئوية معتمدة)، مع التزام الطرفين بالحد الأدنى للأجر الوطني المضمون (SNMG).
+                يتقاضى السائق مقابلاً متفقاً عليه بمبلغ شهري مرجعي قدره: <strong class="font-num inline-block" dir="ltr"><?= number_format($contract['monthly_wage']) ?></strong> دج (أو نسبة مئوية معتمدة)، مع التزام الطرفين بالحد الأدنى للأجر الوطني المضمون (SNMG).
             </div>
 
             <div>

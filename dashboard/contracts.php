@@ -1,7 +1,8 @@
-﻿<?php
+<?php
 // dashboard/contracts.php - Gestion des Contrats: Gérez et générez les contrats d'affiliation et de travail
 $pageTitle = 'Gestion des Contrats | إدارة عقود العمل والانتساب';
 require_once __DIR__ . '/../includes/header.php';
+require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
 
@@ -10,31 +11,39 @@ $drivers = $pdo->query("SELECT id, full_name, phone, license_number FROM users W
 
 // Handle Create Contract
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_contract') {
+    require_csrf_token();
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $driverId = intval($_POST['driver_id'] ?? 0);
-    $startDate = $_POST['start_date'] ?? date('Y-m-d');
-    $years = intval($_POST['duration_years'] ?? 1);
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $years = max(1, intval($_POST['duration_years'] ?? 1));
     $endDate = date('Y-m-d', strtotime("+$years years", strtotime($startDate)));
     $monthlyWage = floatval($_POST['monthly_wage'] ?? 45000.00);
     $notes = trim($_POST['notes'] ?? 'Contrat de travail pour chauffeur de taxi régi par la loi 90-11.');
 
     if ($vehicleId > 0 && $driverId > 0) {
-        $contractNum = 'CT-' . date('Y') . '-' . str_pad(rand(100, 999), 3, '0', STR_PAD_LEFT);
         try {
+            $pdo->beginTransaction();
+            $maxId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
+            $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxId + 1, 3, '0', STR_PAD_LEFT);
+
             $stmt = $pdo->prepare("
                 INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'signed', NOW(), ?)
             ");
             $stmt->execute([$contractNum, $driverId, $vehicleId, $user['id'], $startDate, $endDate, $monthlyWage, $notes]);
+            $cId = (int)$pdo->lastInsertId();
             
             // Assign driver to vehicle
             $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
 
-            $cId = $pdo->lastInsertId();
-            log_audit('create', 'contracts', $cId, null, ['contract_number' => $contractNum, 'driver_id' => $driverId]);
+            $pdo->commit();
+            log_audit($pdo, 'contract_created', 'contracts', $cId, "إنشاء وتوثيق عقد عمل نظامي رقم $contractNum للسائق رقم $driverId");
             set_flash('success', "تم إنشاء وتوثيق العقد رقم $contractNum بنجاح وفقاً لأحكام القانون 90-11");
             redirect("/dashboard/contract_view.php?id=$cId");
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             set_flash('error', 'حدث خطأ أثناء إنشاء العقد: ' . $e->getMessage());
         }
     } else {
@@ -232,7 +241,7 @@ $countExpires = max(0, $countTous - $countActifs);
                                 <!-- Contract Number -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <div class="font-num font-bold text-slate-900 text-sm font-mono tracking-wide">
-                                        <?= htmlspecialchars($c['contract_number']) ?>
+                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($c['contract_number']) ?></span>
                                     </div>
                                     <span class="text-[10px] text-slate-400">Loi 90-11 • Conforme DTW</span>
                                 </td>
@@ -333,7 +342,8 @@ $countExpires = max(0, $countTous - $countActifs);
             </button>
         </div>
 
-        <form method="POST" action="/dashboard/contracts.php" class="space-y-4 text-xs">
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_contract">
 
             <!-- Vehicle -->

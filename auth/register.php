@@ -6,6 +6,7 @@ $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_csrf_token();
     $fullName = trim($_POST['full_name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
@@ -13,8 +14,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'] ?? 'owner';
     $wilaya = trim($_POST['wilaya'] ?? '16 - الجزائر العاصمة');
 
+    // Prevent privilege escalation - only owners and drivers can self-register
+    $allowedRoles = ['owner', 'driver'];
+    if (!in_array($role, $allowedRoles)) {
+        $role = 'owner';
+    }
+
     if (empty($fullName) || empty($email) || empty($phone) || empty($password)) {
         $error = 'يرجى ملء جميع الحقول الإلزامية';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'يرجى إدخال بريد إلكتروني صالح';
+    } elseif (strlen($password) < 6) {
+        $error = 'كلمة المرور يجب ألا تقل عن 6 أحرف أو أرقام';
     } else {
         $pdo = getDBConnection();
         if ($pdo) {
@@ -84,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" action="" class="space-y-4">
+                <?= csrf_field() ?>
                 <div>
                     <label for="fullName" class="block text-xs font-bold text-slate-700 mb-1">الاسم واللقب</label>
                     <input type="text" id="fullName" name="full_name" required placeholder="مثال: جمال بن يحيى"
