@@ -290,7 +290,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <h4 class="font-black text-slate-900 text-sm">الفحوصات الطبية الدورية وتأشيرة مديرية النقل (Contrôles Médicaux)</h4>
+                    <h4 class="font-black text-slate-900 text-sm">الفحوصات الطبية الدورية (Contrôles Médicaux)</h4>
                 </div>
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 font-num">
                     لائق صحياً وبدنياً
@@ -305,7 +305,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                             <th class="p-2.5">تاريخ البداية</th>
                             <th class="p-2.5">تاريخ نهاية الصلاحية</th>
                             <th class="p-2.5">مدة الصلاحية</th>
-                            <th class="p-2.5">تأشيرة مديرية النقل للولاية</th>
+                            <th class="p-2.5">الاعتماد الطبي</th>
                             <th class="p-2.5 text-center">الوضعية القانونية</th>
                         </tr>
                     </thead>
@@ -316,8 +316,8 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                             <td class="p-2.5 font-num font-bold text-slate-900" dir="ltr"><?= htmlspecialchars($driver['medical_exam_end'] ?? '2026/08/31') ?></td>
                             <td class="p-2.5 font-bold text-slate-700">سنتان (24 شهراً)</td>
                             <td class="p-2.5">
-                                <span class="inline-flex items-center gap-1 font-bold text-amber-800 font-num" dir="ltr">
-                                    ✓ مؤشر بتاريخ <?= htmlspecialchars($driver['medical_visa_date'] ?? '2024/09/20') ?> (DTW Adrar)
+                                <span class="inline-flex items-center gap-1 font-bold text-emerald-800 font-num" dir="ltr">
+                                    ✓ شهادة طبية معتمدة ومطابقة
                                 </span>
                             </td>
                             <td class="p-2.5 text-center">
@@ -331,7 +331,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                             <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_start'] ?? '2026/09/15') ?></td>
                             <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_end'] ?? '2028/09/14') ?></td>
                             <td class="p-2.5">سنتان (تجديد)</td>
-                            <td class="p-2.5 font-num">مجدول رسمياً بمديرية النقل</td>
+                            <td class="p-2.5 font-num">مجدول دورياً وفق القانون</td>
                             <td class="p-2.5 text-center">
                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
                                     تجديد مستقبلي
@@ -343,28 +343,24 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             </div>
         </div>
 
-        <!-- Section 4: بداية النشاط وتأشيرة المصالح (Début d'Activité) -->
+        <!-- Section 4: بداية النشاط (Début d'Activité) -->
         <div class="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-                    <h4 class="font-black text-slate-900 text-sm">سريان النشاط المهني وتأشيرة مديرية النقل (Début d'Activité)</h4>
+                    <h4 class="font-black text-slate-900 text-sm">سريان النشاط المهني (Début d'Activité)</h4>
                 </div>
-                <span class="text-[10px] text-slate-400 font-bold uppercase">Direction des Transports</span>
+                <span class="text-[10px] text-slate-400 font-bold uppercase">Activité Professionnelle</span>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
                     <span class="text-slate-400 block font-medium">تاريخ بداية النشاط:</span>
                     <strong class="text-slate-900 text-sm font-num font-black" dir="ltr"><?= htmlspecialchars($driver['activity_start_date'] ?? '2024/09/03') ?></strong>
                 </div>
                 <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span class="text-slate-400 block font-medium">صفة السائق المعتمدة:</span>
-                    <strong class="text-amber-800 text-sm font-black">أجير (Loi 90-11)</strong>
-                </div>
-                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span class="text-slate-400 block font-medium">تأشيرة مديرية النقل:</span>
-                    <strong class="text-slate-900 text-sm font-num font-bold" dir="ltr"><?= htmlspecialchars($driver['dtw_visa_date'] ?? '2024/09/03') ?></strong>
+                    <span class="text-slate-400 block font-medium">دفتر المقررة / البطاقة:</span>
+                    <strong class="text-slate-900 text-sm font-num font-bold" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024-047') ?></strong>
                 </div>
                 <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
                     <span class="text-slate-400 block font-medium">حالة النشاط والتوقف:</span>
