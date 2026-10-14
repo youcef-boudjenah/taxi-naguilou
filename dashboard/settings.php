@@ -42,13 +42,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             update_setting($pdo, $key, $val);
         }
 
-        log_audit($pdo, 'settings_updated', 'settings', null, 'تحديث الإعدادات العامة والهوية الجبائية واشتراكات SAAS للمنصة');
-        $message = 'تم حفظ وتحديث إعدادات المنصة والبيانات القانونية والجبائية واشتراكات SAAS بنجاح.';
+        if (isset($_POST['vehicle_brands_models_raw'])) {
+            $rawBM = trim($_POST['vehicle_brands_models_raw']);
+            $decodedBM = json_decode($rawBM, true);
+            if (is_array($decodedBM)) {
+                update_setting($pdo, 'vehicle_brands_models', json_encode($decodedBM, JSON_UNESCAPED_UNICODE), 'fleet');
+            }
+        }
+
+        log_audit($pdo, 'settings_updated', 'settings', null, 'تحديث الإعدادات العامة والهوية الجبائية والأسطول واشتراكات SAAS للمنصة');
+        $message = 'تم حفظ وتحديث إعدادات المنصة والبيانات القانونية والجبائية وماركات الأسطول واشتراكات SAAS بنجاح.';
         $messageType = 'success';
     }
 }
 
 $settings = $pdo ? get_all_settings($pdo) : [];
+
+// Vehicle presets
+$defaultPresets = [
+    'Renault' => ['Symbol', 'Megane', 'Clio', 'Fluence', 'Kangoo'],
+    'Dacia' => ['Logan', 'Sandero', 'Stepway', 'Duster', 'Dokker'],
+    'Peugeot' => ['301', '208', '308', '2008', 'Partner', '307'],
+    'Hyundai' => ['Accent', 'i10', 'i20', 'Elantra', 'Tucson'],
+    'Toyota' => ['Corolla', 'Yaris', 'Avensis', 'Hilux'],
+    'Citroën' => ['C-Elysée', 'C3', 'C4', 'Berlingo'],
+    'Fiat' => ['Tipo', 'Punto', 'Doblo', '500'],
+    'Skoda' => ['Octavia', 'Fabia', 'Rapid'],
+    'Volkswagen' => ['Golf', 'Polo', 'Passat', 'Caddy'],
+    'Kia' => ['Picanto', 'Rio', 'Cerato']
+];
+$vehiclePresetsRaw = get_setting($pdo, 'vehicle_brands_models', '');
+$vehiclePresets = !empty($vehiclePresetsRaw) ? json_decode($vehiclePresetsRaw, true) : null;
+if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
+    $vehiclePresets = $defaultPresets;
+    update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
+}
 ?>
 
 <div class="space-y-6">
@@ -317,6 +345,69 @@ $settings = $pdo ? get_all_settings($pdo) : [];
                 </div>
             </div>
 
+            <!-- 5. أسطول المركبات: الماركات والموديلات المعتمدة (Paramètres) -->
+            <div id="fleet-presets" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 lg:col-span-2">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-xl">🚗</span>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-900">إعدادات أسطول المركبات: الماركات والموديلات المعتمدة</h3>
+                            <p class="text-[11px] text-slate-500">تخصيص وإضافة صانعي المركبات وطرازات التاكسي التي تظهر للاختيار عند تسجيل سيارة جديدة.</p>
+                        </div>
+                    </div>
+                    <span class="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1 rounded-lg">
+                        <?= count($vehiclePresets) ?> صانع معتمد
+                    </span>
+                </div>
+
+                <!-- Input to add new brand and models -->
+                <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                    <div class="sm:col-span-4">
+                        <label class="block font-bold text-slate-700 text-xs mb-1">اسم الماركة أو الصانع (Marque)</label>
+                        <input type="text" id="newBrandName" placeholder="مثال: Chery, Geely, DFSK..." 
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    </div>
+                    <div class="sm:col-span-6">
+                        <label class="block font-bold text-slate-700 text-xs mb-1">الموديلات المعتمدة (مفصولة بفواصل)</label>
+                        <input type="text" id="newBrandModels" placeholder="مثال: Tiggo 2, Tiggo 4, Arrizo 5" 
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <button type="button" onclick="addNewBrandToSettings()" 
+                                class="w-full px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs flex items-center justify-center gap-1.5">
+                            <span>➕ إضافة</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- List of existing brands and models -->
+                <input type="hidden" name="vehicle_brands_models_raw" id="vehicleBrandsModelsRaw" value="<?= htmlspecialchars(json_encode($vehiclePresets, JSON_UNESCAPED_UNICODE)) ?>">
+                
+                <div id="brandsCardsContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <?php foreach ($vehiclePresets as $bName => $bModels): ?>
+                        <div class="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-amber-300 transition shadow-2xs space-y-2 brand-card" data-brand="<?= htmlspecialchars($bName) ?>">
+                            <div class="flex items-center justify-between">
+                                <span class="font-black text-slate-900 text-xs flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                    <span><?= htmlspecialchars($bName) ?></span>
+                                </span>
+                                <button type="button" onclick="removeBrandFromSettings('<?= htmlspecialchars($bName, ENT_QUOTES) ?>')" 
+                                        class="text-slate-400 hover:text-rose-600 text-xs px-1 rounded transition" title="حذف الماركة">
+                                    ✕
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                <?php foreach ($bModels as $m): ?>
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                        <span><?= htmlspecialchars($m) ?></span>
+                                    </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
         </div>
 
         <!-- Submit Button -->
@@ -333,5 +424,72 @@ $settings = $pdo ? get_all_settings($pdo) : [];
     </form>
 
 </div>
+
+<script>
+let currentPresets = <?= json_encode($vehiclePresets, JSON_UNESCAPED_UNICODE) ?>;
+
+function syncPresetsToHiddenInput() {
+    const hidden = document.getElementById('vehicleBrandsModelsRaw');
+    if (hidden) {
+        hidden.value = JSON.stringify(currentPresets);
+    }
+}
+
+function addNewBrandToSettings() {
+    const nameInput = document.getElementById('newBrandName');
+    const modelsInput = document.getElementById('newBrandModels');
+    const brand = nameInput.value.trim();
+    const modelsRaw = modelsInput.value.trim();
+
+    if (!brand) {
+        alert('يرجى كتابة اسم الماركة أو الصانع.');
+        nameInput.focus();
+        return;
+    }
+
+    const modelsList = modelsRaw ? modelsRaw.split(',').map(m => m.trim()).filter(m => m.length > 0) : [];
+    
+    currentPresets[brand] = modelsList;
+    syncPresetsToHiddenInput();
+
+    // Append card to DOM
+    const container = document.getElementById('brandsCardsContainer');
+    const newCard = document.createElement('div');
+    newCard.className = 'p-3.5 rounded-xl border border-amber-300 bg-amber-50/30 transition shadow-2xs space-y-2 brand-card';
+    newCard.setAttribute('data-brand', brand);
+    newCard.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="font-black text-slate-900 text-xs flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>${brand}</span>
+            </span>
+            <button type="button" onclick="removeBrandFromSettings('${brand}')" 
+                    class="text-slate-400 hover:text-rose-600 text-xs px-1 rounded transition" title="حذف الماركة">
+                ✕
+            </button>
+        </div>
+        <div class="flex flex-wrap gap-1">
+            ${modelsList.map(m => `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-white text-slate-800 border border-amber-200">
+                    <span>${m}</span>
+                </span>
+            `).join('')}
+        </div>
+    `;
+    container.prepend(newCard);
+
+    nameInput.value = '';
+    modelsInput.value = '';
+}
+
+function removeBrandFromSettings(brand) {
+    if (confirm(`هل أنت متأكد من رغبتك في حذف ماركة "${brand}" من إعدادات الأسطول؟`)) {
+        delete currentPresets[brand];
+        syncPresetsToHiddenInput();
+        const card = document.querySelector(`.brand-card[data-brand="${brand}"]`);
+        if (card) card.remove();
+    }
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

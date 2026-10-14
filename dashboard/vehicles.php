@@ -6,7 +6,35 @@ require_once __DIR__ . '/../includes/header.php';
 $pdo = getDBConnection();
 $drivers = [];
 if ($pdo) {
-    $drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+    $stmtDrivers = $pdo->query("
+        SELECT u.id, u.full_name, u.phone, u.license_number, u.card_number, u.probation_stage,
+               v.plate_number AS current_plate, v.door_number AS current_door
+        FROM users u
+        LEFT JOIN vehicles v ON (v.current_driver_id = u.id AND v.status = 'active')
+        WHERE u.role = 'driver' AND u.status = 'active'
+        ORDER BY u.full_name ASC
+    ");
+    $drivers = $stmtDrivers->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Fetch Vehicle Brand & Model Presets from settings (parameter)
+$defaultPresets = [
+    'Renault' => ['Symbol', 'Megane', 'Clio', 'Fluence', 'Kangoo'],
+    'Dacia' => ['Logan', 'Sandero', 'Stepway', 'Duster', 'Dokker'],
+    'Peugeot' => ['301', '208', '308', '2008', 'Partner', '307'],
+    'Hyundai' => ['Accent', 'i10', 'i20', 'Elantra', 'Tucson'],
+    'Toyota' => ['Corolla', 'Yaris', 'Avensis', 'Hilux'],
+    'Citroën' => ['C-Elysée', 'C3', 'C4', 'Berlingo'],
+    'Fiat' => ['Tipo', 'Punto', 'Doblo', '500'],
+    'Skoda' => ['Octavia', 'Fabia', 'Rapid'],
+    'Volkswagen' => ['Golf', 'Polo', 'Passat', 'Caddy'],
+    'Kia' => ['Picanto', 'Rio', 'Cerato']
+];
+$vehiclePresetsRaw = get_setting($pdo, 'vehicle_brands_models', '');
+$vehiclePresets = !empty($vehiclePresetsRaw) ? json_decode($vehiclePresetsRaw, true) : null;
+if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
+    $vehiclePresets = $defaultPresets;
+    update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
 }
 
 // Handle Add / Edit / Delete Vehicle
@@ -138,11 +166,32 @@ $vehicles = $stmt->fetchAll();
 
 // Vehicle to edit if edit param present
 $editVehicle = null;
+$selectedPrimaryDriver = null;
+$selectedReplacementDriver = null;
+
 if (isset($_GET['edit'])) {
     $eId = intval($_GET['edit']);
     $stmtE = $pdo->prepare("SELECT * FROM vehicles WHERE id = ?");
     $stmtE->execute([$eId]);
     $editVehicle = $stmtE->fetch();
+    if ($editVehicle) {
+        if (!empty($editVehicle['current_driver_id'])) {
+            foreach ($drivers as $d) {
+                if ($d['id'] == $editVehicle['current_driver_id']) {
+                    $selectedPrimaryDriver = $d;
+                    break;
+                }
+            }
+        }
+        if (!empty($editVehicle['replacement_driver_id'])) {
+            foreach ($drivers as $d) {
+                if ($d['id'] == $editVehicle['replacement_driver_id']) {
+                    $selectedReplacementDriver = $d;
+                    break;
+                }
+            }
+        }
+    }
 }
 ?>
 
@@ -455,174 +504,248 @@ if (isset($_GET['edit'])) {
                 <input type="hidden" name="vehicle_id" value="<?= $editVehicle['id'] ?>">
             <?php endif; ?>
             <input type="hidden" name="insurance_company" value="<?= htmlspecialchars($editVehicle['insurance_company'] ?? 'SAA') ?>">
-            <input type="hidden" name="saccuriometre_text" id="sacTextInput" value="<?= htmlspecialchars($editVehicle['saccuriometre_text'] ?? 'معاير ومختوم') ?>">
+            <input type="hidden" name="current_driver_id" id="driverInput_primary" value="<?= htmlspecialchars($editVehicle['current_driver_id'] ?? '') ?>">
+            <input type="hidden" name="replacement_driver_id" id="driverInput_replacement" value="<?= htmlspecialchars($editVehicle['replacement_driver_id'] ?? '') ?>">
 
             <!-- ==============================================
-                 1. تعيين السائق الأساسي والسائق البديل (في بداية الاستمارة)
+                 1. تعيين السائق الأساسي والسائق البديل (في بداية الاستمارة - بحث AJAX)
                  ============================================== -->
-            <div class="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3.5 shadow-2xs">
-                <div class="flex items-center justify-between">
-                    <span class="font-black text-amber-950 text-xs flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                        <span>تعيين السائقين للمركبة (خطوة أولى أساسية)</span>
-                    </span>
-                    <span class="text-[10px] font-bold bg-amber-200/70 text-amber-900 px-2.5 py-0.5 rounded-md">
-                        ربط فوري بالأسطول
+            <div class="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-4 shadow-2xs">
+                <div class="flex items-center justify-between pb-2 border-b border-amber-200/60">
+                    <div>
+                        <span class="font-black text-amber-950 text-xs flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                            <span>تعيين السائقين للمركبة (خطوة أولى أساسية)</span>
+                        </span>
+                        <p class="text-[10px] text-amber-800/80 mt-0.5">قائمة ذكية مع بحث مباشر (AJAX) لربط فوري بالأسطول</p>
+                    </div>
+                    <span class="text-[10px] font-bold bg-amber-200/70 text-amber-950 px-2.5 py-1 rounded-md">
+                        قائمة وسجل السائقين
                     </span>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <!-- تعيين السائق الأساسي مع بحث سريع وقائمة -->
-                    <div class="space-y-1.5">
+                    <!-- تعيين السائق الأساسي مع بحث AJAX -->
+                    <div class="space-y-1.5" id="slotContainer_primary">
                         <label class="block font-bold text-slate-800 text-xs flex items-center justify-between">
                             <span>تعيين السائق الأساسي <span class="text-rose-500">*</span></span>
-                            <span class="text-[10px] text-amber-800 font-semibold">بحث مباشر</span>
+                            <span class="text-[10px] text-amber-800 font-bold">بحث مباشر AJAX</span>
                         </label>
-                        <div class="relative">
-                            <input type="text" id="primaryDriverSearch" placeholder="🔍 اكتب اسم السائق أو هاتفه للتصفية..." 
-                                   oninput="filterDriverDropdown('primaryDriverSearch', 'primaryDriverSelect', 'primaryDriverCount')"
-                                   class="w-full pl-8 pr-3 py-2 rounded-xl border border-amber-300/80 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400 shadow-2xs">
-                            <span id="primaryDriverCount" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-num text-slate-400 font-bold"></span>
+
+                        <!-- Selected Driver Card (Primary) -->
+                        <div id="driverSelectedCard_primary" class="<?= $selectedPrimaryDriver ? '' : 'hidden' ?> p-3 rounded-xl bg-white border border-amber-300 shadow-2xs flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-2xs shrink-0">
+                                    👤
+                                </div>
+                                <div>
+                                    <div class="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                        <span id="driverSelectedName_primary"><?= htmlspecialchars($selectedPrimaryDriver['full_name'] ?? '') ?></span>
+                                        <span id="driverSelectedStage_primary" class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-900">
+                                            <?= htmlspecialchars($selectedPrimaryDriver['probation_stage'] ?? 'نشط') ?>
+                                        </span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 font-num mt-0.5" id="driverSelectedDetails_primary">
+                                        هاتف: <?= htmlspecialchars($selectedPrimaryDriver['phone'] ?? '') ?> • رخصة: <?= htmlspecialchars($selectedPrimaryDriver['license_number'] ?? 'غير مسجلة') ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button type="button" onclick="showDriverSearch('primary')" class="px-2 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100 rounded-lg transition">
+                                    تغيير
+                                </button>
+                                <button type="button" onclick="clearDriverSelection('primary')" class="px-1.5 py-1 text-slate-400 hover:text-rose-600 rounded-lg transition" title="إلغاء التعيين">
+                                    ✕
+                                </button>
+                            </div>
                         </div>
-                        <select name="current_driver_id" id="primaryDriverSelect" size="4"
-                                class="w-full p-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs overflow-y-auto">
-                            <option value="" <?= (!$editVehicle || empty($editVehicle['current_driver_id'])) ? 'selected' : '' ?>>-- بدون سائق أساسي حالياً (شاغرة) --</option>
-                            <?php foreach ($drivers as $d): ?>
-                                <option value="<?= $d['id'] ?>" <?= ($editVehicle && $editVehicle['current_driver_id'] == $d['id']) ? 'selected' : '' ?>>
-                                    👤 <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p class="text-[10px] text-slate-400">انقر لاختيار السائق الأساسي المسند له تسيير المركبة.</p>
+
+                        <!-- Search Box & Dropdown (Primary) -->
+                        <div id="driverSearchBox_primary" class="<?= $selectedPrimaryDriver ? 'hidden' : '' ?> relative space-y-1">
+                            <div class="relative">
+                                <input type="text" id="driverSearchInput_primary" 
+                                       placeholder="🔍 اكتب اسم السائق أو الهاتف أو الرخصة..." 
+                                       oninput="onDriverSearchInput('primary', this.value)"
+                                       onfocus="openDriverDropdown('primary')"
+                                       autocomplete="off"
+                                       class="w-full pl-8 pr-3 py-2.5 rounded-xl border border-amber-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 shadow-2xs">
+                                <div id="driverSearchSpinner_primary" class="absolute left-2.5 top-1/2 -translate-y-1/2 hidden">
+                                    <svg class="animate-spin h-3.5 w-3.5 text-amber-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                                </div>
+                            </div>
+
+                            <!-- Dropdown Results (Primary) -->
+                            <div id="driverDropdown_primary" class="hidden absolute top-full right-0 left-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100 text-xs z-30">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-500">اختر السائق الأساسي المعتمد لتسيير المركبة وإصدار عقود العمل المرتبطة بها.</p>
                     </div>
 
-                    <!-- تعيين السائق البديل مع بحث سريع وقائمة -->
-                    <div class="space-y-1.5">
+                    <!-- تعيين السائق البديل مع بحث AJAX -->
+                    <div class="space-y-1.5" id="slotContainer_replacement">
                         <label class="block font-bold text-slate-800 text-xs flex items-center justify-between">
                             <span>تعيين السائق البديل (Chauffeur Remplaçant)</span>
                             <span class="text-[10px] text-slate-400 font-normal">اختياري</span>
                         </label>
-                        <div class="relative">
-                            <input type="text" id="replacementDriverSearch" placeholder="🔍 اكتب اسم السائق البديل للتصفية..." 
-                                   oninput="filterDriverDropdown('replacementDriverSearch', 'replacementDriverSelect', 'replacementDriverCount')"
-                                   class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400 shadow-2xs">
-                            <span id="replacementDriverCount" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-num text-slate-400 font-bold"></span>
+
+                        <!-- Selected Driver Card (Replacement) -->
+                        <div id="driverSelectedCard_replacement" class="<?= $selectedReplacementDriver ? '' : 'hidden' ?> p-3 rounded-xl bg-white border border-slate-300 shadow-2xs flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-9 h-9 rounded-xl bg-slate-700 text-white font-black flex items-center justify-center text-xs shadow-2xs shrink-0">
+                                    🔄
+                                </div>
+                                <div>
+                                    <div class="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                        <span id="driverSelectedName_replacement"><?= htmlspecialchars($selectedReplacementDriver['full_name'] ?? '') ?></span>
+                                        <span id="driverSelectedStage_replacement" class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-800">
+                                            <?= htmlspecialchars($selectedReplacementDriver['probation_stage'] ?? 'بديل') ?>
+                                        </span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 font-num mt-0.5" id="driverSelectedDetails_replacement">
+                                        هاتف: <?= htmlspecialchars($selectedReplacementDriver['phone'] ?? '') ?> • رخصة: <?= htmlspecialchars($selectedReplacementDriver['license_number'] ?? 'غير مسجلة') ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button type="button" onclick="showDriverSearch('replacement')" class="px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-100 rounded-lg transition">
+                                    تغيير
+                                </button>
+                                <button type="button" onclick="clearDriverSelection('replacement')" class="px-1.5 py-1 text-slate-400 hover:text-rose-600 rounded-lg transition" title="إلغاء التعيين">
+                                    ✕
+                                </button>
+                            </div>
                         </div>
-                        <select name="replacement_driver_id" id="replacementDriverSelect" size="4"
-                                class="w-full p-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs overflow-y-auto">
-                            <option value="" <?= (!$editVehicle || empty($editVehicle['replacement_driver_id'])) ? 'selected' : '' ?>>-- بدون سائق بديل --</option>
-                            <?php foreach ($drivers as $d): ?>
-                                <option value="<?= $d['id'] ?>" <?= ($editVehicle && ($editVehicle['replacement_driver_id'] ?? null) == $d['id']) ? 'selected' : '' ?>>
-                                    🔄 <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p class="text-[10px] text-slate-400">السائق البديل يتولى المناوبة الميدانية في حال غياب السائق الأساسي.</p>
+
+                        <!-- Search Box & Dropdown (Replacement) -->
+                        <div id="driverSearchBox_replacement" class="<?= $selectedReplacementDriver ? 'hidden' : '' ?> relative space-y-1">
+                            <div class="relative">
+                                <input type="text" id="driverSearchInput_replacement" 
+                                       placeholder="🔍 اكتب اسم السائق البديل للتصفية..." 
+                                       oninput="onDriverSearchInput('replacement', this.value)"
+                                       onfocus="openDriverDropdown('replacement')"
+                                       autocomplete="off"
+                                       class="w-full pl-8 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 shadow-2xs">
+                                <div id="driverSearchSpinner_replacement" class="absolute left-2.5 top-1/2 -translate-y-1/2 hidden">
+                                    <svg class="animate-spin h-3.5 w-3.5 text-slate-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+                                </div>
+                            </div>
+
+                            <!-- Dropdown Results (Replacement) -->
+                            <div id="driverDropdown_replacement" class="hidden absolute top-full right-0 left-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100 text-xs z-30">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-500">السائق البديل يتولى المناوبة الميدانية في حال غياب أو عطلة السائق الأساسي.</p>
                     </div>
                 </div>
             </div>
 
             <!-- ==============================================
-                 2. بيانات وتفاصيل المركبة
+                 2. بيانات وتفاصيل المركبة (الماركة أو الصانع + الموديل - من الإعدادات)
                  ============================================== -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <!-- الماركة أو الصانع مع قائمة اختيارات -->
-                <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                        <label class="block font-bold text-slate-700">
-                            الماركة أو الصانع <span class="text-rose-500">*</span>
-                        </label>
-                        <span class="text-[10px] text-slate-400">اختر أو اكتب جديداً</span>
+            <div class="space-y-3.5">
+                <div class="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                    <span class="font-black text-slate-800 text-xs flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                        <span>بيانات المركبة والموديل</span>
+                    </span>
+                    <button type="button" onclick="openQuickPresetModal()" 
+                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 transition shadow-2xs">
+                        <span>⚙️ إضافة ماركة / طراز في الإعدادات</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- الماركة أو الصانع -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="block font-bold text-slate-700">
+                                الماركة أو الصانع <span class="text-rose-500">*</span>
+                            </label>
+                            <span class="text-[10px] text-slate-400">مثال: رينو، داسيا، بيجو</span>
+                        </div>
+
+                        <!-- Brand selection dropdown from parameters -->
+                        <select id="brandSelectDropdown" onchange="onBrandSelectChanged(this.value)"
+                                class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white shadow-2xs">
+                            <option value="">-- اختر الصانع من الإعدادات أو اكتب أدناه --</option>
+                            <?php foreach (array_keys($vehiclePresets) as $b): ?>
+                                <option value="<?= htmlspecialchars($b) ?>" <?= ($editVehicle && strcasecmp($editVehicle['brand'] ?? '', $b) === 0) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($b) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <!-- Brand custom text input -->
+                        <input type="text" name="brand" id="vehicleBrandInput" required 
+                               placeholder="اكتب اسم الصانع أو اختر من القائمة أعلاه..." 
+                               value="<?= htmlspecialchars($editVehicle['brand'] ?? '') ?>"
+                               oninput="onBrandInputChanged(this.value)"
+                               class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-bold transition bg-white shadow-2xs">
+
+                        <!-- Brand Preset Pills -->
+                        <div class="flex flex-wrap gap-1 mt-1" id="brandPillsContainer">
+                            <?php foreach (array_slice(array_keys($vehiclePresets), 0, 7) as $b): ?>
+                                <button type="button" onclick="selectBrandPreset('<?= htmlspecialchars($b, ENT_QUOTES) ?>')" 
+                                        class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">
+                                    <?= htmlspecialchars($b) ?>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
                     </div>
-                    <input type="text" name="brand" id="vehicleBrandInput" list="brandPresets" required 
-                           placeholder="مثال: رينو، داسيا، بيجو..." 
-                           value="<?= htmlspecialchars($editVehicle['brand'] ?? '') ?>"
-                           onchange="onBrandChanged(this.value)"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-semibold transition bg-white shadow-2xs">
-                    <datalist id="brandPresets">
-                        <option value="Renault">رينو (Renault)</option>
-                        <option value="Dacia">داسيا (Dacia)</option>
-                        <option value="Peugeot">بيجو (Peugeot)</option>
-                        <option value="Hyundai">هيونداي (Hyundai)</option>
-                        <option value="Toyota">تويوتا (Toyota)</option>
-                        <option value="Citroën">سيتروين (Citroën)</option>
-                        <option value="Fiat">فيات (Fiat)</option>
-                        <option value="Skoda">سكودا (Skoda)</option>
-                        <option value="Volkswagen">فولكسفاغن (Volkswagen)</option>
-                        <option value="Kia">كيا (Kia)</option>
-                        <option value="Nissan">نيسان (Nissan)</option>
-                        <option value="Seat">سيات (Seat)</option>
-                    </datalist>
-                    <!-- Quick Preset Pills -->
-                    <div class="flex flex-wrap gap-1 mt-1.5" id="brandPillsContainer">
-                        <button type="button" onclick="selectBrandPreset('Renault')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">رينو</button>
-                        <button type="button" onclick="selectBrandPreset('Dacia')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">داسيا</button>
-                        <button type="button" onclick="selectBrandPreset('Peugeot')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">بيجو</button>
-                        <button type="button" onclick="selectBrandPreset('Hyundai')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">هيونداي</button>
-                        <button type="button" onclick="selectBrandPreset('Toyota')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">تويوتا</button>
-                        <button type="button" onclick="selectBrandPreset('Citroën')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سيتروين</button>
-                        <button type="button" onclick="selectBrandPreset('Fiat')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">فيات</button>
+
+                    <!-- طراز المركبة (الموديل) -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="block font-bold text-slate-700">
+                                طراز المركبة (الموديل) <span class="text-rose-500">*</span>
+                            </label>
+                            <span class="text-[10px] text-slate-400">طراز التاكسي</span>
+                        </div>
+
+                        <!-- Model selection dropdown from parameters -->
+                        <select id="modelSelectDropdown" onchange="onModelSelectChanged(this.value)"
+                                class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white shadow-2xs">
+                            <option value="">-- اختر الطراز من الإعدادات أو اكتب أدناه --</option>
+                            <!-- Dynamically filled based on selected brand -->
+                        </select>
+
+                        <!-- Model custom text input -->
+                        <input type="text" name="model" id="vehicleModelInput" required 
+                               placeholder="مثال: سامبول، لوغان، 301، أكسنت..." 
+                               value="<?= htmlspecialchars($editVehicle['model'] ?? '') ?>"
+                               class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-bold transition bg-white shadow-2xs">
+
+                        <!-- Quick Model Pills (Dynamically refreshed on brand click) -->
+                        <div class="flex flex-wrap gap-1 mt-1" id="modelPillsContainer">
+                            <!-- Populated dynamically -->
+                        </div>
                     </div>
                 </div>
 
-                <!-- طراز المركبة (الموديل) مع قائمة اختيارات -->
-                <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                        <label class="block font-bold text-slate-700">
-                            طراز المركبة (الموديل) <span class="text-rose-500">*</span>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1.5">
+                            رقم لوحة الترقيم <span class="text-rose-500">*</span>
                         </label>
-                        <span class="text-[10px] text-slate-400">طراز التاكسي</span>
+                        <input type="text" name="plate_number" required placeholder="01458-121-16" dir="ltr" 
+                               value="<?= htmlspecialchars($editVehicle['plate_number'] ?? '') ?>"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-right font-num font-mono transition bg-white shadow-2xs">
                     </div>
-                    <input type="text" name="model" id="vehicleModelInput" list="modelPresets" required 
-                           placeholder="مثال: سامبول، لوغان، 301، أكسنت..." 
-                           value="<?= htmlspecialchars($editVehicle['model'] ?? '') ?>"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-semibold transition bg-white shadow-2xs">
-                    <datalist id="modelPresets">
-                        <option value="Symbol">سامبول (Symbol)</option>
-                        <option value="Logan">لوغان (Logan Taxi)</option>
-                        <option value="301">بيجو 301</option>
-                        <option value="208">بيجو 208</option>
-                        <option value="Accent">أكسنت (Accent)</option>
-                        <option value="Corolla">كورولا (Corolla)</option>
-                        <option value="C-Elysée">سي-إليزي (C-Elysée)</option>
-                        <option value="Tipo">تيبو (Tipo)</option>
-                        <option value="Octavia">أوكتافيا (Octavia)</option>
-                        <option value="Fabia">فابيا (Fabia)</option>
-                        <option value="Golf">غولف (Golf)</option>
-                        <option value="Picanto">بيكانتو (Picanto)</option>
-                    </datalist>
-                    <!-- Quick Preset Pills (Dynamically refreshed on brand click) -->
-                    <div class="flex flex-wrap gap-1 mt-1.5" id="modelPillsContainer">
-                        <button type="button" onclick="selectModelPreset('Symbol')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سامبول</button>
-                        <button type="button" onclick="selectModelPreset('Logan')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">لوغان</button>
-                        <button type="button" onclick="selectModelPreset('301')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">301</button>
-                        <button type="button" onclick="selectModelPreset('Accent')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">أكسنت</button>
-                        <button type="button" onclick="selectModelPreset('C-Elysée')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سي-إليزي</button>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1.5">
+                            رقم الباب المعتمد <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="text" name="door_number" required placeholder="مثال: 16-042" 
+                               value="<?= htmlspecialchars($editVehicle['door_number'] ?? '') ?>"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num transition bg-white shadow-2xs">
                     </div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">
-                        رقم لوحة الترقيم <span class="text-rose-500">*</span>
-                    </label>
-                    <input type="text" name="plate_number" required placeholder="01458-121-16" dir="ltr" 
-                           value="<?= htmlspecialchars($editVehicle['plate_number'] ?? '') ?>"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 text-right font-num font-mono transition bg-white shadow-2xs">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">
-                        رقم الباب المعتمد <span class="text-rose-500">*</span>
-                    </label>
-                    <input type="text" name="door_number" required placeholder="مثال: 16-042" 
-                           value="<?= htmlspecialchars($editVehicle['door_number'] ?? '') ?>"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-num transition bg-white shadow-2xs">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">لون السيارة</label>
-                    <input type="text" name="color" value="<?= htmlspecialchars($editVehicle['color'] ?? 'أصفر') ?>"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition bg-white shadow-2xs">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1.5">لون السيارة</label>
+                        <input type="text" name="color" value="<?= htmlspecialchars($editVehicle['color'] ?? 'أصفر') ?>"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition bg-white shadow-2xs">
+                    </div>
                 </div>
             </div>
 
@@ -652,32 +775,42 @@ if (isset($_GET['edit'])) {
                             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                             <span>تاريخ انتهاء طفاية الحريق + GPL</span>
                         </span>
-                        <span class="text-[10px] font-bold text-slate-500">تجهيزات السلامة المعتمدة</span>
+                        <span class="text-[10px] font-bold text-slate-500">تجهيزات السلامة ومطابقة الغاز</span>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <!-- مطفأة الحريق -->
+                        <!-- انتهاء صلاحية مطفأة الحريق -->
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">انتهاء صلاحية مطفأة الحريق</label>
                             <input type="date" name="extinguisher_expiry" value="<?= htmlspecialchars($editVehicle['extinguisher_expiry'] ?? '') ?>"
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
                         </div>
 
-                        <!-- شهادة GPL مع زر بدون GPL -->
-                        <div class="space-y-1.5">
-                            <div class="flex items-center justify-between">
-                                <label class="block font-bold text-slate-700">انتهاء صلاحية شهادة GPL</label>
-                                <button type="button" onclick="setWithoutGpl()" 
-                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition shadow-2xs flex items-center gap-1">
-                                    <span>بدون GPL (ملاحظة)</span>
-                                    <span class="text-[9px] opacity-80">• اكتب "بدون GPL" تلقائي</span>
-                                </button>
-                            </div>
+                        <!-- انتهاء صلاحية شهادة GPL -->
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">انتهاء صلاحية شهادة GPL</label>
                             <input type="date" name="gpl_expiry" id="gplExpiryInput" value="<?= htmlspecialchars($editVehicle['gpl_expiry'] ?? '') ?>"
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
+                        </div>
+                    </div>
+
+                    <!-- بدون GPL (ملاحظة) -->
+                    <div class="space-y-1.5 pt-2 border-t border-slate-200/60">
+                        <div class="flex items-center justify-between">
+                            <label class="block font-bold text-slate-700">بدون GPL (ملاحظة)</label>
+                            <button type="button" onclick="setWithoutGpl()" 
+                                    class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition shadow-2xs flex items-center gap-1.5">
+                                <span>اكتب "بدون GPL" تلقائي</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2">
                             <input type="text" name="gpl_text" id="gplTextInput" placeholder='اكتب "بدون GPL" أو ملاحظة خزان الغاز...' 
                                    value="<?= htmlspecialchars($editVehicle['gpl_text'] ?? '') ?>"
-                                   class="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-[11px] focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-700 transition">
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-700 transition shadow-2xs">
+                            <button type="button" onclick="setWithoutGpl()" 
+                                    class="shrink-0 px-3 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition flex items-center gap-1 shadow-2xs">
+                                <span>تلقائي</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -700,19 +833,24 @@ if (isset($_GET['edit'])) {
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
                         </div>
 
-                        <!-- بدون عداد وملاحظة الختم -->
+                        <!-- بدون عداد -->
                         <div class="space-y-1.5">
                             <div class="flex items-center justify-between">
-                                <label class="block font-bold text-slate-700">وضعية العداد / الختم</label>
+                                <label class="block font-bold text-slate-700">بدون عداد</label>
                                 <button type="button" onclick="setWithoutTaximeter()" 
-                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 transition shadow-2xs flex items-center gap-1">
-                                    <span>بدون عداد</span>
-                                    <span class="text-[9px] opacity-80">• اكتب "بدون عداد" تلقائي</span>
+                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 transition shadow-2xs flex items-center gap-1.5">
+                                    <span>اكتب "بدون عداد" تلقائي</span>
                                 </button>
                             </div>
-                            <input type="text" name="saccuriometre_text" id="sacTextInput" placeholder='اكتب "بدون عداد" أو حالة ختم العداد...' 
-                                   value="<?= htmlspecialchars($editVehicle['saccuriometre_text'] ?? 'معاير ومختوم') ?>"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-800 transition shadow-2xs">
+                            <div class="flex items-center gap-2">
+                                <input type="text" name="saccuriometre_text" id="sacTextInput" placeholder='اكتب "بدون عداد" أو حالة ختم العداد...' 
+                                       value="<?= htmlspecialchars($editVehicle['saccuriometre_text'] ?? 'معاير ومختوم') ?>"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-800 transition shadow-2xs">
+                                <button type="button" onclick="setWithoutTaximeter()" 
+                                        class="shrink-0 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white transition flex items-center gap-1 shadow-2xs">
+                                    <span>تلقائي</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -730,69 +868,274 @@ if (isset($_GET['edit'])) {
     </div>
 </div>
 
-<script>
-// Filter drivers in select dropdown based on search input
-function filterDriverDropdown(searchId, selectId, countId) {
-    const searchVal = document.getElementById(searchId).value.toLowerCase().trim();
-    const select = document.getElementById(selectId);
-    const countEl = countId ? document.getElementById(countId) : null;
-    if (!select) return;
+<!-- ==============================================
+     Quick Add Brand / Model Preset Modal (Parameters)
+     ============================================== -->
+<div id="quickPresetModal" class="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4 text-right">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div class="flex items-center gap-2">
+                <span class="text-lg">⚙️</span>
+                <h4 class="font-bold text-slate-900 text-sm">إضافة ماركة أو طراز في الإعدادات</h4>
+            </div>
+            <button type="button" onclick="closeQuickPresetModal()" class="text-slate-400 hover:text-slate-700 text-base">✕</button>
+        </div>
 
-    let visibleCount = 0;
-    for (let i = 0; i < select.options.length; i++) {
-        const opt = select.options[i];
-        if (opt.value === "") {
-            opt.style.display = "";
-            continue;
-        }
-        const text = opt.text.toLowerCase();
-        if (text.includes(searchVal)) {
-            opt.style.display = "";
-            visibleCount++;
-        } else {
-            opt.style.display = "none";
-        }
+        <p class="text-[11px] text-slate-500">
+            أدخل الماركة والطرازات المعتمدة ليتم حفظها في إعدادات المنصة واعتمادها فورياً لجميع سيارات الأجرة.
+        </p>
+
+        <div class="space-y-3 text-xs">
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">اسم الماركة أو الصانع <span class="text-rose-500">*</span></label>
+                <input type="text" id="quickBrandInput" placeholder="مثال: Chery, Geely, DFSK, Suzuki..." 
+                       class="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white">
+            </div>
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">الموديلات المعتمدة (مفصولة بفواصل)</label>
+                <input type="text" id="quickModelsInput" placeholder="مثال: Tiggo 2, Tiggo 4, Arrizo 5" 
+                       class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white">
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+            <a href="/dashboard/settings.php#fleet-presets" target="_blank" class="text-[11px] text-amber-600 hover:underline font-semibold">
+                إدارة الإعدادات العامة ↗
+            </a>
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="closeQuickPresetModal()" class="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50">
+                    إلغاء
+                </button>
+                <button type="button" onclick="saveQuickPreset()" id="savePresetBtn" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-2xs">
+                    حفظ واعتماد
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Driver and Preset state
+const ALL_DRIVERS = <?= json_encode($drivers, JSON_UNESCAPED_UNICODE) ?>;
+let VEHICLE_PRESETS = <?= json_encode($vehiclePresets, JSON_UNESCAPED_UNICODE) ?>;
+let driverSearchDebounce = null;
+
+// ==========================================
+// 1. AJAX & Interactive Driver Search
+// ==========================================
+function openDriverDropdown(slot) {
+    const dropdown = document.getElementById('driverDropdown_' + slot);
+    if (!dropdown) return;
+    dropdown.classList.remove('hidden');
+    
+    const input = document.getElementById('driverSearchInput_' + slot);
+    const query = input ? input.value.trim() : '';
+    filterAndRenderDrivers(slot, query);
+}
+
+function onDriverSearchInput(slot, val) {
+    clearTimeout(driverSearchDebounce);
+    const spinner = document.getElementById('driverSearchSpinner_' + slot);
+    if (spinner) spinner.classList.remove('hidden');
+
+    driverSearchDebounce = setTimeout(() => {
+        fetchDriversAjax(slot, val.trim());
+    }, 200);
+}
+
+function fetchDriversAjax(slot, query) {
+    const spinner = document.getElementById('driverSearchSpinner_' + slot);
+    
+    // Attempt live AJAX search endpoint
+    fetch('/dashboard/ajax_drivers.php?q=' + encodeURIComponent(query))
+        .then(res => res.json())
+        .then(data => {
+            if (spinner) spinner.classList.add('hidden');
+            renderDriverResults(slot, Array.isArray(data) ? data : []);
+        })
+        .catch(err => {
+            // Fallback to client-side list
+            if (spinner) spinner.classList.add('hidden');
+            filterAndRenderDrivers(slot, query);
+        });
+}
+
+function filterAndRenderDrivers(slot, query) {
+    const q = query.toLowerCase();
+    const filtered = ALL_DRIVERS.filter(d => {
+        if (!q) return true;
+        return (d.full_name && d.full_name.toLowerCase().includes(q)) ||
+               (d.phone && d.phone.includes(q)) ||
+               (d.license_number && d.license_number.toLowerCase().includes(q)) ||
+               (d.card_number && d.card_number.toLowerCase().includes(q));
+    });
+    renderDriverResults(slot, filtered);
+}
+
+function renderDriverResults(slot, list) {
+    const dropdown = document.getElementById('driverDropdown_' + slot);
+    if (!dropdown) return;
+    dropdown.classList.remove('hidden');
+
+    const emptyText = slot === 'primary' ? '-- بدون سائق أساسي حالياً (شاغرة) --' : '-- بدون سائق بديل --';
+    
+    let html = `
+        <div onclick="selectDriver('${slot}', null)" class="p-2.5 hover:bg-slate-50 cursor-pointer flex items-center justify-between text-slate-500 font-bold border-b border-slate-100">
+            <span>🚫 ${emptyText}</span>
+            <span class="text-[10px] text-slate-400">تفريغ</span>
+        </div>
+    `;
+
+    if (list.length === 0) {
+        html += `
+            <div class="p-3 text-center text-slate-400 text-xs">
+                لا يوجد سائق مطابق لبحثك
+            </div>
+        `;
+    } else {
+        html += list.map(d => {
+            const stageLabel = d.probation_stage === 'trial_1' ? 'تجريبية 1' :
+                               d.probation_stage === 'trial_2' ? 'تجريبية 2' :
+                               d.probation_stage === 'trial_3' ? 'تجريبية 3' : 'سائق رسمي';
+            const stageColor = d.probation_stage === 'official' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200';
+            const plateNote = d.current_plate ? `<span class="text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">يسير: ${d.current_plate}</span>` : '';
+
+            // Clean data for onclick
+            const safeD = JSON.stringify(d).replace(/"/g, '&quot;');
+            return `
+                <div onclick='selectDriver("${slot}", ${safeD})' class="p-2.5 hover:bg-amber-50/70 cursor-pointer flex items-center justify-between transition">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-7 h-7 rounded-lg bg-slate-100 text-slate-800 font-bold flex items-center justify-center text-xs shrink-0">
+                            👤
+                        </div>
+                        <div>
+                            <div class="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                <span>${d.full_name}</span>
+                                <span class="text-[9px] px-1.5 py-0.2 rounded border font-semibold ${stageColor}">${stageLabel}</span>
+                                ${plateNote}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-num">
+                                هاتف: ${d.phone || '-'} • رخصة: ${d.license_number || '-'}
+                            </div>
+                        </div>
+                    </div>
+                    <span class="text-[10px] font-bold text-amber-600 bg-amber-100/60 px-2 py-0.5 rounded">اختيار</span>
+                </div>
+            `;
+        }).join('');
     }
-    if (countEl) {
-        countEl.textContent = searchVal ? (visibleCount + ' سائق') : '';
+
+    dropdown.innerHTML = html;
+}
+
+function selectDriver(slot, driver) {
+    const input = document.getElementById('driverInput_' + slot);
+    const card = document.getElementById('driverSelectedCard_' + slot);
+    const searchBox = document.getElementById('driverSearchBox_' + slot);
+    const dropdown = document.getElementById('driverDropdown_' + slot);
+
+    if (dropdown) dropdown.classList.add('hidden');
+
+    if (!driver) {
+        // Clear driver
+        if (input) input.value = '';
+        if (card) card.classList.add('hidden');
+        if (searchBox) searchBox.classList.remove('hidden');
+        const sInput = document.getElementById('driverSearchInput_' + slot);
+        if (sInput) sInput.value = '';
+        return;
+    }
+
+    if (input) input.value = driver.id;
+
+    // Update selected card UI
+    const nameEl = document.getElementById('driverSelectedName_' + slot);
+    const stageEl = document.getElementById('driverSelectedStage_' + slot);
+    const detailsEl = document.getElementById('driverSelectedDetails_' + slot);
+
+    if (nameEl) nameEl.textContent = driver.full_name;
+    if (stageEl) {
+        stageEl.textContent = driver.probation_stage === 'trial_1' ? 'فترة تجريبية 1' :
+                              driver.probation_stage === 'trial_2' ? 'فترة تجريبية 2' :
+                              driver.probation_stage === 'trial_3' ? 'فترة تجريبية 3' : 'سائق رسمي';
+    }
+    if (detailsEl) {
+        detailsEl.textContent = `هاتف: ${driver.phone || '-'} • رخصة: ${driver.license_number || 'غير مسجلة'}`;
+    }
+
+    if (card) card.classList.remove('hidden');
+    if (searchBox) searchBox.classList.add('hidden');
+}
+
+function showDriverSearch(slot) {
+    const card = document.getElementById('driverSelectedCard_' + slot);
+    const searchBox = document.getElementById('driverSearchBox_' + slot);
+    if (card) card.classList.add('hidden');
+    if (searchBox) {
+        searchBox.classList.remove('hidden');
+        const sInput = document.getElementById('driverSearchInput_' + slot);
+        if (sInput) {
+            sInput.focus();
+            openDriverDropdown(slot);
+        }
     }
 }
 
-// Brand-Model Map for dynamic model suggestion
-const brandModelsMap = {
-    'Renault': ['Symbol', 'Megane', 'Clio', 'Fluence', 'Kangoo'],
-    'Dacia': ['Logan', 'Sandero', 'Stepway', 'Duster', 'Dokker'],
-    'Peugeot': ['301', '208', '308', '2008', 'Partner', '307'],
-    'Hyundai': ['Accent', 'i10', 'i20', 'Elantra', 'Tucson'],
-    'Toyota': ['Corolla', 'Yaris', 'Avensis', 'Hilux'],
-    'Citroën': ['C-Elysée', 'C3', 'C4', 'Berlingo'],
-    'Fiat': ['Tipo', 'Punto', 'Doblo', '500'],
-    'Skoda': ['Octavia', 'Fabia', 'Rapid'],
-    'Volkswagen': ['Golf', 'Polo', 'Passat', 'Caddy'],
-    'Kia': ['Picanto', 'Rio', 'Cerato']
-};
+function clearDriverSelection(slot) {
+    selectDriver(slot, null);
+}
 
+// Close driver dropdown on outside click
+document.addEventListener('click', function(e) {
+    ['primary', 'replacement'].forEach(slot => {
+        const container = document.getElementById('slotContainer_' + slot);
+        const dropdown = document.getElementById('driverDropdown_' + slot);
+        if (container && dropdown && !container.contains(e.target)) {
+            dropdown.classList.add('hidden');
+        }
+    });
+});
+
+// ==========================================
+// 2. Vehicle Presets (Brands & Models from Parameters)
+// ==========================================
 function selectBrandPreset(brandName) {
     const brandInput = document.getElementById('vehicleBrandInput');
-    if (brandInput) {
-        brandInput.value = brandName;
-        onBrandChanged(brandName);
-    }
+    const brandSelect = document.getElementById('brandSelectDropdown');
+    if (brandInput) brandInput.value = brandName;
+    if (brandSelect) brandSelect.value = brandName;
+    updateModelsForBrand(brandName);
 }
 
-function selectModelPreset(modelName) {
-    const modelInput = document.getElementById('vehicleModelInput');
-    if (modelInput) {
-        modelInput.value = modelName;
-        modelInput.focus();
-    }
+function onBrandSelectChanged(brandName) {
+    const brandInput = document.getElementById('vehicleBrandInput');
+    if (brandInput) brandInput.value = brandName;
+    updateModelsForBrand(brandName);
 }
 
-function onBrandChanged(brandName) {
+function onBrandInputChanged(brandName) {
+    const brandSelect = document.getElementById('brandSelectDropdown');
+    if (brandSelect) {
+        brandSelect.value = VEHICLE_PRESETS[brandName] ? brandName : '';
+    }
+    updateModelsForBrand(brandName);
+}
+
+function updateModelsForBrand(brandName) {
+    const modelSelect = document.getElementById('modelSelectDropdown');
     const modelPills = document.getElementById('modelPillsContainer');
-    if (!modelPills) return;
+    if (!modelSelect || !modelPills) return;
 
-    const models = brandModelsMap[brandName] || [];
+    const models = VEHICLE_PRESETS[brandName] || [];
+
+    // Populate model dropdown
+    let opts = '<option value="">-- اختر الطراز أو اكتب أدناه --</option>';
+    models.forEach(m => {
+        opts += `<option value="${m}">${m}</option>`;
+    });
+    modelSelect.innerHTML = opts;
+
+    // Populate model pills
     if (models.length > 0) {
         modelPills.innerHTML = models.map(m => `
             <button type="button" onclick="selectModelPreset('${m}')" 
@@ -800,32 +1143,145 @@ function onBrandChanged(brandName) {
                 ${m}
             </button>
         `).join('');
+    } else {
+        modelPills.innerHTML = '';
     }
 }
 
-// Set without GPL: clears expiry date and sets text to "بدون GPL" automatically
+function selectModelPreset(modelName) {
+    const modelInput = document.getElementById('vehicleModelInput');
+    const modelSelect = document.getElementById('modelSelectDropdown');
+    if (modelInput) {
+        modelInput.value = modelName;
+        modelInput.focus();
+    }
+    if (modelSelect) modelSelect.value = modelName;
+}
+
+function onModelSelectChanged(modelName) {
+    const modelInput = document.getElementById('vehicleModelInput');
+    if (modelInput && modelName) {
+        modelInput.value = modelName;
+    }
+}
+
+// ==========================================
+// 3. Quick Preset Modal (Parameters)
+// ==========================================
+function openQuickPresetModal() {
+    const modal = document.getElementById('quickPresetModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.getElementById('quickBrandInput').focus();
+    }
+}
+
+function closeQuickPresetModal() {
+    const modal = document.getElementById('quickPresetModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+function saveQuickPreset() {
+    const brandInput = document.getElementById('quickBrandInput');
+    const modelsInput = document.getElementById('quickModelsInput');
+    const brand = brandInput.value.trim();
+    const models = modelsInput.value.trim();
+
+    if (!brand) {
+        alert('يرجى كتابة اسم الماركة أو الصانع.');
+        brandInput.focus();
+        return;
+    }
+
+    const btn = document.getElementById('savePresetBtn');
+    if (btn) btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('brand', brand);
+    formData.append('model', models);
+
+    fetch('/dashboard/ajax_vehicle_presets.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (btn) btn.disabled = false;
+        if (data.presets) {
+            VEHICLE_PRESETS = data.presets;
+            
+            // Re-render brand select options
+            const brandSelect = document.getElementById('brandSelectDropdown');
+            if (brandSelect) {
+                let html = '<option value="">-- اختر الصانع من الإعدادات أو اكتب أدناه --</option>';
+                Object.keys(VEHICLE_PRESETS).forEach(b => {
+                    html += `<option value="${b}">${b}</option>`;
+                });
+                brandSelect.innerHTML = html;
+            }
+
+            // Auto select the new brand & model
+            selectBrandPreset(brand);
+            if (models) {
+                const firstModel = models.split(',')[0].trim();
+                selectModelPreset(firstModel);
+            }
+
+            closeQuickPresetModal();
+            brandInput.value = '';
+            modelsInput.value = '';
+            alert(`✓ تم حفظ ماركة "${brand}" بنجاح في الإعدادات واعتمادها بالنموذج!`);
+        } else if (data.error) {
+            alert(data.error);
+        }
+    })
+    .catch(err => {
+        if (btn) btn.disabled = false;
+        alert('حدث خطأ أثناء حفظ الإعدادات، يرجى المحاولة لاحقاً.');
+    });
+}
+
+// ==========================================
+// 4. Equipment Actions: GPL & Taximeter
+// ==========================================
 function setWithoutGpl() {
     const expiryInput = document.getElementById('gplExpiryInput');
     const textInput = document.getElementById('gplTextInput');
     if (expiryInput) expiryInput.value = '';
     if (textInput) {
         textInput.value = 'بدون GPL';
-        textInput.classList.add('ring-2', 'ring-amber-500/30');
-        setTimeout(() => textInput.classList.remove('ring-2', 'ring-amber-500/30'), 1000);
+        textInput.classList.add('ring-2', 'ring-amber-500/50');
+        setTimeout(() => textInput.classList.remove('ring-2', 'ring-amber-500/50'), 1200);
     }
 }
 
-// Set without Taximeter: clears expiry date and sets text to "بدون عداد" automatically
 function setWithoutTaximeter() {
     const expiryInput = document.getElementById('sacExpiryInput');
     const textInput = document.getElementById('sacTextInput');
     if (expiryInput) expiryInput.value = '';
     if (textInput) {
         textInput.value = 'بدون عداد';
-        textInput.classList.add('ring-2', 'ring-blue-500/30');
-        setTimeout(() => textInput.classList.remove('ring-2', 'ring-blue-500/30'), 1000);
+        textInput.classList.add('ring-2', 'ring-blue-500/50');
+        setTimeout(() => textInput.classList.remove('ring-2', 'ring-blue-500/50'), 1200);
     }
 }
+
+// On load: if brand exists, populate its models
+document.addEventListener('DOMContentLoaded', function() {
+    const currentBrand = document.getElementById('vehicleBrandInput')?.value;
+    if (currentBrand) {
+        updateModelsForBrand(currentBrand);
+        const currentModel = document.getElementById('vehicleModelInput')?.value;
+        if (currentModel) {
+            const modelSelect = document.getElementById('modelSelectDropdown');
+            if (modelSelect) modelSelect.value = currentModel;
+        }
+    }
+});
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
