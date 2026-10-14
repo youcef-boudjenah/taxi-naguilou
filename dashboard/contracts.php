@@ -7,7 +7,13 @@ require_role(['super_admin', 'admin', 'owner']);
 $pdo = getDBConnection();
 
 $vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll();
-$drivers = $pdo->query("SELECT id, full_name, phone, license_number FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+$drivers = $pdo->query("
+    SELECT u.id, u.full_name, u.phone, u.license_number, u.taxi_contract_start, u.taxi_contract_end,
+           (SELECT v.id FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) as assigned_vehicle_id
+    FROM users u 
+    WHERE u.role = 'driver' AND u.status = 'active' 
+    ORDER BY u.full_name ASC
+")->fetchAll();
 
 // Handle Create Contract
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_contract') {
@@ -350,13 +356,18 @@ $countExpires = max(0, $countTous - $countActifs);
 
             <!-- 1. Driver First -->
             <div>
-                <label class="block font-bold text-slate-700 mb-1.5">
-                    اختر السائق الأجير (Chauffeur) <span class="text-rose-500">*</span>
+                <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>اختر السائق الأجير (Chauffeur) <span class="text-rose-500">*</span></span>
+                    <span class="text-[10px] text-emerald-600 font-semibold" id="driverAutoFillBadge">استيراد تلقائي للتواريخ</span>
                 </label>
-                <select name="driver_id" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
+                <select name="driver_id" id="contractDriverSelect" required onchange="onDriverSelectedForContract(this)"
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
                     <option value="">-- حدد السائق المكلف --</option>
                     <?php foreach ($drivers as $d): ?>
-                        <option value="<?= $d['id'] ?>">
+                        <option value="<?= $d['id'] ?>" 
+                                data-start="<?= htmlspecialchars($d['taxi_contract_start'] ?? '') ?>"
+                                data-end="<?= htmlspecialchars($d['taxi_contract_end'] ?? '') ?>"
+                                data-vehicle="<?= htmlspecialchars($d['assigned_vehicle_id'] ?? '') ?>">
                             <?= htmlspecialchars($d['full_name']) ?> (هاتف: <?= htmlspecialchars($d['phone']) ?> - رخصة: <?= htmlspecialchars($d['license_number'] ?? 'غير مسجل') ?>)
                         </option>
                     <?php endforeach; ?>
@@ -368,7 +379,8 @@ $countExpires = max(0, $countTous - $countActifs);
                 <label class="block font-bold text-slate-700 mb-1.5">
                     اختر سيارة الأجرة من الأسطول (Véhicule) <span class="text-rose-500">*</span>
                 </label>
-                <select name="vehicle_id" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
+                <select name="vehicle_id" id="contractVehicleSelect" required 
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
                     <option value="">-- حدد السيارة من الأسطول --</option>
                     <?php foreach ($vehicles as $v): ?>
                         <option value="<?= $v['id'] ?>">
@@ -378,16 +390,23 @@ $countExpires = max(0, $countTous - $countActifs);
                 </select>
             </div>
 
-            <!-- Dates & Duration -->
+            <!-- Dates & Duration (Auto calculated from driver booklet if filled) -->
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ سريان العقد (Début)</label>
-                    <input type="date" name="start_date" value="<?= date('Y-m-d') ?>" required
+                    <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                        <span>تاريخ سريان العقد (Début)</span>
+                        <span class="text-[10px] text-slate-400 font-normal">من السائق</span>
+                    </label>
+                    <input type="date" name="start_date" id="contractStartDateInput" value="<?= date('Y-m-d') ?>" required
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition">
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">مدة العقد (Durée)</label>
-                    <select name="duration_years" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
+                    <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                        <span>مدة العقد (Durée)</span>
+                        <span class="text-[10px] text-slate-400 font-normal">تلقائي</span>
+                    </label>
+                    <select name="duration_years" id="contractDurationSelect" 
+                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
                         <option value="5" selected>5 سنوات (5 ans - نظامي)</option>
                         <option value="3">3 سنوات (3 ans)</option>
                         <option value="2">سنتان (2 ans)</option>
@@ -414,5 +433,44 @@ $countExpires = max(0, $countTous - $countActifs);
         </form>
     </div>
 </div>
+
+<script>
+// Auto-fill contract start date, duration and assigned vehicle from selected driver
+function onDriverSelectedForContract(selectEl) {
+    const opt = selectEl.options[selectEl.selectedIndex];
+    if (!opt) return;
+
+    const start = opt.getAttribute('data-start');
+    const end = opt.getAttribute('data-end');
+    const vehId = opt.getAttribute('data-vehicle');
+    const badge = document.getElementById('driverAutoFillBadge');
+
+    if (start) {
+        const startInput = document.getElementById('contractStartDateInput');
+        if (startInput) startInput.value = start;
+    }
+    if (vehId) {
+        const vehSelect = document.getElementById('contractVehicleSelect');
+        if (vehSelect && vehId > 0) vehSelect.value = vehId;
+    }
+    if (start && end) {
+        const d1 = new Date(start);
+        const d2 = new Date(end);
+        const yearsDiff = Math.round((d2 - d1) / (365.25 * 24 * 60 * 60 * 1000));
+        const durSelect = document.getElementById('contractDurationSelect');
+        if (durSelect) {
+            if ([1, 2, 3, 5].includes(yearsDiff)) {
+                durSelect.value = yearsDiff;
+            } else {
+                durSelect.value = 5;
+            }
+        }
+        if (badge) {
+            badge.textContent = `✓ تم استيراد الصلاحية (${yearsDiff > 0 ? yearsDiff : 5} سنوات) تلقائياً`;
+            badge.className = "text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded";
+        }
+    }
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

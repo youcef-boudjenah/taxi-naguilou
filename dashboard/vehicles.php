@@ -49,18 +49,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
     $tcExpiry = !empty($_POST['technical_control_expiry']) ? $_POST['technical_control_expiry'] : null;
     $extExpiry = !empty($_POST['extinguisher_expiry']) ? $_POST['extinguisher_expiry'] : null;
     $gplExpiry = !empty($_POST['gpl_expiry']) ? $_POST['gpl_expiry'] : null;
+    $gplText = trim($_POST['gpl_text'] ?? '');
     $sacExpiry = !empty($_POST['saccuriometre_expiry']) ? $_POST['saccuriometre_expiry'] : null;
     $sacText = trim($_POST['saccuriometre_text'] ?? 'معاير ومختوم');
 
     if ($actionType === 'create') {
         try {
             $stmt = $pdo->prepare("
-                INSERT INTO vehicles (owner_id, current_driver_id, replacement_driver_id, brand, model, plate_number, color, door_number, insurance_expiry, insurance_company, technical_control_expiry, extinguisher_expiry, gpl_expiry, saccuriometre_expiry, saccuriometre_text, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                INSERT INTO vehicles (owner_id, current_driver_id, replacement_driver_id, brand, model, plate_number, color, door_number, insurance_expiry, insurance_company, technical_control_expiry, extinguisher_expiry, gpl_expiry, gpl_text, saccuriometre_expiry, saccuriometre_text, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ");
             $stmt->execute([
                 $user['id'], $driverId, $replacementDriverId, $brand, $model, $plateNumber, $color, $doorNumber,
-                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $sacExpiry, $sacText
+                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $gplText, $sacExpiry, $sacText
             ]);
             $newId = (int)$pdo->lastInsertId();
             log_audit($pdo, 'vehicle_created', 'vehicles', $newId, "إضافة مركبة أسطول جديدة: $brand $model ($plateNumber)");
@@ -75,12 +76,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
             $stmt = $pdo->prepare("
                 UPDATE vehicles SET brand=?, model=?, plate_number=?, color=?, door_number=?, current_driver_id=?, replacement_driver_id=?,
                        insurance_expiry=?, insurance_company=?, technical_control_expiry=?, extinguisher_expiry=?,
-                       gpl_expiry=?, saccuriometre_expiry=?, saccuriometre_text=?
+                       gpl_expiry=?, gpl_text=?, saccuriometre_expiry=?, saccuriometre_text=?
                 WHERE id=?
             ");
             $stmt->execute([
                 $brand, $model, $plateNumber, $color, $doorNumber, $driverId, $replacementDriverId,
-                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $sacExpiry, $sacText, $vId
+                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $gplText, $sacExpiry, $sacText, $vId
             ]);
             log_audit($pdo, 'vehicle_updated', 'vehicles', $vId, "تحديث بيانات ووثائق المركبة $plateNumber");
             set_flash('success', 'تم تحديث بيانات المركبة والوثائق بنجاح');
@@ -342,16 +343,36 @@ if (isset($_GET['edit'])) {
 
                                 <!-- GPL Check -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num">
-                                        <?= htmlspecialchars($v['gpl_expiry'] ?? 'مطابق') ?>
-                                    </span>
+                                    <?php if (!empty($v['gpl_expiry'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num">
+                                            <span>GPL:</span>
+                                            <span><?= htmlspecialchars($v['gpl_expiry']) ?></span>
+                                        </span>
+                                    <?php elseif (($v['gpl_text'] ?? '') === 'بدون GPL'): ?>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                            بدون GPL
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num">
+                                            <?= htmlspecialchars(!empty($v['gpl_text']) ? $v['gpl_text'] : 'مطابق') ?>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Taximeter (Saccuriometre) -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium">
-                                        <?= htmlspecialchars($v['saccuriometre_text']) ?>
-                                    </span>
+                                    <?php if (($v['saccuriometre_text'] ?? '') === 'بدون عداد'): ?>
+                                        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[11px] font-medium border border-slate-200">
+                                            بدون عداد
+                                        </span>
+                                    <?php else: ?>
+                                        <div class="text-[11px] font-medium text-slate-800">
+                                            <?= htmlspecialchars($v['saccuriometre_text'] ?? 'معاير ومختوم') ?>
+                                        </div>
+                                        <?php if (!empty($v['saccuriometre_expiry'])): ?>
+                                            <div class="text-[10px] text-slate-400 font-num">إلى: <?= htmlspecialchars($v['saccuriometre_expiry']) ?></div>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Actions -->
@@ -439,60 +460,64 @@ if (isset($_GET['edit'])) {
             <!-- ==============================================
                  1. تعيين السائق الأساسي والسائق البديل (في بداية الاستمارة)
                  ============================================== -->
-            <div class="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3 shadow-2xs">
+            <div class="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3.5 shadow-2xs">
                 <div class="flex items-center justify-between">
                     <span class="font-black text-amber-950 text-xs flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
                         <span>تعيين السائقين للمركبة (خطوة أولى أساسية)</span>
                     </span>
-                    <span class="text-[10px] font-bold bg-amber-200/70 text-amber-900 px-2 py-0.5 rounded-md">
+                    <span class="text-[10px] font-bold bg-amber-200/70 text-amber-900 px-2.5 py-0.5 rounded-md">
                         ربط فوري بالأسطول
                     </span>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <!-- تعيين السائق الأساسي -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- تعيين السائق الأساسي مع بحث سريع وقائمة -->
                     <div class="space-y-1.5">
                         <label class="block font-bold text-slate-800 text-xs flex items-center justify-between">
                             <span>تعيين السائق الأساسي <span class="text-rose-500">*</span></span>
-                            <span class="text-[10px] text-slate-400 font-normal">بحث سريع</span>
+                            <span class="text-[10px] text-amber-800 font-semibold">بحث مباشر</span>
                         </label>
                         <div class="relative">
-                            <input type="text" id="primaryDriverSearch" placeholder="🔍 اكتب اسم السائق أو هاتفه..." 
-                                   oninput="filterDrivers('primaryDriverSearch', 'primaryDriverSelect')"
-                                   class="w-full px-3 py-1.5 rounded-lg border border-amber-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400">
+                            <input type="text" id="primaryDriverSearch" placeholder="🔍 اكتب اسم السائق أو هاتفه للتصفية..." 
+                                   oninput="filterDriverDropdown('primaryDriverSearch', 'primaryDriverSelect', 'primaryDriverCount')"
+                                   class="w-full pl-8 pr-3 py-2 rounded-xl border border-amber-300/80 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400 shadow-2xs">
+                            <span id="primaryDriverCount" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-num text-slate-400 font-bold"></span>
                         </div>
-                        <select name="current_driver_id" id="primaryDriverSelect" 
-                                class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs">
-                            <option value="">-- بدون سائق أساسي حالياً --</option>
+                        <select name="current_driver_id" id="primaryDriverSelect" size="4"
+                                class="w-full p-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs overflow-y-auto">
+                            <option value="" <?= (!$editVehicle || empty($editVehicle['current_driver_id'])) ? 'selected' : '' ?>>-- بدون سائق أساسي حالياً (شاغرة) --</option>
                             <?php foreach ($drivers as $d): ?>
                                 <option value="<?= $d['id'] ?>" <?= ($editVehicle && $editVehicle['current_driver_id'] == $d['id']) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
+                                    👤 <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                        <p class="text-[10px] text-slate-400">انقر لاختيار السائق الأساسي المسند له تسيير المركبة.</p>
                     </div>
 
-                    <!-- تعيين السائق البديل -->
+                    <!-- تعيين السائق البديل مع بحث سريع وقائمة -->
                     <div class="space-y-1.5">
                         <label class="block font-bold text-slate-800 text-xs flex items-center justify-between">
                             <span>تعيين السائق البديل (Chauffeur Remplaçant)</span>
                             <span class="text-[10px] text-slate-400 font-normal">اختياري</span>
                         </label>
                         <div class="relative">
-                            <input type="text" id="replacementDriverSearch" placeholder="🔍 اكتب اسم السائق البديل..." 
-                                   oninput="filterDrivers('replacementDriverSearch', 'replacementDriverSelect')"
-                                   class="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400">
+                            <input type="text" id="replacementDriverSearch" placeholder="🔍 اكتب اسم السائق البديل للتصفية..." 
+                                   oninput="filterDriverDropdown('replacementDriverSearch', 'replacementDriverSelect', 'replacementDriverCount')"
+                                   class="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 font-semibold placeholder:font-normal placeholder:text-slate-400 shadow-2xs">
+                            <span id="replacementDriverCount" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-num text-slate-400 font-bold"></span>
                         </div>
-                        <select name="replacement_driver_id" id="replacementDriverSelect" 
-                                class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs">
-                            <option value="">-- بدون سائق بديل --</option>
+                        <select name="replacement_driver_id" id="replacementDriverSelect" size="4"
+                                class="w-full p-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition shadow-2xs overflow-y-auto">
+                            <option value="" <?= (!$editVehicle || empty($editVehicle['replacement_driver_id'])) ? 'selected' : '' ?>>-- بدون سائق بديل --</option>
                             <?php foreach ($drivers as $d): ?>
                                 <option value="<?= $d['id'] ?>" <?= ($editVehicle && ($editVehicle['replacement_driver_id'] ?? null) == $d['id']) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
+                                    🔄 <?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                        <p class="text-[10px] text-slate-400">السائق البديل يتولى المناوبة الميدانية في حال غياب السائق الأساسي.</p>
                     </div>
                 </div>
             </div>
@@ -503,12 +528,16 @@ if (isset($_GET['edit'])) {
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <!-- الماركة أو الصانع مع قائمة اختيارات -->
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">
-                        الماركة أو الصانع <span class="text-rose-500">*</span>
-                    </label>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block font-bold text-slate-700">
+                            الماركة أو الصانع <span class="text-rose-500">*</span>
+                        </label>
+                        <span class="text-[10px] text-slate-400">اختر أو اكتب جديداً</span>
+                    </div>
                     <input type="text" name="brand" id="vehicleBrandInput" list="brandPresets" required 
-                           placeholder="اختر أو اكتب الماركة (رينو، داسيا، بيجو...)" 
+                           placeholder="مثال: رينو، داسيا، بيجو..." 
                            value="<?= htmlspecialchars($editVehicle['brand'] ?? '') ?>"
+                           onchange="onBrandChanged(this.value)"
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-semibold transition bg-white shadow-2xs">
                     <datalist id="brandPresets">
                         <option value="Renault">رينو (Renault)</option>
@@ -525,23 +554,27 @@ if (isset($_GET['edit'])) {
                         <option value="Seat">سيات (Seat)</option>
                     </datalist>
                     <!-- Quick Preset Pills -->
-                    <div class="flex flex-wrap gap-1 mt-1.5">
-                        <button type="button" onclick="setBrand('Renault')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">رينو</button>
-                        <button type="button" onclick="setBrand('Dacia')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">داسيا</button>
-                        <button type="button" onclick="setBrand('Peugeot')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">بيجو</button>
-                        <button type="button" onclick="setBrand('Hyundai')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">هيونداي</button>
-                        <button type="button" onclick="setBrand('Toyota')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">تويوتا</button>
-                        <button type="button" onclick="setBrand('Citroën')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">سيتروين</button>
+                    <div class="flex flex-wrap gap-1 mt-1.5" id="brandPillsContainer">
+                        <button type="button" onclick="selectBrandPreset('Renault')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">رينو</button>
+                        <button type="button" onclick="selectBrandPreset('Dacia')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">داسيا</button>
+                        <button type="button" onclick="selectBrandPreset('Peugeot')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">بيجو</button>
+                        <button type="button" onclick="selectBrandPreset('Hyundai')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">هيونداي</button>
+                        <button type="button" onclick="selectBrandPreset('Toyota')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">تويوتا</button>
+                        <button type="button" onclick="selectBrandPreset('Citroën')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سيتروين</button>
+                        <button type="button" onclick="selectBrandPreset('Fiat')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">فيات</button>
                     </div>
                 </div>
 
                 <!-- طراز المركبة (الموديل) مع قائمة اختيارات -->
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">
-                        طراز المركبة (الموديل) <span class="text-rose-500">*</span>
-                    </label>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block font-bold text-slate-700">
+                            طراز المركبة (الموديل) <span class="text-rose-500">*</span>
+                        </label>
+                        <span class="text-[10px] text-slate-400">طراز التاكسي</span>
+                    </div>
                     <input type="text" name="model" id="vehicleModelInput" list="modelPresets" required 
-                           placeholder="اختر أو اكتب الموديل (سامبول، لوغان، 301...)" 
+                           placeholder="مثال: سامبول، لوغان، 301، أكسنت..." 
                            value="<?= htmlspecialchars($editVehicle['model'] ?? '') ?>"
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-semibold transition bg-white shadow-2xs">
                     <datalist id="modelPresets">
@@ -558,14 +591,13 @@ if (isset($_GET['edit'])) {
                         <option value="Golf">غولف (Golf)</option>
                         <option value="Picanto">بيكانتو (Picanto)</option>
                     </datalist>
-                    <!-- Quick Preset Pills -->
-                    <div class="flex flex-wrap gap-1 mt-1.5">
-                        <button type="button" onclick="setModel('Symbol')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">سامبول</button>
-                        <button type="button" onclick="setModel('Logan')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">لوغان</button>
-                        <button type="button" onclick="setModel('301')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">301</button>
-                        <button type="button" onclick="setModel('208')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">208</button>
-                        <button type="button" onclick="setModel('Accent')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">أكسنت</button>
-                        <button type="button" onclick="setModel('C-Elysée')" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">سي-إليزي</button>
+                    <!-- Quick Preset Pills (Dynamically refreshed on brand click) -->
+                    <div class="flex flex-wrap gap-1 mt-1.5" id="modelPillsContainer">
+                        <button type="button" onclick="selectModelPreset('Symbol')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سامبول</button>
+                        <button type="button" onclick="selectModelPreset('Logan')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">لوغان</button>
+                        <button type="button" onclick="selectModelPreset('301')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">301</button>
+                        <button type="button" onclick="selectModelPreset('Accent')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">أكسنت</button>
+                        <button type="button" onclick="selectModelPreset('C-Elysée')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">سي-إليزي</button>
                     </div>
                 </div>
             </div>
@@ -597,12 +629,12 @@ if (isset($_GET['edit'])) {
             <!-- ==============================================
                  3. تواريخ الصلاحية وتجهيزات الأمان والعداد
                  ============================================== -->
-            <div class="border-t border-slate-100 pt-4 space-y-3.5">
+            <div class="border-t border-slate-100 pt-4 space-y-4">
                 <span class="block font-black text-slate-800 text-xs">تواريخ الصلاحية والوثائق وتجهيزات الأمان:</span>
                 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء المراقبة التقنية</label>
+                        <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء المراقبة التقنية (Contrôle Technique)</label>
                         <input type="date" name="technical_control_expiry" value="<?= htmlspecialchars($editVehicle['technical_control_expiry'] ?? '') ?>"
                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
                     </div>
@@ -613,43 +645,77 @@ if (isset($_GET['edit'])) {
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <!-- مطفأة الحريق -->
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1.5">انتهاء صلاحية مطفأة الحريق</label>
-                        <input type="date" name="extinguisher_expiry" value="<?= htmlspecialchars($editVehicle['extinguisher_expiry'] ?? '') ?>"
-                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
+                <!-- تاريخ انتهاء طفاية الحريق + GPL -->
+                <div class="p-4 rounded-2xl bg-slate-50/90 border border-slate-200/90 space-y-3.5 shadow-2xs">
+                    <div class="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                        <span class="font-black text-slate-900 text-xs flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                            <span>تاريخ انتهاء طفاية الحريق + GPL</span>
+                        </span>
+                        <span class="text-[10px] font-bold text-slate-500">تجهيزات السلامة المعتمدة</span>
                     </div>
 
-                    <!-- شهادة فحص خزان GPL مع زر بدون GPL -->
-                    <div>
-                        <div class="flex items-center justify-between mb-1.5">
-                            <label class="block font-bold text-slate-700">انتهاء صلاحية شهادة GPL</label>
-                            <button type="button" onclick="setWithoutGpl()" 
-                                    class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition shadow-2xs">
-                                بدون GPL
-                            </button>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- مطفأة الحريق -->
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">انتهاء صلاحية مطفأة الحريق</label>
+                            <input type="date" name="extinguisher_expiry" value="<?= htmlspecialchars($editVehicle['extinguisher_expiry'] ?? '') ?>"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
                         </div>
-                        <input type="date" name="gpl_expiry" id="gplExpiryInput" value="<?= htmlspecialchars($editVehicle['gpl_expiry'] ?? '') ?>"
-                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
-                        <p id="gplStatusNote" class="text-[10px] text-amber-700 font-bold mt-1 hidden"></p>
+
+                        <!-- شهادة GPL مع زر بدون GPL -->
+                        <div class="space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <label class="block font-bold text-slate-700">انتهاء صلاحية شهادة GPL</label>
+                                <button type="button" onclick="setWithoutGpl()" 
+                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition shadow-2xs flex items-center gap-1">
+                                    <span>بدون GPL (ملاحظة)</span>
+                                    <span class="text-[9px] opacity-80">• اكتب "بدون GPL" تلقائي</span>
+                                </button>
+                            </div>
+                            <input type="date" name="gpl_expiry" id="gplExpiryInput" value="<?= htmlspecialchars($editVehicle['gpl_expiry'] ?? '') ?>"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
+                            <input type="text" name="gpl_text" id="gplTextInput" placeholder='اكتب "بدون GPL" أو ملاحظة خزان الغاز...' 
+                                   value="<?= htmlspecialchars($editVehicle['gpl_text'] ?? '') ?>"
+                                   class="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-[11px] focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-700 transition">
+                        </div>
                     </div>
                 </div>
 
-                <!-- انتهاء صلاحية العداد مع زر بدون عداد -->
-                <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                        <label class="block font-bold text-slate-700">انتهاء صلاحية شهادة العداد (الساكوريومتر)</label>
-                        <button type="button" onclick="setWithoutTaximeter()" 
-                                class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition shadow-2xs">
-                            بدون عداد
-                        </button>
+                <!-- تاريخ انتهاء شهادة العداد -->
+                <div class="p-4 rounded-2xl bg-slate-50/90 border border-slate-200/90 space-y-3.5 shadow-2xs">
+                    <div class="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                        <span class="font-black text-slate-900 text-xs flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                            <span>تاريخ انتهاء شهادة العداد</span>
+                        </span>
+                        <span class="text-[10px] font-bold text-slate-500">الساكوريومتر وختم المعايرة</span>
                     </div>
-                    <input type="date" name="saccuriometre_expiry" id="sacExpiryInput" value="<?= htmlspecialchars($editVehicle['saccuriometre_expiry'] ?? '') ?>"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
-                    <p id="sacStatusNote" class="text-[10px] text-slate-600 font-bold mt-1 hidden"></p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- انتهاء صلاحية العداد -->
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1.5">انتهاء صلاحية العداد</label>
+                            <input type="date" name="saccuriometre_expiry" id="sacExpiryInput" value="<?= htmlspecialchars($editVehicle['saccuriometre_expiry'] ?? '') ?>"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition shadow-2xs">
+                        </div>
+
+                        <!-- بدون عداد وملاحظة الختم -->
+                        <div class="space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <label class="block font-bold text-slate-700">وضعية العداد / الختم</label>
+                                <button type="button" onclick="setWithoutTaximeter()" 
+                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 transition shadow-2xs flex items-center gap-1">
+                                    <span>بدون عداد</span>
+                                    <span class="text-[9px] opacity-80">• اكتب "بدون عداد" تلقائي</span>
+                                </button>
+                            </div>
+                            <input type="text" name="saccuriometre_text" id="sacTextInput" placeholder='اكتب "بدون عداد" أو حالة ختم العداد...' 
+                                   value="<?= htmlspecialchars($editVehicle['saccuriometre_text'] ?? 'معاير ومختوم') ?>"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white text-slate-800 transition shadow-2xs">
+                        </div>
+                    </div>
                 </div>
-            </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <a href="vehicles.php" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
@@ -666,11 +732,13 @@ if (isset($_GET['edit'])) {
 
 <script>
 // Filter drivers in select dropdown based on search input
-function filterDrivers(searchId, selectId) {
+function filterDriverDropdown(searchId, selectId, countId) {
     const searchVal = document.getElementById(searchId).value.toLowerCase().trim();
     const select = document.getElementById(selectId);
+    const countEl = countId ? document.getElementById(countId) : null;
     if (!select) return;
 
+    let visibleCount = 0;
     for (let i = 0; i < select.options.length; i++) {
         const opt = select.options[i];
         if (opt.value === "") {
@@ -680,50 +748,82 @@ function filterDrivers(searchId, selectId) {
         const text = opt.text.toLowerCase();
         if (text.includes(searchVal)) {
             opt.style.display = "";
+            visibleCount++;
         } else {
             opt.style.display = "none";
         }
     }
-}
-
-// Preset helpers for Brand and Model
-function setBrand(name) {
-    const brandInput = document.getElementById('vehicleBrandInput');
-    if (brandInput) {
-        brandInput.value = name;
-        brandInput.focus();
+    if (countEl) {
+        countEl.textContent = searchVal ? (visibleCount + ' سائق') : '';
     }
 }
 
-function setModel(name) {
+// Brand-Model Map for dynamic model suggestion
+const brandModelsMap = {
+    'Renault': ['Symbol', 'Megane', 'Clio', 'Fluence', 'Kangoo'],
+    'Dacia': ['Logan', 'Sandero', 'Stepway', 'Duster', 'Dokker'],
+    'Peugeot': ['301', '208', '308', '2008', 'Partner', '307'],
+    'Hyundai': ['Accent', 'i10', 'i20', 'Elantra', 'Tucson'],
+    'Toyota': ['Corolla', 'Yaris', 'Avensis', 'Hilux'],
+    'Citroën': ['C-Elysée', 'C3', 'C4', 'Berlingo'],
+    'Fiat': ['Tipo', 'Punto', 'Doblo', '500'],
+    'Skoda': ['Octavia', 'Fabia', 'Rapid'],
+    'Volkswagen': ['Golf', 'Polo', 'Passat', 'Caddy'],
+    'Kia': ['Picanto', 'Rio', 'Cerato']
+};
+
+function selectBrandPreset(brandName) {
+    const brandInput = document.getElementById('vehicleBrandInput');
+    if (brandInput) {
+        brandInput.value = brandName;
+        onBrandChanged(brandName);
+    }
+}
+
+function selectModelPreset(modelName) {
     const modelInput = document.getElementById('vehicleModelInput');
     if (modelInput) {
-        modelInput.value = name;
+        modelInput.value = modelName;
         modelInput.focus();
     }
 }
 
-// Set without GPL
-function setWithoutGpl() {
-    const input = document.getElementById('gplExpiryInput');
-    const note = document.getElementById('gplStatusNote');
-    if (input) input.value = '';
-    if (note) {
-        note.textContent = '✓ تم الضبط: مركبة بدون تجهيز GPL (بنزين/مازوت)';
-        note.classList.remove('hidden');
+function onBrandChanged(brandName) {
+    const modelPills = document.getElementById('modelPillsContainer');
+    if (!modelPills) return;
+
+    const models = brandModelsMap[brandName] || [];
+    if (models.length > 0) {
+        modelPills.innerHTML = models.map(m => `
+            <button type="button" onclick="selectModelPreset('${m}')" 
+                    class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition">
+                ${m}
+            </button>
+        `).join('');
     }
 }
 
-// Set without Taximeter
+// Set without GPL: clears expiry date and sets text to "بدون GPL" automatically
+function setWithoutGpl() {
+    const expiryInput = document.getElementById('gplExpiryInput');
+    const textInput = document.getElementById('gplTextInput');
+    if (expiryInput) expiryInput.value = '';
+    if (textInput) {
+        textInput.value = 'بدون GPL';
+        textInput.classList.add('ring-2', 'ring-amber-500/30');
+        setTimeout(() => textInput.classList.remove('ring-2', 'ring-amber-500/30'), 1000);
+    }
+}
+
+// Set without Taximeter: clears expiry date and sets text to "بدون عداد" automatically
 function setWithoutTaximeter() {
-    const input = document.getElementById('sacExpiryInput');
+    const expiryInput = document.getElementById('sacExpiryInput');
     const textInput = document.getElementById('sacTextInput');
-    const note = document.getElementById('sacStatusNote');
-    if (input) input.value = '';
-    if (textInput) textInput.value = 'بدون عداد';
-    if (note) {
-        note.textContent = '✓ تم الضبط: بدون عداد (رخصة معفاة أو نقل بين الولايات)';
-        note.classList.remove('hidden');
+    if (expiryInput) expiryInput.value = '';
+    if (textInput) {
+        textInput.value = 'بدون عداد';
+        textInput.classList.add('ring-2', 'ring-blue-500/30');
+        setTimeout(() => textInput.classList.remove('ring-2', 'ring-blue-500/30'), 1000);
     }
 }
 </script>

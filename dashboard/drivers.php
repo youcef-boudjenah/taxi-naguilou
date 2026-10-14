@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $licenseExpiry = !empty($_POST['license_expiry']) ? $_POST['license_expiry'] : null;
     
     $driverType = trim($_POST['driver_type'] ?? 'ajir');
+    $probationStage = trim($_POST['probation_stage'] ?? 'trial_1');
     $activityStartDate = !empty($_POST['activity_start_date']) ? $_POST['activity_start_date'] : null;
     $dtwVisaDate = !empty($_POST['dtw_visa_date']) ? $_POST['dtw_visa_date'] : null;
     $cardNumber = trim($_POST['card_number'] ?? '');
@@ -72,14 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     full_name, first_name, last_name, email, password_hash, phone, role, status, 
                     wilaya, birth_date, birth_place, father_name, mother_name, address,
                     license_number, license_issue_date, license_issue_place, license_expiry,
-                    driver_type, activity_start_date, dtw_visa_date, card_number,
+                    driver_type, probation_stage, activity_start_date, dtw_visa_date, card_number,
                     medical_cert_expiry, medical_exam_start, medical_exam_end, medical_visa_date,
                     next_medical_start, next_medical_end, taxi_contract_start, taxi_contract_end, avatar_url
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, 'driver', 'active',
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
@@ -88,20 +89,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $fullName, $firstName, $lastName, $email, password_hash('driver123', PASSWORD_BCRYPT), $phone,
                 $wilaya, $birthDate, $birthPlace, $fatherName, $motherName, $address,
                 $licenseNumber, $licenseIssueDate, $licenseIssuePlace, $licenseExpiry,
-                $driverType, $activityStartDate, $dtwVisaDate, $cardNumber,
+                $driverType, $probationStage, $activityStartDate, $dtwVisaDate, $cardNumber,
                 $medEnd, $medStart, $medEnd, $medVisaDate,
                 $nextMedStart, $nextMedEnd, $taxiContractStart, $taxiContractEnd, $avatarUrl
             ]);
             $newDriverId = (int)$pdo->lastInsertId();
 
-            // Link vehicle if assigned
+            // Link vehicle if assigned & auto-issue official labor contract
             if ($assignedVehicleId && $assignedVehicleId > 0) {
                 $stmtVeh = $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?");
                 $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
+
+                if (!empty($taxiContractStart) && !empty($taxiContractEnd)) {
+                    $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
+                    $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
+                    $stmtContract = $pdo->prepare("
+                        INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
+                        VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11')
+                    ");
+                    $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'], $taxiContractStart, $taxiContractEnd]);
+                }
             }
 
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
-            set_flash('success', 'تم تسجيل السائق بنجاح وإصدار بطاقته الفنية');
+            set_flash('success', 'تم تسجيل السائق بنجاح وتوليد عقد العمل والبطاقة الفنية الرسمية');
             redirect('/dashboard/driver_fiche.php?id=' . $newDriverId);
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء التسجيل: ' . $e->getMessage());
@@ -417,8 +428,18 @@ if ($pdo) {
                                                 <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 text-[13px] hover:text-amber-600 transition">
                                                     <?= htmlspecialchars($d['full_name']) ?>
                                                 </a>
-                                                <span class="px-1.5 py-0.2 rounded text-[10px] font-bold <?= ($d['driver_type'] ?? 'ajir') === 'ajir' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-700' ?>">
-                                                    <?= ($d['driver_type'] ?? 'ajir') === 'ajir' ? 'أجير (90-11)' : 'مؤجر' ?>
+                                                <?php 
+                                                $stage = $d['probation_stage'] ?? 'trial_1';
+                                                $stageBadges = [
+                                                    'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-50 text-amber-800 border-amber-200'],
+                                                    'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-50 text-blue-800 border-blue-200'],
+                                                    'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-50 text-indigo-800 border-indigo-200'],
+                                                    'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-50 text-emerald-800 border-emerald-200'],
+                                                ];
+                                                $curB = $stageBadges[$stage] ?? $stageBadges['trial_1'];
+                                                ?>
+                                                <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border <?= $curB['cls'] ?>">
+                                                    <?= $curB['label'] ?>
                                                 </span>
                                             </div>
                                             <div class="text-[11px] text-slate-400 mt-0.5" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
@@ -734,11 +755,25 @@ if ($pdo) {
                 <input type="hidden" name="driver_type" value="ajir">
 
                 <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                    <label class="block font-black text-slate-800 text-xs">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
-                    <div>
-                        <input type="date" name="activity_start_date" value="2024-09-03"
-                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        <p class="text-[11px] text-slate-400 mt-1.5">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة المعتمد في السجلات الرسمية.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block font-black text-slate-800 text-xs mb-1.5">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
+                            <input type="date" name="activity_start_date" value="2024-09-03"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                            <p class="text-[11px] text-slate-400 mt-1">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة.</p>
+                        </div>
+
+                        <div>
+                            <label class="block font-black text-slate-800 text-xs mb-1.5">المرحلة والوضعية المهنية (Statut / Période)</label>
+                            <select name="probation_stage" id="probationStageSelect" 
+                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                                <option value="trial_1" selected>فترة تجريبية الأولى (Période d'essai 1)</option>
+                                <option value="trial_2">تجريبية الثانية (Période d'essai 2)</option>
+                                <option value="trial_3">تجريبية الثالثة (Période d'essai 3)</option>
+                                <option value="official">سائق رسمي (Chauffeur Titulaire / Officiel)</option>
+                            </select>
+                            <p class="text-[11px] text-slate-400 mt-1">تحديد مرحلة التجربة أو التثبيت وفق قانون العمل 90-11.</p>
+                        </div>
                     </div>
                 </div>
 
