@@ -15,9 +15,9 @@ if ($pdo && $contractId > 0) {
                u_driver.license_number as driver_license, u_driver.wilaya as driver_wilaya,
                u_owner.full_name as owner_name, u_owner.phone as owner_phone, u_owner.wilaya as owner_wilaya
         FROM contracts c
-        JOIN vehicles v ON c.vehicle_id = v.id
         JOIN users u_driver ON c.driver_id = u_driver.id
-        JOIN users u_owner ON c.owner_id = u_owner.id
+        LEFT JOIN vehicles v ON c.vehicle_id = v.id
+        LEFT JOIN users u_owner ON c.owner_id = u_owner.id
         WHERE c.id = ?
     ");
     $stmt->execute([$contractId]);
@@ -34,10 +34,18 @@ if (is_driver() && (int)$contract['driver_id'] !== (int)$_SESSION['user_id']) {
     set_flash('error', 'عذراً، لا يمكنك الاطلاع على عقود السائقين الآخرين.');
     redirect('/dashboard/index.php');
 }
-if (is_owner() && !is_admin() && (int)$contract['owner_id'] !== (int)$_SESSION['user_id']) {
+if (is_owner() && !is_admin() && (int)($contract['owner_id'] ?? 0) !== (int)$_SESSION['user_id']) {
     set_flash('error', 'عذراً، هذا العقد لا يتبع لمركبات أسطولك.');
     redirect('/dashboard/contracts.php');
 }
+
+// Format duration and dates
+$d1 = !empty($contract['start_date']) ? new DateTime($contract['start_date']) : new DateTime();
+$d2 = !empty($contract['end_date']) ? new DateTime($contract['end_date']) : (clone $d1)->modify('+5 years');
+$diffY = $d1->diff($d2)->y;
+$diffYearsStr = str_pad(max(1, $diffY), 2, '0', STR_PAD_LEFT);
+$startDateFormatted = date('d/m/Y', strtotime($contract['start_date']));
+$endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -124,10 +132,14 @@ if (is_owner() && !is_admin() && (int)$contract['owner_id'] !== (int)$_SESSION['
             </div>
             <div class="border-t border-slate-200 pt-2 text-[11px] text-slate-600">
                 <strong>بيانات سيارة الأجرة المعنية:</strong> 
-                الصانع والنوع: <?= htmlspecialchars($contract['brand'] . ' ' . $contract['model']) ?> • 
-                رقم اللوحة: <strong class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
-                رقم الباب المعتمد: <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
-                اللون: <?= htmlspecialchars($contract['color']) ?>.
+                <?php if (!empty($contract['plate_number'])): ?>
+                    الصانع والنوع: <?= htmlspecialchars(($contract['brand'] ?? '') . ' ' . ($contract['model'] ?? '')) ?> • 
+                    رقم اللوحة: <strong class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
+                    رقم الباب المعتمد: <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
+                    اللون: <?= htmlspecialchars($contract['color'] ?? 'أصفر') ?>.
+                <?php else: ?>
+                    <span class="text-amber-800 font-bold">مركبة الأسطول: قيد التخصيص والتعيين</span>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -165,7 +177,7 @@ if (is_owner() && !is_admin() && (int)$contract['owner_id'] !== (int)$_SESSION['
 
             <div>
                 <strong class="font-black text-slate-900">المادة 06:</strong>
-                تم إبرام هذا العقد لمدة محددة بـ ( <strong>05</strong> ) سنوات، ويبدأ سريان مفعول العقد ابتداء من <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['start_date']) ?></strong> إلى غاية <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['end_date']) ?></strong>.
+                تم إبرام هذا العقد لمدة محددة بـ ( <strong><?= htmlspecialchars($diffYearsStr) ?></strong> ) سنوات، ويبدأ سريان مفعول العقد ابتداء من <strong class="font-num inline-block" dir="ltr"><?= $startDateFormatted ?></strong> إلى غاية <strong class="font-num inline-block" dir="ltr"><?= $endDateFormatted ?></strong>.
             </div>
 
             <div>
@@ -175,7 +187,7 @@ if (is_owner() && !is_admin() && (int)$contract['owner_id'] !== (int)$_SESSION['
 
             <div>
                 <strong class="font-black text-slate-900">المادة 08:</strong>
-                اتفق الطرفين على أن الأجر الذي يسدد لسائق مقابل العمل المذكور في المادة 02 ويكون بأجرة لا تقل في جميع الحالات عن الحد الأدنى المضمون للأجور وطنيا (SNMG). كما أنه يتقاضاها في الأسبوع الأول من الشهر الموالي كحد أقصى.
+                اتفق الطرفين على أن الأجر الذي يسدد لسائق مقابل العمل المذكور في المادة 02 ويكون بأجرة لا تقل في جميع الحالات عن الحد الأدنى المضمون للأجور وطنيا. كما أنه يتقاضاها في الأسبوع الأول من الشهر الموالي كحد أقصى.
             </div>
 
             <div>

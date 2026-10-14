@@ -21,8 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $driverId = intval($_POST['driver_id'] ?? 0);
     $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
-    $years = max(1, intval($_POST['duration_years'] ?? 1));
-    $endDate = date('Y-m-d', strtotime("+$years years", strtotime($startDate)));
+    $years = max(1, intval($_POST['duration_years'] ?? 5));
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d', strtotime("+$years years -1 day", strtotime($startDate)));
     $monthlyWage = floatval($_POST['monthly_wage'] ?? 45000.00);
     $notes = trim($_POST['notes'] ?? 'Contrat de travail pour chauffeur de taxi régi par la loi 90-11.');
 
@@ -394,25 +394,38 @@ $countExpires = max(0, $countTous - $countActifs);
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                        <span>تاريخ سريان العقد (Début)</span>
-                        <span class="text-[10px] text-slate-400 font-normal">من السائق</span>
+                        <span>تاريخ سريان العقد (من) <span class="text-rose-500">*</span></span>
+                        <span class="text-[10px] text-slate-400 font-normal">تلقائي من السائق</span>
                     </label>
                     <input type="date" name="start_date" id="contractStartDateInput" value="<?= date('Y-m-d') ?>" required
+                           onchange="recalculateContractEndDate()"
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-num transition">
                 </div>
                 <div>
                     <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
                         <span>مدة العقد (Durée)</span>
-                        <span class="text-[10px] text-slate-400 font-normal">تلقائي</span>
+                        <span class="text-[10px] text-slate-400 font-normal">محسوبة تلقائياً</span>
                     </label>
-                    <select name="duration_years" id="contractDurationSelect" 
+                    <select name="duration_years" id="contractDurationSelect" onchange="recalculateContractEndDate()"
                             class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
-                        <option value="5" selected>5 سنوات (5 ans - نظامي)</option>
-                        <option value="3">3 سنوات (3 ans)</option>
-                        <option value="2">سنتان (2 ans)</option>
-                        <option value="1">سنة واحدة (1 an)</option>
+                        <option value="5" selected>5 سنوات (05 ans - مدة رخصة الأجرة)</option>
+                        <option value="3">3 سنوات (03 ans)</option>
+                        <option value="2">سنتان (02 ans)</option>
+                        <option value="1">سنة واحدة (01 an)</option>
                     </select>
                 </div>
+            </div>
+
+            <!-- Calculated End Date Display (Matches Article 06) -->
+            <div class="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 flex items-center justify-between text-xs">
+                <div>
+                    <span class="font-bold text-slate-800">تاريخ انتهاء وسريان العقد القانوني (إلى):</span>
+                    <span id="calculatedEndDateBadge" class="font-num font-bold text-amber-950 mr-2 text-sm">--/--/----</span>
+                </div>
+                <input type="hidden" name="end_date" id="contractEndDateHidden" value="">
+                <span class="text-[10px] font-bold text-amber-900 bg-amber-200/70 px-2 py-0.5 rounded">
+                    مطابق للمادة 06
+                </span>
             </div>
 
             <!-- Notes -->
@@ -465,12 +478,53 @@ function onDriverSelectedForContract(selectEl) {
                 durSelect.value = 5;
             }
         }
+        const endHidden = document.getElementById('contractEndDateHidden');
+        if (endHidden) endHidden.value = end;
+
+        const endBadge = document.getElementById('calculatedEndDateBadge');
+        if (endBadge) {
+            const parts = end.split('-');
+            endBadge.textContent = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : end;
+        }
+
         if (badge) {
             badge.textContent = `✓ تم استيراد الصلاحية (${yearsDiff > 0 ? yearsDiff : 5} سنوات) تلقائياً`;
             badge.className = "text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded";
         }
+    } else {
+        recalculateContractEndDate();
     }
 }
+
+function recalculateContractEndDate() {
+    const startInput = document.getElementById('contractStartDateInput');
+    const durSelect = document.getElementById('contractDurationSelect');
+    const endHidden = document.getElementById('contractEndDateHidden');
+    const endBadge = document.getElementById('calculatedEndDateBadge');
+
+    if (!startInput || !durSelect) return;
+    const startVal = startInput.value;
+    const years = parseInt(durSelect.value) || 5;
+
+    if (startVal) {
+        const d = new Date(startVal);
+        d.setFullYear(d.getFullYear() + years);
+        d.setDate(d.getDate() - 1);
+
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const endFormatted = `${yyyy}-${mm}-${dd}`;
+
+        if (endHidden) endHidden.value = endFormatted;
+        if (endBadge) endBadge.textContent = `${dd}/${mm}/${yyyy}`;
+    }
+}
+
+// Initial calculation on page load
+document.addEventListener('DOMContentLoaded', function() {
+    recalculateContractEndDate();
+});
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

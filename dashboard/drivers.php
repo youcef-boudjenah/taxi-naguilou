@@ -95,20 +95,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ]);
             $newDriverId = (int)$pdo->lastInsertId();
 
-            // Link vehicle if assigned & auto-issue official labor contract
+            // Link vehicle if assigned
             if ($assignedVehicleId && $assignedVehicleId > 0) {
                 $stmtVeh = $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?");
                 $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
+            }
 
-                if (!empty($taxiContractStart) && !empty($taxiContractEnd)) {
-                    $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
-                    $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
-                    $stmtContract = $pdo->prepare("
-                        INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11')
-                    ");
-                    $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'], $taxiContractStart, $taxiContractEnd]);
-                }
+            // Auto-issue official labor contract from taxi contract dates so admin never enters duplicates
+            if (!empty($taxiContractStart) && !empty($taxiContractEnd)) {
+                $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
+                $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
+                $stmtContract = $pdo->prepare("
+                    INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11')
+                ");
+                $stmtContract->execute([$contractNum, $newDriverId, ($assignedVehicleId && $assignedVehicleId > 0) ? $assignedVehicleId : null, $user['id'], $taxiContractStart, $taxiContractEnd]);
             }
 
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
