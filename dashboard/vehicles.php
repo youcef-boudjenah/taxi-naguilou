@@ -5,17 +5,6 @@ require_login();
 
 $pdo = getDBConnection();
 $drivers = [];
-if ($pdo) {
-    $stmtDrivers = $pdo->query("
-        SELECT u.id, u.full_name, u.phone, u.license_number, u.card_number, u.probation_stage,
-               v.plate_number AS current_plate, v.door_number AS current_door
-        FROM users u
-        LEFT JOIN vehicles v ON (v.current_driver_id = u.id AND v.status = 'active')
-        WHERE u.role = 'driver' AND u.status = 'active'
-        ORDER BY u.full_name ASC
-    ");
-    $drivers = $stmtDrivers->fetchAll(PDO::FETCH_ASSOC);
-}
 
 // Fetch Vehicle Brand & Model Presets from settings (parameter)
 $defaultPresets = [
@@ -30,15 +19,68 @@ $defaultPresets = [
     'Volkswagen' => ['Golf', 'Polo', 'Passat', 'Caddy'],
     'Kia' => ['Picanto', 'Rio', 'Cerato']
 ];
-$vehiclePresetsRaw = get_setting($pdo, 'vehicle_brands_models', '');
-$vehiclePresets = !empty($vehiclePresetsRaw) ? json_decode($vehiclePresetsRaw, true) : null;
-if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
-    $vehiclePresets = $defaultPresets;
-    update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
+$vehiclePresets = $defaultPresets;
+
+if ($pdo) {
+    // 1. Defensively load drivers for vehicle assignment
+    try {
+        $uCols = [];
+        try {
+            $uCols = $pdo->query("SHOW COLUMNS FROM `users`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        } catch (\Throwable $e) {}
+        $uColMap = array_flip($uCols);
+
+        $vCols = [];
+        try {
+            $vCols = $pdo->query("SHOW COLUMNS FROM `vehicles`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        } catch (\Throwable $e) {}
+        $vColMap = array_flip($vCols);
+
+        $cardSelect = isset($uColMap['card_number']) ? "u.card_number" : "NULL AS card_number";
+        $probSelect = isset($uColMap['probation_stage']) ? "u.probation_stage" : "'trial_1' AS probation_stage";
+        $plateSelect = isset($vColMap['plate_number']) ? "v.plate_number AS current_plate" : "NULL AS current_plate";
+        $doorSelect = isset($vColMap['door_number']) ? "v.door_number AS current_door" : "NULL AS current_door";
+
+        $joinVeh = "";
+        if (isset($vColMap['current_driver_id'])) {
+            $statusCond = isset($vColMap['status']) ? "AND v.status = 'active'" : "";
+            $joinVeh = "LEFT JOIN vehicles v ON (v.current_driver_id = u.id $statusCond)";
+        }
+
+        $stmtDrivers = $pdo->query("
+            SELECT u.id, u.full_name, u.phone, u.license_number, $cardSelect, $probSelect,
+                   $plateSelect, $doorSelect
+            FROM users u
+            $joinVeh
+            WHERE u.role = 'driver' AND u.status = 'active'
+            ORDER BY u.full_name ASC
+        ");
+        $drivers = $stmtDrivers ? $stmtDrivers->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (\Throwable $e) {
+        error_log("vehicles.php - Driver query notice: " . $e->getMessage());
+        $drivers = [];
+    }
+
+    // 2. Load presets safely
+    try {
+        $vehiclePresetsRaw = get_setting($pdo, 'vehicle_brands_models', '');
+        $decoded = !empty($vehiclePresetsRaw) ? json_decode($vehiclePresetsRaw, true) : null;
+        if (is_array($decoded) && !empty($decoded)) {
+            $vehiclePresets = $decoded;
+        } else {
+            update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
+        }
+    } catch (\Throwable $e) {
+        $vehiclePresets = $defaultPresets;
+    }
 }
 
 // Handle Add / Edit / Delete Vehicle
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
+    if (!$pdo) {
+        set_flash('error', 'تعذر الاتصال بقاعدة البيانات.');
+        redirect('/dashboard/vehicles.php');
+    }
     require_csrf_token();
     $actionType = $_POST['action_type'];
 
@@ -83,34 +125,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
 
     if ($actionType === 'create') {
         try {
-            $stmt = $pdo->prepare("
-                INSERT INTO vehicles (owner_id, current_driver_id, replacement_driver_id, brand, model, plate_number, color, door_number, insurance_expiry, insurance_company, technical_control_expiry, extinguisher_expiry, gpl_expiry, gpl_text, saccuriometre_expiry, saccuriometre_text, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
-            ");
-            $stmt->execute([
-                $user['id'], $driverId, $replacementDriverId, $brand, $model, $plateNumber, $color, $doorNumber,
-                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $gplText, $sacExpiry, $sacText
-            ]);
+            $vCols = [];
+            try {
+                $vCols = $pdo->query("SHOW COLUMNS FROM `vehicles`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            } catch (\Throwable $e) {}
+            $vColMap = array_flip($vCols);
+
+            $insertData = [
+                'owner_id' => $user['id'],
+                'current_driver_id' => $driverId,
+                'brand' => $brand,
+                'model' => $model,
+                'plate_number' => $plateNumber,
+                'color' => $color,
+                'door_number' => $doorNumber,
+                'status' => 'active'
+            ];
+            if (isset($vColMap['replacement_driver_id'])) $insertData['replacement_driver_id'] = $replacementDriverId;
+            if (isset($vColMap['insurance_expiry'])) $insertData['insurance_expiry'] = $insuranceExpiry;
+            if (isset($vColMap['insurance_company'])) $insertData['insurance_company'] = $insuranceCompany;
+            if (isset($vColMap['technical_control_expiry'])) $insertData['technical_control_expiry'] = $tcExpiry;
+            if (isset($vColMap['extinguisher_expiry'])) $insertData['extinguisher_expiry'] = $extExpiry;
+            if (isset($vColMap['gpl_expiry'])) $insertData['gpl_expiry'] = $gplExpiry;
+            if (isset($vColMap['gpl_text'])) $insertData['gpl_text'] = $gplText;
+            if (isset($vColMap['saccuriometre_expiry'])) $insertData['saccuriometre_expiry'] = $sacExpiry;
+            if (isset($vColMap['saccuriometre_text'])) $insertData['saccuriometre_text'] = $sacText;
+
+            $finalCols = [];
+            $placeholders = [];
+            $values = [];
+            foreach ($insertData as $k => $val) {
+                if (empty($vCols) || isset($vColMap[$k])) {
+                    $finalCols[] = "`$k`";
+                    $placeholders[] = "?";
+                    $values[] = $val;
+                }
+            }
+
+            $sql = "INSERT INTO vehicles (" . implode(', ', $finalCols) . ") VALUES (" . implode(', ', $placeholders) . ")";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($values);
             $newId = (int)$pdo->lastInsertId();
             log_audit($pdo, 'vehicle_created', 'vehicles', $newId, "إضافة مركبة أسطول جديدة: $brand $model ($plateNumber)");
             set_flash('success', 'تمت إضافة سيارة الأجرة بنجاح إلى الأسطول');
             redirect('/dashboard/vehicles.php');
         } catch (\Throwable $e) {
-            set_flash('error', 'حدث خطأ أثناء الإضافة: رقم اللوحة قد يكون مسجلاً مسبقاً');
+            set_flash('error', 'حدث خطأ أثناء الإضافة: رقم اللوحة قد يكون مسجلاً مسبقاً أو تعذر الحفظ (' . $e->getMessage() . ')');
         }
     } elseif ($actionType === 'update') {
         $vId = intval($_POST['vehicle_id'] ?? 0);
         try {
-            $stmt = $pdo->prepare("
-                UPDATE vehicles SET brand=?, model=?, plate_number=?, color=?, door_number=?, current_driver_id=?, replacement_driver_id=?,
-                       insurance_expiry=?, insurance_company=?, technical_control_expiry=?, extinguisher_expiry=?,
-                       gpl_expiry=?, gpl_text=?, saccuriometre_expiry=?, saccuriometre_text=?
-                WHERE id=?
-            ");
-            $stmt->execute([
-                $brand, $model, $plateNumber, $color, $doorNumber, $driverId, $replacementDriverId,
-                $insuranceExpiry, $insuranceCompany, $tcExpiry, $extExpiry, $gplExpiry, $gplText, $sacExpiry, $sacText, $vId
-            ]);
+            $vCols = [];
+            try {
+                $vCols = $pdo->query("SHOW COLUMNS FROM `vehicles`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            } catch (\Throwable $e) {}
+            $vColMap = array_flip($vCols);
+
+            $updateData = [
+                'brand' => $brand,
+                'model' => $model,
+                'plate_number' => $plateNumber,
+                'color' => $color,
+                'door_number' => $doorNumber,
+                'current_driver_id' => $driverId
+            ];
+            if (isset($vColMap['replacement_driver_id'])) $updateData['replacement_driver_id'] = $replacementDriverId;
+            if (isset($vColMap['insurance_expiry'])) $updateData['insurance_expiry'] = $insuranceExpiry;
+            if (isset($vColMap['insurance_company'])) $updateData['insurance_company'] = $insuranceCompany;
+            if (isset($vColMap['technical_control_expiry'])) $updateData['technical_control_expiry'] = $tcExpiry;
+            if (isset($vColMap['extinguisher_expiry'])) $updateData['extinguisher_expiry'] = $extExpiry;
+            if (isset($vColMap['gpl_expiry'])) $updateData['gpl_expiry'] = $gplExpiry;
+            if (isset($vColMap['gpl_text'])) $updateData['gpl_text'] = $gplText;
+            if (isset($vColMap['saccuriometre_expiry'])) $updateData['saccuriometre_expiry'] = $sacExpiry;
+            if (isset($vColMap['saccuriometre_text'])) $updateData['saccuriometre_text'] = $sacText;
+
+            $sets = [];
+            $values = [];
+            foreach ($updateData as $k => $val) {
+                if (empty($vCols) || isset($vColMap[$k])) {
+                    $sets[] = "`$k` = ?";
+                    $values[] = $val;
+                }
+            }
+            $values[] = $vId;
+
+            $sql = "UPDATE vehicles SET " . implode(', ', $sets) . " WHERE id = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($values);
             log_audit($pdo, 'vehicle_updated', 'vehicles', $vId, "تحديث بيانات ووثائق المركبة $plateNumber");
             set_flash('success', 'تم تحديث بيانات المركبة والوثائق بنجاح');
             redirect('/dashboard/vehicles.php');
@@ -166,8 +267,21 @@ if ($pdo) {
     $params = [];
 
     if (!empty($search)) {
-        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR v.door_number LIKE ?)";
-        $params = ["%$search%", "%$search%", "%$search%", "%$search%", "%$search%"];
+        $hasDoorCol = false;
+        try {
+            $pdo->query("SELECT door_number FROM vehicles LIMIT 0");
+            $hasDoorCol = true;
+        } catch (\Throwable $e) {}
+
+        $doorCondition = $hasDoorCol ? " OR v.door_number LIKE ?" : "";
+        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ?$doorCondition)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        if ($hasDoorCol) {
+            $params[] = "%$search%";
+        }
     }
 
     if ($filter === 'expiring') {
@@ -209,28 +323,33 @@ $editVehicle = null;
 $selectedPrimaryDriver = null;
 $selectedReplacementDriver = null;
 
-if (isset($_GET['edit'])) {
-    $eId = intval($_GET['edit']);
-    $stmtE = $pdo->prepare("SELECT * FROM vehicles WHERE id = ?");
-    $stmtE->execute([$eId]);
-    $editVehicle = $stmtE->fetch();
-    if ($editVehicle) {
-        if (!empty($editVehicle['current_driver_id'])) {
-            foreach ($drivers as $d) {
-                if ($d['id'] == $editVehicle['current_driver_id']) {
-                    $selectedPrimaryDriver = $d;
-                    break;
+if (isset($_GET['edit']) && $pdo) {
+    try {
+        $eId = intval($_GET['edit']);
+        $stmtE = $pdo->prepare("SELECT * FROM vehicles WHERE id = ?");
+        $stmtE->execute([$eId]);
+        $editVehicle = $stmtE->fetch() ?: null;
+        if ($editVehicle) {
+            if (!empty($editVehicle['current_driver_id'])) {
+                foreach ($drivers as $d) {
+                    if ($d['id'] == $editVehicle['current_driver_id']) {
+                        $selectedPrimaryDriver = $d;
+                        break;
+                    }
+                }
+            }
+            if (!empty($editVehicle['replacement_driver_id'])) {
+                foreach ($drivers as $d) {
+                    if ($d['id'] == $editVehicle['replacement_driver_id']) {
+                        $selectedReplacementDriver = $d;
+                        break;
+                    }
                 }
             }
         }
-        if (!empty($editVehicle['replacement_driver_id'])) {
-            foreach ($drivers as $d) {
-                if ($d['id'] == $editVehicle['replacement_driver_id']) {
-                    $selectedReplacementDriver = $d;
-                    break;
-                }
-            }
-        }
+    } catch (\Throwable $e) {
+        error_log("vehicles.php - Fetch edit vehicle error: " . $e->getMessage());
+        $editVehicle = null;
     }
 }
 ?>
@@ -710,7 +829,8 @@ if (isset($_GET['edit'])) {
                         <select id="brandSelectDropdown" onchange="onBrandSelectChanged(this.value)"
                                 class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white shadow-2xs">
                             <option value="">-- اختر الصانع من الإعدادات أو اكتب أدناه --</option>
-                            <?php foreach (array_keys($vehiclePresets) as $b): ?>
+                            <?php $presetBrandKeys = is_array($vehiclePresets) ? array_keys($vehiclePresets) : []; ?>
+                            <?php foreach ($presetBrandKeys as $b): ?>
                                 <option value="<?= htmlspecialchars($b) ?>" <?= ($editVehicle && strcasecmp($editVehicle['brand'] ?? '', $b) === 0) ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($b) ?>
                                 </option>
@@ -726,7 +846,7 @@ if (isset($_GET['edit'])) {
 
                         <!-- Brand Preset Pills -->
                         <div class="flex flex-wrap gap-1 mt-1" id="brandPillsContainer">
-                            <?php foreach (array_slice(array_keys($vehiclePresets), 0, 7) as $b): ?>
+                            <?php foreach (array_slice($presetBrandKeys, 0, 7) as $b): ?>
                                 <button type="button" onclick="selectBrandPreset('<?= htmlspecialchars($b, ENT_QUOTES) ?>')" 
                                         class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 transition">
                                     <?= htmlspecialchars($b) ?>

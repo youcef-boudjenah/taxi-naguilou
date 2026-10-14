@@ -536,6 +536,12 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'owner_id' => "INT NULL AFTER `id`",
             'current_driver_id' => "INT NULL AFTER `owner_id`",
             'replacement_driver_id' => "INT NULL AFTER `current_driver_id`",
+            'brand' => "VARCHAR(80) NOT NULL DEFAULT '' AFTER `replacement_driver_id`",
+            'model' => "VARCHAR(80) NOT NULL DEFAULT '' AFTER `brand`",
+            'plate_number' => "VARCHAR(50) NOT NULL DEFAULT '' AFTER `model`",
+            'color' => "VARCHAR(50) DEFAULT 'أصفر' AFTER `plate_number`",
+            'door_number' => "VARCHAR(50) NOT NULL DEFAULT '' AFTER `color`",
+            'insurance_expiry' => "DATE NULL AFTER `door_number`",
             'insurance_company' => "VARCHAR(80) DEFAULT 'SAA' AFTER `insurance_expiry`",
             'technical_control_expiry' => "DATE NULL AFTER `insurance_company`",
             'extinguisher_expiry' => "DATE NULL AFTER `technical_control_expiry`",
@@ -543,6 +549,7 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'gpl_text' => "VARCHAR(100) NULL AFTER `gpl_expiry`",
             'saccuriometre_expiry' => "DATE NULL AFTER `gpl_text`",
             'saccuriometre_text' => "VARCHAR(100) DEFAULT 'معاير ومختوم' AFTER `saccuriometre_expiry`",
+            'status' => "ENUM('active', 'suspended', 'in_maintenance') DEFAULT 'active' AFTER `saccuriometre_text`",
             'suspended_reason' => "VARCHAR(255) NULL AFTER `status`"
         ];
 
@@ -556,6 +563,18 @@ function migrateDriverFicheFields(PDO $pdo): void {
     } catch (\Throwable $e) {
         error_log("Vehicles table migration notice: " . $e->getMessage());
     }
+
+    // 2b. Settings table ensure
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS settings (
+                `key` VARCHAR(100) PRIMARY KEY,
+                `value` TEXT NOT NULL,
+                `category` VARCHAR(50) DEFAULT 'general',
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    } catch (\Throwable $e) {}
 
     // 3. Leaves table columns
     try {
@@ -1101,18 +1120,24 @@ function log_audit(...$args): bool {
     }
 }
 
-function get_setting(PDO $pdo, string $key, string $default = ''): string {
+function get_setting(?PDO $pdo, string $key, string $default = ''): string {
+    if (!$pdo) {
+        return $default;
+    }
     try {
         $stmt = $pdo->prepare("SELECT `value` FROM settings WHERE `key` = ? LIMIT 1");
         $stmt->execute([$key]);
         $val = $stmt->fetchColumn();
         return $val !== false ? (string)$val : $default;
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         return $default;
     }
 }
 
-function update_setting(PDO $pdo, string $key, string $value, string $category = 'general'): bool {
+function update_setting(?PDO $pdo, string $key, string $value, string $category = 'general'): bool {
+    if (!$pdo) {
+        return false;
+    }
     try {
         $stmt = $pdo->prepare("
             INSERT INTO settings (`key`, `value`, `category`) 
@@ -1120,12 +1145,15 @@ function update_setting(PDO $pdo, string $key, string $value, string $category =
             ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), `category` = VALUES(`category`), `updated_at` = NOW()
         ");
         return $stmt->execute([$key, $value, $category]);
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         return false;
     }
 }
 
-function get_all_settings(PDO $pdo): array {
+function get_all_settings(?PDO $pdo): array {
+    if (!$pdo) {
+        return [];
+    }
     try {
         $rows = $pdo->query("SELECT `key`, `value`, `category` FROM settings")->fetchAll();
         $res = [];
@@ -1133,26 +1161,32 @@ function get_all_settings(PDO $pdo): array {
             $res[$r['key']] = $r['value'];
         }
         return $res;
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         return [];
     }
 }
 
-function getUnreadNotificationsCount(PDO $pdo): int {
+function getUnreadNotificationsCount(?PDO $pdo): int {
+    if (!$pdo) {
+        return 0;
+    }
     try {
         return (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         return 0;
     }
 }
 
-function getRecentNotifications(PDO $pdo, int $limit = 5): array {
+function getRecentNotifications(?PDO $pdo, int $limit = 5): array {
+    if (!$pdo) {
+        return [];
+    }
     try {
         $stmt = $pdo->prepare("SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?");
         $stmt->bindValue(1, $limit, PDO::PARAM_INT);
         $stmt->execute();
-        return $stmt->fetchAll();
-    } catch (Exception $e) {
+        return $stmt->fetchAll() ?: [];
+    } catch (\Throwable $e) {
         return [];
     }
 }

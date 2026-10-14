@@ -33,16 +33,20 @@ $defaultPresets = [
     'Kia' => ['Picanto', 'Rio', 'Cerato']
 ];
 
-function getVehiclePresets(PDO $pdo, array $defaultPresets): array {
-    $raw = get_setting($pdo, 'vehicle_brands_models', '');
-    if (!empty($raw)) {
-        $decoded = json_decode($raw, true);
-        if (is_array($decoded) && !empty($decoded)) {
-            return $decoded;
-        }
+function getVehiclePresets(?PDO $pdo, array $defaultPresets): array {
+    if (!$pdo) {
+        return $defaultPresets;
     }
-    // Initialize setting with default presets if empty
-    update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
+    try {
+        $raw = get_setting($pdo, 'vehicle_brands_models', '');
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                return $decoded;
+            }
+        }
+        update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
+    } catch (\Throwable $e) {}
     return $defaultPresets;
 }
 
