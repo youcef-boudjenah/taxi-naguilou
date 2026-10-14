@@ -25,6 +25,19 @@ if ($pdo && $driverId > 0) {
     $driver = $stmt->fetch();
 }
 
+// Handle stage update from driver fiche
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_stage') {
+    $targetId = intval($_POST['driver_id'] ?? 0);
+    $newStage = trim($_POST['probation_stage'] ?? 'trial_1');
+    if ($targetId > 0 && in_array($newStage, ['trial_1', 'trial_2', 'trial_3', 'official']) && !is_driver()) {
+        $stmtUpdate = $pdo->prepare("UPDATE users SET probation_stage = ? WHERE id = ? AND role = 'driver'");
+        $stmtUpdate->execute([$newStage, $targetId]);
+        log_audit($pdo, 'driver_stage_updated', 'users', $targetId, "تحديث مرحلة السائق إلى: $newStage من البطاقة الفنية");
+        set_flash('success', 'تم تحديث المرحلة المهنية للسائق بنجاح');
+        redirect('/dashboard/driver_fiche.php?id=' . $targetId);
+    }
+}
+
 // Fallback: If no ID supplied or not found, select first available driver
 if (!$driver && $pdo) {
     $firstDriverId = (int)$pdo->query("SELECT id FROM users WHERE role = 'driver' ORDER BY id ASC LIMIT 1")->fetchColumn();
@@ -108,6 +121,21 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         </div>
 
         <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <?php if (!is_driver()): ?>
+                <form method="POST" action="" class="flex items-center gap-1.5">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="update_driver_stage">
+                    <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
+                    <select name="probation_stage" onchange="this.form.submit()" 
+                            class="px-2.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-slate-50 hover:bg-white focus:bg-white transition cursor-pointer shadow-2xs"
+                            title="ترقية وتعديل المرحلة المهنية للسائق">
+                        <option value="trial_1" <?= ($driver['probation_stage'] ?? 'trial_1') === 'trial_1' ? 'selected' : '' ?>>فترة تجريبية الأولى</option>
+                        <option value="trial_2" <?= ($driver['probation_stage'] ?? '') === 'trial_2' ? 'selected' : '' ?>>تجريبية الثانية</option>
+                        <option value="trial_3" <?= ($driver['probation_stage'] ?? '') === 'trial_3' ? 'selected' : '' ?>>تجريبية الثالثة</option>
+                        <option value="official" <?= ($driver['probation_stage'] ?? '') === 'official' ? 'selected' : '' ?>>سائق رسمي</option>
+                    </select>
+                </form>
+            <?php endif; ?>
             <?php if (!empty($driver['contract_id'])): ?>
                 <a href="contract_view.php?id=<?= $driver['contract_id'] ?>" target="_blank" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -178,6 +206,19 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                     <div class="flex items-center gap-2">
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-slate-950 shadow-2xs">
                             سائق <?= $driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني' ?>
+                        </span>
+                        <?php
+                        $stgVal = $driver['probation_stage'] ?? 'trial_1';
+                        $stageBadges = [
+                            'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-100 text-amber-900 border-amber-300'],
+                            'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-100 text-blue-900 border-blue-300'],
+                            'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-100 text-indigo-900 border-indigo-300'],
+                            'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-100 text-emerald-900 border-emerald-300'],
+                        ];
+                        $stg = $stageBadges[$stgVal] ?? $stageBadges['trial_1'];
+                        ?>
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $stg['cls'] ?>">
+                            <?= $stg['label'] ?>
                         </span>
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                             نشط ميدانياً

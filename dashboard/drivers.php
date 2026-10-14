@@ -121,9 +121,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Quick Update Driver Probation Stage
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_stage') {
+    require_csrf_token();
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $newStage = trim($_POST['probation_stage'] ?? 'trial_1');
+    if ($driverId > 0 && in_array($newStage, ['trial_1', 'trial_2', 'trial_3', 'official'])) {
+        $stmtUpdate = $pdo->prepare("UPDATE users SET probation_stage = ? WHERE id = ? AND role = 'driver'");
+        $stmtUpdate->execute([$newStage, $driverId]);
+        log_audit($pdo, 'driver_stage_updated', 'users', $driverId, "تحديث مرحلة السائق إلى: $newStage");
+        set_flash('success', 'تم تحديث المرحلة المهنية للسائق بنجاح');
+        redirect('/dashboard/drivers.php');
+    }
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
-$filter = $_GET['filter'] ?? 'all'; // all, actifs, permanence, anciens
+$filter = $_GET['filter'] ?? 'all'; // all, actifs, permanence, anciens, trial_1, trial_2, trial_3, official
 
 // Fetch Expiration Imminente Drivers (< 30 days or expired)
 $stmtExpiring = $pdo->query("
@@ -173,7 +187,7 @@ $stmtD = $pdo->prepare($sql);
 $stmtD->execute($params);
 $allDrivers = $stmtD->fetchAll();
 
-// If filter is permanence
+// If filter is permanence or specific stage
 $drivers = [];
 foreach ($allDrivers as $d) {
     $isPerm = in_array($d['id'], $permanenceDriverIds);
@@ -182,6 +196,11 @@ foreach ($allDrivers as $d) {
     if ($filter === 'permanence' && !$isPerm) {
         continue;
     }
+    if (in_array($filter, ['trial_1', 'trial_2', 'trial_3', 'official'])) {
+        if (($d['probation_stage'] ?? 'trial_1') !== $filter) {
+            continue;
+        }
+    }
     $drivers[] = $d;
 }
 
@@ -189,6 +208,10 @@ foreach ($allDrivers as $d) {
 $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
 $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
 $countPermanence = count($permanenceDriverIds);
+$countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
+$countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_2'")->fetchColumn();
+$countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_3'")->fetchColumn();
+$countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'official'")->fetchColumn();
 
 // Fetch Active Vehicles for assignment
 $activeVehicles = [];
@@ -367,27 +390,48 @@ if ($pdo) {
         <!-- Segmented Filter Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
             <a href="drivers.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل
             </a>
 
             <a href="drivers.php?filter=actifs<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' ?>">
                 <span>سائقون نشطون</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/80 font-num font-bold text-slate-900"><?= $countActifs ?></span>
             </a>
 
+            <a href="drivers.php?filter=trial_1<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_1' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100' ?>">
+                <span>تجريبية 1</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200/80 font-num font-bold text-amber-950"><?= $countTrial1 ?></span>
+            </a>
+
+            <a href="drivers.php?filter=trial_2<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_2' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100' ?>">
+                <span>تجريبية 2</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-200/80 font-num font-bold text-blue-950"><?= $countTrial2 ?></span>
+            </a>
+
+            <a href="drivers.php?filter=trial_3<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_3' ? 'bg-indigo-600 text-white font-bold' : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100' ?>">
+                <span>تجريبية 3</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-200/80 font-num font-bold text-indigo-950"><?= $countTrial3 ?></span>
+            </a>
+
+            <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'official' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100' ?>">
+                <span>سائق رسمي</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200/80 font-num font-bold text-emerald-950"><?= $countOfficial ?></span>
+            </a>
+
             <a href="drivers.php?filter=permanence<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'permanence' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100' ?>">
-                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-                <span>سائقو المداومة (Permanence)</span>
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'permanence' ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' ?>">
+                <span>المداومة</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-700 text-white font-num"><?= $countPermanence ?></span>
             </a>
 
             <a href="debts.php?filter=all" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 bg-slate-100 text-slate-600 hover:bg-slate-200">
                 <span>سابقون (ديون)</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 font-num font-bold text-slate-800"><?= $countAnciens ?></span>
             </a>
@@ -439,9 +483,35 @@ if ($pdo) {
                                                 ];
                                                 $curB = $stageBadges[$stage] ?? $stageBadges['trial_1'];
                                                 ?>
-                                                <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border <?= $curB['cls'] ?>">
-                                                    <?= $curB['label'] ?>
-                                                </span>
+                                                <div class="inline-block relative group">
+                                                    <button type="button" class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 <?= $curB['cls'] ?> hover:shadow-2xs transition" title="انقر لتعديل مرحلة السائق">
+                                                        <span><?= $curB['label'] ?></span>
+                                                        <svg class="w-2.5 h-2.5 opacity-60 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                                                    </button>
+                                                    <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-200 p-1 text-right">
+                                                        <form method="POST" action="">
+                                                            <?= csrf_field() ?>
+                                                            <input type="hidden" name="action" value="update_driver_stage">
+                                                            <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                            <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 text-amber-900 transition flex items-center justify-between">
+                                                                <span>فترة تجريبية الأولى</span>
+                                                                <?= $stage === 'trial_1' ? '✓' : '' ?>
+                                                            </button>
+                                                            <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 text-blue-900 transition flex items-center justify-between">
+                                                                <span>تجريبية الثانية</span>
+                                                                <?= $stage === 'trial_2' ? '✓' : '' ?>
+                                                            </button>
+                                                            <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 text-indigo-900 transition flex items-center justify-between">
+                                                                <span>تجريبية الثالثة</span>
+                                                                <?= $stage === 'trial_3' ? '✓' : '' ?>
+                                                            </button>
+                                                            <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 text-emerald-900 transition flex items-center justify-between border-t border-slate-100">
+                                                                <span>سائق رسمي</span>
+                                                                <?= $stage === 'official' ? '✓' : '' ?>
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div class="text-[11px] text-slate-400 mt-0.5" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
                                         </div>
@@ -755,26 +825,58 @@ if ($pdo) {
                 <!-- Driver Status Type (Default to 'ajir' as requested) -->
                 <input type="hidden" name="driver_type" value="ajir">
 
-                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <div>
-                            <label class="block font-black text-slate-800 text-xs mb-1.5">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
-                            <input type="date" name="activity_start_date" value="2024-09-03"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                            <p class="text-[11px] text-slate-400 mt-1">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة.</p>
-                        </div>
+                <!-- Activity Start Date -->
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
+                    <label class="block font-black text-slate-800 text-xs">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
+                    <input type="date" name="activity_start_date" value="2024-09-03"
+                           class="w-full sm:w-1/2 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
+                    <p class="text-[11px] text-slate-400">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة المعتمد في السجلات الرسمية.</p>
+                </div>
 
+                <!-- Professional Status & Probation Period Selection (فترات التجربة والتثبيت) -->
+                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
+                    <div class="flex items-center justify-between">
                         <div>
-                            <label class="block font-black text-slate-800 text-xs mb-1.5">المرحلة والوضعية المهنية (Statut / Période)</label>
-                            <select name="probation_stage" id="probationStageSelect" 
-                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
-                                <option value="trial_1" selected>فترة تجريبية الأولى (Période d'essai 1)</option>
-                                <option value="trial_2">تجريبية الثانية (Période d'essai 2)</option>
-                                <option value="trial_3">تجريبية الثالثة (Période d'essai 3)</option>
-                                <option value="official">سائق رسمي (Chauffeur Titulaire / Officiel)</option>
-                            </select>
-                            <p class="text-[11px] text-slate-400 mt-1">تحديد مرحلة التجربة أو التثبيت وفق قانون العمل 90-11.</p>
+                            <label class="block font-black text-slate-900 text-xs">
+                                <span>المرحلة والوضعية المهنية للسائق (دفتر المقررة)</span>
+                                <span class="text-rose-500">*</span>
+                            </label>
+                            <p class="text-[11px] text-slate-500 mt-0.5">حدد مرحلة التجربة أو التثبيت كـ «سائق رسمي» وفق أحكام قانون العمل 90-11:</p>
                         </div>
+                        <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-2.5 py-0.5 rounded-md">
+                            المادة 07 (قانون 90-11)
+                        </span>
+                    </div>
+
+                    <!-- 4 Visual Selection Cards for Probation Stages -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5" id="probationStageCardsContainer">
+                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-amber-400 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/80 has-[:checked]:shadow-xs">
+                            <input type="radio" name="probation_stage" value="trial_1" checked onchange="updateDriverPreviewStage(this.value)" class="sr-only">
+                            <span class="w-3 h-3 rounded-full bg-amber-500 mb-1.5"></span>
+                            <span class="font-black text-slate-900 text-xs">فترة تجريبية الأولى</span>
+                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">1ère Période (06 أشهر)</span>
+                        </label>
+
+                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-blue-400 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/80 has-[:checked]:shadow-xs">
+                            <input type="radio" name="probation_stage" value="trial_2" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
+                            <span class="w-3 h-3 rounded-full bg-blue-500 mb-1.5"></span>
+                            <span class="font-black text-slate-900 text-xs">تجريبية الثانية</span>
+                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">2ème Période d'essai</span>
+                        </label>
+
+                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-indigo-400 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50/80 has-[:checked]:shadow-xs">
+                            <input type="radio" name="probation_stage" value="trial_3" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
+                            <span class="w-3 h-3 rounded-full bg-indigo-500 mb-1.5"></span>
+                            <span class="font-black text-slate-900 text-xs">تجريبية الثالثة</span>
+                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">3ème Période d'essai</span>
+                        </label>
+
+                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-emerald-400 has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/90 has-[:checked]:shadow-xs">
+                            <input type="radio" name="probation_stage" value="official" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
+                            <span class="w-3 h-3 rounded-full bg-emerald-600 mb-1.5"></span>
+                            <span class="font-black text-emerald-950 text-xs">سائق رسمي</span>
+                            <span class="text-[10px] text-emerald-700 mt-0.5 font-bold">تثبيت دائم (Titulaire)</span>
+                        </label>
                     </div>
                 </div>
 
@@ -938,6 +1040,9 @@ if ($pdo) {
                             <div class="flex items-center gap-2">
                                 <h4 id="livePreviewName" class="font-black text-sm text-white truncate">يوسف حمو صالح</h4>
                                 <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">نشط</span>
+                                <span id="livePreviewStageBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    فترة تجريبية الأولى
+                                </span>
                             </div>
                             <div class="text-[11px] text-slate-300 flex items-center gap-2 font-num">
                                 <span id="livePreviewPhone">0661234567</span>
@@ -1175,6 +1280,21 @@ if ($pdo) {
         } else {
             previewVeh.textContent = 'لم تعين بعد (شاغرة)';
         }
+    }
+
+    // Live preview probation stage badge
+    function updateDriverPreviewStage(stage) {
+        const badge = document.getElementById('livePreviewStageBadge');
+        if (!badge) return;
+        const stageMap = {
+            'trial_1': { text: 'فترة تجريبية الأولى', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+            'trial_2': { text: 'تجريبية الثانية', cls: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+            'trial_3': { text: 'تجريبية الثالثة', cls: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+            'official': { text: 'سائق رسمي', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' }
+        };
+        const s = stageMap[stage] || stageMap['trial_1'];
+        badge.textContent = s.text;
+        badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border ' + s.cls;
     }
 
     // Auto-calculate medical dates (+2 years)
