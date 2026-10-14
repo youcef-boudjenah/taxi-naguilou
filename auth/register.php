@@ -56,7 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>إنشاء حساب جديد | تاكسي نقيلو</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -64,13 +66,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             theme: {
                 extend: {
                     colors: { amber: { 500: '#f59e0b', 600: '#d97706' } },
-                    fontFamily: { sans: ['Cairo', 'sans-serif'], num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif'] }
+                    fontFamily: { 
+                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'], 
+                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif'] 
+                    }
                 }
             }
         };
     </script>
     <?= render_theme_head() ?>
-    <style>body { font-family: 'Cairo', sans-serif; }</style>
+    <style>
+        html, body, input, button, select, textarea { 
+            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif; 
+            text-rendering: optimizeLegibility; 
+            -webkit-font-smoothing: antialiased; 
+        }
+        html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
+            letter-spacing: normal !important;
+        }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4">
 

@@ -140,7 +140,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -157,8 +157,8 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         }
                     },
                     fontFamily: {
-                        sans: ['Cairo', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
+                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'],
+                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif']
                     },
                     boxShadow: {
                         '2xs': '0 1px 2px 0 rgba(0, 0, 0, 0.03)',
@@ -170,14 +170,18 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <?= render_theme_head() ?>
     <style>
         * { box-sizing: border-box; }
-        body {
-            font-family: 'Cairo', sans-serif;
-            font-feature-settings: "tnum";
+        html, body, input, button, select, textarea {
+            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif;
             text-rendering: optimizeLegibility;
             -webkit-font-smoothing: antialiased;
         }
+        html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
+            letter-spacing: normal !important;
+        }
         .font-num, .font-mono, [dir="ltr"], .num-ltr {
-            font-feature-settings: "tnum";
+            font-family: 'Plus Jakarta Sans', 'Alexandria', 'Cairo', sans-serif !important;
+            font-feature-settings: "tnum" 1;
+            font-variant-numeric: tabular-nums;
             unicode-bidi: isolate;
         }
         [dir="ltr"], .num-ltr {

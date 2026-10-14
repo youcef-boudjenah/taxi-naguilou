@@ -13,7 +13,7 @@ require_once __DIR__ . '/includes/auth.php';
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -29,8 +29,8 @@ require_once __DIR__ . '/includes/auth.php';
                         }
                     },
                     fontFamily: {
-                        sans: ['Cairo', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
+                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'],
+                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif']
                     }
                 }
             }
@@ -39,9 +39,18 @@ require_once __DIR__ . '/includes/auth.php';
     <?= render_theme_head() ?>
 
     <style>
-        body {
-            font-family: 'Cairo', sans-serif;
-            font-feature-settings: "tnum";
+        html, body, input, button, select, textarea {
+            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif;
+            text-rendering: optimizeLegibility;
+            -webkit-font-smoothing: antialiased;
+        }
+        html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
+            letter-spacing: normal !important;
+        }
+        .font-num, .font-mono, [dir="ltr"] {
+            font-family: 'Plus Jakarta Sans', 'Alexandria', 'Cairo', sans-serif !important;
+            font-feature-settings: "tnum" 1;
+            font-variant-numeric: tabular-nums;
         }
         ::selection {
             background-color: #fef3c7;
