@@ -76,6 +76,17 @@ html.dark textarea {
     color-scheme: dark;
 }
 
+html.dark option {
+    background-color: #161d27 !important;
+    color: #f8fafc !important;
+}
+html.dark option:checked,
+html.dark option:hover,
+html.dark option:focus {
+    background-color: #1e2836 !important;
+    color: #fbbf24 !important;
+}
+
 html.dark input::placeholder,
 html.dark textarea::placeholder {
     color: #64748b !important;
@@ -115,6 +126,12 @@ html.dark .bg-\[\#f4f6f9\] {
     background-color: #0b0f14 !important;
 }
 
+/* Landing Page & Section Gradients in Dark Mode */
+html.dark .bg-gradient-to-b.from-slate-50.to-white,
+html.dark [class*="from-slate-50"][class*="to-white"] {
+    background-image: linear-gradient(to bottom, #111827, #0b0f14) !important;
+}
+
 /* Border overrides in Dark Mode */
 html.dark .border-slate-200,
 html.dark .border-slate-200\/90,
@@ -128,6 +145,7 @@ html.dark .divide-slate-200 > * + * {
 }
 
 /* Text overrides in Dark Mode */
+html.dark .text-slate-950,
 html.dark .text-slate-900,
 html.dark .text-slate-800 {
     color: #f8fafc !important;
@@ -146,6 +164,10 @@ html.dark .text-slate-400 {
     color: #64748b !important;
 }
 
+html.dark .text-amber-600 {
+    color: #fbbf24 !important;
+}
+
 /* Hover surfaces in Dark Mode */
 html.dark .hover\:bg-slate-50:hover,
 html.dark .hover\:bg-slate-50\/60:hover {
@@ -160,6 +182,33 @@ html.dark .hover\:bg-slate-200:hover {
 html.dark .hover\:text-slate-900:hover,
 html.dark .hover\:text-slate-800:hover {
     color: #ffffff !important;
+}
+
+/* Colored Hover States in Dark Mode (Eliminates white flashes) */
+html.dark .hover\:bg-amber-50:hover,
+html.dark .hover\:bg-amber-100:hover {
+    background-color: rgba(245, 158, 11, 0.2) !important;
+    color: #fbbf24 !important;
+}
+html.dark .hover\:bg-blue-50:hover,
+html.dark .hover\:bg-blue-100:hover {
+    background-color: rgba(59, 130, 246, 0.2) !important;
+    color: #93c5fd !important;
+}
+html.dark .hover\:bg-indigo-50:hover,
+html.dark .hover\:bg-indigo-100:hover {
+    background-color: rgba(99, 102, 241, 0.22) !important;
+    color: #a5b4fc !important;
+}
+html.dark .hover\:bg-emerald-50:hover,
+html.dark .hover\:bg-emerald-100:hover {
+    background-color: rgba(16, 185, 129, 0.2) !important;
+    color: #6ee7b7 !important;
+}
+html.dark .hover\:bg-rose-50:hover,
+html.dark .hover\:bg-rose-100:hover {
+    background-color: rgba(244, 63, 94, 0.2) !important;
+    color: #fca5a5 !important;
 }
 
 /* Table styles in Dark Mode */
@@ -182,13 +231,21 @@ html.dark table tbody tr:hover {
     background-color: #1a2330 !important;
 }
 
+/* Table scrolling buffer to prevent scrollbar clipping bottom cell text */
+.overflow-x-auto {
+    scrollbar-gutter: stable;
+    padding-bottom: 0.5rem;
+}
+
 /* Dropdowns, Modals & Popovers in Dark Mode */
 html.dark #notifDropdown,
 html.dark #mobileNavDrawer,
 html.dark .dropdown-menu,
+html.dark .group-hover\:block,
 html.dark [id$="Modal"] > div:not(.bg-slate-900\/60) {
     background-color: #161d27 !important;
     border-color: #2e3a4b !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6) !important;
 }
 
 html.dark .modal-backdrop,
@@ -198,18 +255,34 @@ html.dark .bg-slate-900\/40 {
     backdrop-filter: blur(4px);
 }
 
+/* Authentic High-Contrast Algerian Taxi License Plate */
+.taxi-license-plate,
+.plate-number-badge,
+html.dark .taxi-license-plate,
+html.dark .plate-number-badge,
+html.dark .bg-amber-100.text-amber-950,
+.bg-amber-100.text-amber-950 {
+    background-color: #f59e0b !important;
+    color: #0b0f14 !important;
+    border-color: #d97706 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.05em !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+    text-shadow: none !important;
+}
+
 /* Colored Cards & Badges in Dark Mode */
 html.dark .bg-amber-50,
 html.dark .bg-amber-50\/70,
 html.dark .bg-amber-50\/60,
 html.dark .bg-amber-50\/50,
-html.dark .bg-amber-50\/30 {
-    background-color: rgba(120, 53, 15, 0.22) !important;
+html.dark .bg-amber-50\/30,
+html.dark .bg-amber-100:not(.taxi-license-plate):not(.plate-number-badge) {
+    background-color: rgba(120, 53, 15, 0.25) !important;
     border-color: rgba(217, 119, 6, 0.35) !important;
 }
 html.dark .text-amber-800,
-html.dark .text-amber-900,
-html.dark .text-amber-950 {
+html.dark .text-amber-900 {
     color: #fde68a !important;
 }
 html.dark .text-amber-700 {

@@ -57,28 +57,28 @@ require_once __DIR__ . '/includes/auth.php';
     </div>
 
     <!-- Clean Header -->
-    <header class="border-b border-slate-100 sticky top-0 bg-white/95 backdrop-blur z-50">
+    <header class="border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-[#111827]/95 backdrop-blur z-50">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between py-4">
             <!-- Brand -->
             <a href="<?= url('/') ?>" class="flex items-center gap-3">
                 <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-11 h-11 object-contain rounded-full bg-white p-0.5 border border-amber-300 shadow-sm shrink-0">
                 <div>
-                    <span class="text-xl font-extrabold text-slate-900 tracking-tight block leading-none">تاكسي <span class="text-amber-600">نقيلو</span></span>
+                    <span class="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight block leading-none">تاكسي <span class="text-amber-600 dark:text-amber-400">نقيلو</span></span>
                     <span class="text-[10px] text-slate-400 font-bold block mt-0.5 uppercase tracking-wider">EURL TAXI NAGUILOU Services</span>
                 </div>
             </a>
 
             <!-- Nav Links -->
-            <nav class="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
-                <a href="#features" class="hover:text-amber-600 transition-colors">المميزات</a>
-                <a href="#how-it-works" class="hover:text-amber-600 transition-colors">كيف يعمل</a>
-                <a href="#pricing" class="hover:text-amber-600 transition-colors">الأسعار</a>
-                <a href="#faq" class="hover:text-amber-600 transition-colors">الأسئلة الشائعة</a>
+            <nav class="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                <a href="#features" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">المميزات</a>
+                <a href="#how-it-works" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">كيف يعمل</a>
+                <a href="#pricing" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">الأسعار</a>
+                <a href="#faq" class="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">الأسئلة الشائعة</a>
             </nav>
 
             <div class="flex items-center gap-2">
                 <?= render_theme_toggle_btn() ?>
-                <a href="<?= url('/auth/login.php') ?>" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition">
+                <a href="<?= url('/auth/login.php') ?>" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs transition">
                     دخول المنصة
                 </a>
                 <a href="#register" class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm">
@@ -89,19 +89,19 @@ require_once __DIR__ . '/includes/auth.php';
     </header>
 
     <!-- Clean Hero -->
-    <section class="py-16 md:py-24 bg-gradient-to-b from-slate-50 to-white">
+    <section class="py-16 md:py-24 bg-gradient-to-b from-slate-50 to-white dark:from-[#111827] dark:to-[#0b0f14] border-b border-slate-100 dark:border-slate-800/80">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 text-center space-y-6">
             
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-semibold shadow-2xs">
                 <span>✨ المنصة الأبسط لإدارة التاكسي في الجزائر</span>
             </div>
 
-            <h1 class="text-3xl sm:text-5xl font-black text-slate-950 leading-tight tracking-tight">
+            <h1 class="text-3xl sm:text-5xl font-black text-slate-950 dark:text-white leading-tight tracking-tight">
                 أدِر سيارات الأجرة ووثائقها <br class="hidden sm:inline" />
-                <span class="text-amber-600">بكل سهولة وبدون تعقيد</span>
+                <span class="text-amber-600 dark:text-amber-400">بكل سهولة وبدون تعقيد</span>
             </h1>
 
-            <p class="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            <p class="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
                 تتبع مواعيد المراقبة التقنية والتأمين، ولّد عقود العمل القانونية (90-11)، وعيّن السائق البديل في ثوانٍ مع تجنب غرامات المحشر.
             </p>
 
@@ -109,12 +109,12 @@ require_once __DIR__ . '/includes/auth.php';
                 <a href="#register" class="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm transition shadow">
                     ابدأ تجربة مجانية (14 يوماً)
                 </a>
-                <a href="tel:0550000000" class="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white text-slate-700 font-bold text-sm transition">
+                <a href="tel:0550000000" class="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 font-bold text-sm transition">
                     📞 اتصل بنا مباشرة
                 </a>
             </div>
 
-            <div class="pt-4 flex items-center justify-center gap-6 text-xs text-slate-500">
+            <div class="pt-4 flex items-center justify-center gap-6 text-xs text-slate-500 dark:text-slate-400">
                 <span>✓ بدون بطاقة بنكية</span>
                 <span>✓ إعداد في 5 دقائق</span>
                 <span>✓ متوافق مع جميع الهواتف</span>
@@ -122,31 +122,31 @@ require_once __DIR__ . '/includes/auth.php';
 
             <!-- Clean Preview Card -->
             <div class="pt-8 max-w-2xl mx-auto">
-                <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm text-right space-y-4">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="bg-white dark:bg-[#161d27] rounded-2xl border border-slate-200 dark:border-slate-700/80 p-6 shadow-sm text-right space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-3">
                         <div class="flex items-center gap-2">
                             <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-                            <span class="text-xs font-bold text-slate-800">سيارة أجرة: 01458-121-16 (بيجو 301)</span>
+                            <span class="text-xs font-bold text-slate-800 dark:text-slate-100">سيارة أجرة: 01458-121-16 (بيجو 301)</span>
                         </div>
-                        <span class="text-xs bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded">الوضعية: نظامية</span>
+                        <span class="text-xs bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30 font-bold px-2 py-0.5 rounded">الوضعية: نظامية</span>
                     </div>
 
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
-                        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60">
                             <div class="text-slate-400">المراقبة التقنية</div>
-                            <div class="font-bold text-emerald-600 mt-1">باقي 72 يوم</div>
+                            <div class="font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-num">باقي 72 يوم</div>
                         </div>
-                        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60">
                             <div class="text-slate-400">تأمين المسؤولية</div>
-                            <div class="font-bold text-emerald-600 mt-1">صالح (SAA)</div>
+                            <div class="font-bold text-emerald-600 dark:text-emerald-400 mt-1">صالح (SAA)</div>
                         </div>
-                        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60">
                             <div class="text-slate-400">عقد العمل</div>
-                            <div class="font-bold text-emerald-600 mt-1">ساري (90-11)</div>
+                            <div class="font-bold text-emerald-600 dark:text-emerald-400 mt-1">ساري (90-11)</div>
                         </div>
-                        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                        <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60">
                             <div class="text-slate-400">الساكوريومتر</div>
-                            <div class="font-bold text-emerald-600 mt-1">مختوم ومفحوص</div>
+                            <div class="font-bold text-emerald-600 dark:text-emerald-400 mt-1">مختوم ومفحوص</div>
                         </div>
                     </div>
                 </div>
@@ -156,44 +156,44 @@ require_once __DIR__ . '/includes/auth.php';
     </section>
 
     <!-- 3 Simple Features -->
-    <section id="features" class="py-16 bg-white border-t border-slate-100">
+    <section id="features" class="py-16 bg-white dark:bg-[#0b0f14] border-t border-slate-100 dark:border-slate-800/80">
         <div class="max-w-5xl mx-auto px-4 sm:px-6">
             
             <div class="text-center max-w-xl mx-auto mb-12 space-y-2">
-                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900">كل ما تحتاجه في مكان واحد</h2>
-                <p class="text-sm text-slate-500">بدون تعقيدات برمجية أو إعدادات صعبة.</p>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">كل ما تحتاجه في مكان واحد</h2>
+                <p class="text-sm text-slate-500 dark:text-slate-400">بدون تعقيدات برمجية أو إعدادات صعبة.</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Feature 1 -->
-                <div class="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg font-bold">
+                <div class="p-6 rounded-2xl bg-slate-50 dark:bg-[#161d27] border border-slate-100 dark:border-slate-800 space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center text-lg font-bold">
                         ⏰
                     </div>
-                    <h3 class="text-base font-bold text-slate-900">تنبيهات انتهاء الوثائق</h3>
-                    <p class="text-xs text-slate-600 leading-relaxed">
+                    <h3 class="text-base font-bold text-slate-900 dark:text-white">تنبيهات انتهاء الوثائق</h3>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         تنبيه قبل انتهاء التأمين، الفحص التقني، قارورة الإطفاء وخزان سيرغاز لتفادي حجز السيارة والغرامات.
                     </p>
                 </div>
 
                 <!-- Feature 2 -->
-                <div class="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg font-bold">
+                <div class="p-6 rounded-2xl bg-slate-50 dark:bg-[#161d27] border border-slate-100 dark:border-slate-800 space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center text-lg font-bold">
                         📄
                     </div>
-                    <h3 class="text-base font-bold text-slate-900">عقود العمل القانونية 90-11</h3>
-                    <p class="text-xs text-slate-600 leading-relaxed">
+                    <h3 class="text-base font-bold text-slate-900 dark:text-white">عقود العمل القانونية 90-11</h3>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         توليد عقد عمل نظامي رسمي مع السائق بضغطة زر، جاهز للطباعة أو التوقيع ومطابق لمفتشية العمل.
                     </p>
                 </div>
 
                 <!-- Feature 3 -->
-                <div class="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-lg font-bold">
+                <div class="p-6 rounded-2xl bg-slate-50 dark:bg-[#161d27] border border-slate-100 dark:border-slate-800 space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center text-lg font-bold">
                         🔄
                     </div>
-                    <h3 class="text-base font-bold text-slate-900">نظام السائق البديل</h3>
-                    <p class="text-xs text-slate-600 leading-relaxed">
+                    <h3 class="text-base font-bold text-slate-900 dark:text-white">نظام السائق البديل</h3>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                         في حال عطلة أو مرض السائق الأساسي، يمكنك تعيين بديل وتوليد جدول الإرسال فورياً بدون توقف العمل.
                     </p>
                 </div>
@@ -203,75 +203,75 @@ require_once __DIR__ . '/includes/auth.php';
     </section>
 
     <!-- How it works (3 steps) -->
-    <section id="how-it-works" class="py-16 bg-slate-50 border-t border-slate-100">
+    <section id="how-it-works" class="py-16 bg-slate-50 dark:bg-[#111827] border-t border-slate-100 dark:border-slate-800/80">
         <div class="max-w-4xl mx-auto px-4 sm:px-6">
             <div class="text-center mb-12 space-y-2">
-                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900">كيف تبدأ في 3 خطوات بسيطة؟</h2>
-                <p class="text-sm text-slate-500">لا تحتاج إلى خبرة تقنية إطلاقاً.</p>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">كيف تبدأ في 3 خطوات بسيطة؟</h2>
+                <p class="text-sm text-slate-500 dark:text-slate-400">لا تحتاج إلى خبرة تقنية إطلاقاً.</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 space-y-2">
-                    <div class="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-sm flex items-center justify-center mx-auto">1</div>
-                    <h4 class="font-bold text-slate-900 text-sm">سجّل بياناتك</h4>
-                    <p class="text-xs text-slate-500">أدخل اسمك ورقم هاتفك لتفعيل حسابك التجريبي فوراً.</p>
+                <div class="bg-white dark:bg-[#161d27] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div class="w-8 h-8 rounded-full bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold text-sm flex items-center justify-center mx-auto">1</div>
+                    <h4 class="font-bold text-slate-900 dark:text-white text-sm">سجّل بياناتك</h4>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">أدخل اسمك ورقم هاتفك لتفعيل حسابك التجريبي فوراً.</p>
                 </div>
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 space-y-2">
-                    <div class="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-sm flex items-center justify-center mx-auto">2</div>
-                    <h4 class="font-bold text-slate-900 text-sm">أضف سيارتك وسائقك</h4>
-                    <p class="text-xs text-slate-500">سجل رقم اللوحة وتواريخ الفحص والتأمين بنقرات سريعة.</p>
+                <div class="bg-white dark:bg-[#161d27] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div class="w-8 h-8 rounded-full bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold text-sm flex items-center justify-center mx-auto">2</div>
+                    <h4 class="font-bold text-slate-900 dark:text-white text-sm">أضف سيارتك وسائقك</h4>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">سجل رقم اللوحة وتواريخ الفحص والتأمين بنقرات سريعة.</p>
                 </div>
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 space-y-2">
-                    <div class="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-sm flex items-center justify-center mx-auto">3</div>
-                    <h4 class="font-bold text-slate-900 text-sm">استمتع براحة البال</h4>
-                    <p class="text-xs text-slate-500">النظام يتكفل بالتنبيهات وطباعة العقود والإرساليات تلقائياً.</p>
+                <div class="bg-white dark:bg-[#161d27] p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div class="w-8 h-8 rounded-full bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold text-sm flex items-center justify-center mx-auto">3</div>
+                    <h4 class="font-bold text-slate-900 dark:text-white text-sm">استمتع براحة البال</h4>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">النظام يتكفل بالتنبيهات وطباعة العقود والإرساليات تلقائياً.</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Clean Pricing -->
-    <section id="pricing" class="py-16 bg-white border-t border-slate-100">
+    <section id="pricing" class="py-16 bg-white dark:bg-[#0b0f14] border-t border-slate-100 dark:border-slate-800/80">
         <div class="max-w-4xl mx-auto px-4 sm:px-6">
             <div class="text-center mb-12 space-y-2">
-                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900">أسعار واضحة ومناسبة</h2>
-                <p class="text-sm text-slate-500">بدون أي رسوم خفية أو التزامات معقدة.</p>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">أسعار واضحة ومناسبة</h2>
+                <p class="text-sm text-slate-500 dark:text-slate-400">بدون أي رسوم خفية أو التزامات معقدة.</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
                 <!-- Single Car -->
-                <div class="p-6 rounded-2xl border border-slate-200 bg-white space-y-4">
+                <div class="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#161d27] space-y-4">
                     <div>
-                        <h3 class="font-bold text-slate-900 text-lg">المالك الفردي</h3>
-                        <p class="text-xs text-slate-500">لسيارة تاكسي واحدة</p>
+                        <h3 class="font-bold text-slate-900 dark:text-white text-lg">المالك الفردي</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">لسيارة تاكسي واحدة</p>
                     </div>
-                    <div class="text-3xl font-black text-slate-900 font-num">
-                        1,500 <span class="text-xs font-normal text-slate-500">دج / شهرياً</span>
+                    <div class="text-3xl font-black text-slate-900 dark:text-white font-num">
+                        1,500 <span class="text-xs font-normal text-slate-500 dark:text-slate-400">دج / شهرياً</span>
                     </div>
-                    <ul class="text-xs text-slate-600 space-y-2 border-t border-slate-100 pt-3">
+                    <ul class="text-xs text-slate-600 dark:text-slate-300 space-y-2 border-t border-slate-100 dark:border-slate-800 pt-3">
                         <li>✓ متابعة وثائق السيارة بالكامل</li>
                         <li>✓ توليد عقود العمل 90-11</li>
                         <li>✓ تنبيهات الصلاحية عبر SMS</li>
                         <li>✓ دعم فني عبر الواتساب</li>
                     </ul>
-                    <a href="#register" class="block w-full py-2.5 rounded-lg border border-slate-300 hover:border-slate-400 text-center text-xs font-bold text-slate-800 transition">
+                    <a href="#register" class="block w-full py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 text-center text-xs font-bold text-slate-800 dark:text-slate-200 transition">
                         تجربة مجانية
                     </a>
                 </div>
 
                 <!-- Agency / Fleet -->
-                <div class="p-6 rounded-2xl border-2 border-amber-500 bg-amber-50/30 space-y-4 relative">
+                <div class="p-6 rounded-2xl border-2 border-amber-500 bg-amber-50/30 dark:bg-amber-500/10 space-y-4 relative">
                     <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[10px] font-bold px-3 py-0.5 rounded-full">
                         الأكثر اختياراً للمكاتب
                     </span>
                     <div>
-                        <h3 class="font-bold text-slate-900 text-lg">المكاتب والتعاونيات</h3>
-                        <p class="text-xs text-slate-500">من 3 إلى 10 مركبات</p>
+                        <h3 class="font-bold text-slate-900 dark:text-white text-lg">المكاتب والتعاونيات</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">من 3 إلى 10 مركبات</p>
                     </div>
-                    <div class="text-3xl font-black text-slate-900 font-num">
-                        4,500 <span class="text-xs font-normal text-slate-500">دج / شهرياً</span>
+                    <div class="text-3xl font-black text-slate-900 dark:text-white font-num">
+                        4,500 <span class="text-xs font-normal text-slate-500 dark:text-slate-400">دج / شهرياً</span>
                     </div>
-                    <ul class="text-xs text-slate-600 space-y-2 border-t border-amber-100 pt-3">
+                    <ul class="text-xs text-slate-600 dark:text-slate-300 space-y-2 border-t border-amber-100 dark:border-amber-500/20 pt-3">
                         <li>✓ إدارة حتى 10 سيارات وسائقين</li>
                         <li>✓ نظام السائق البديل والـ Bordereau</li>
                         <li>✓ عقود العمل وطباعة التراخيص</li>
@@ -287,41 +287,41 @@ require_once __DIR__ . '/includes/auth.php';
     </section>
 
     <!-- Clean Simple Registration Form -->
-    <section id="register" class="py-16 bg-slate-50 border-t border-slate-100">
+    <section id="register" class="py-16 bg-slate-50 dark:bg-[#111827] border-t border-slate-100 dark:border-slate-800/80">
         <div class="max-w-xl mx-auto px-4 sm:px-6">
-            <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+            <div class="bg-white dark:bg-[#161d27] p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
                 
                 <div class="text-center space-y-1">
-                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900">سجّل الآن لتفعيل حسابك التجريبي</h2>
-                    <p class="text-xs text-slate-500">املأ البيانات البسيطة وسنتواصل معك فوراً لتجهيز حسابك.</p>
+                    <h2 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">سجّل الآن لتفعيل حسابك التجريبي</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">املأ البيانات البسيطة وسنتواصل معك فوراً لتجهيز حسابك.</p>
                 </div>
 
                 <div id="formToast" class="hidden p-3 rounded-lg text-xs font-bold"></div>
 
                 <form id="leadForm" class="space-y-4 text-right">
                     <div>
-                        <label for="fullName" class="block text-xs font-semibold text-slate-700 mb-1">الاسم الكامل *</label>
+                        <label for="fullName" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">الاسم الكامل *</label>
                         <input type="text" id="fullName" required placeholder="مثال: محمد بن علي"
-                               class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
+                               class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
                     </div>
 
                     <div>
-                        <label for="phone" class="block text-xs font-semibold text-slate-700 mb-1">رقم الهاتف *</label>
+                        <label for="phone" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">رقم الهاتف *</label>
                         <input type="tel" id="phone" required placeholder="05XX XX XX XX" dir="ltr"
-                               class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-right">
+                               class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-right">
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label for="wilaya" class="block text-xs font-semibold text-slate-700 mb-1">الولاية *</label>
+                            <label for="wilaya" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">الولاية *</label>
                             <input type="text" id="wilaya" required placeholder="مثال: الجزائر، وهران، سطيف..."
-                                   class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
+                                   class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
                         </div>
 
                         <div>
-                            <label for="fleetSize" class="block text-xs font-semibold text-slate-700 mb-1">عدد سيارات الأجرة</label>
+                            <label for="fleetSize" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">عدد سيارات الأجرة</label>
                             <input type="number" id="fleetSize" min="1" value="1"
-                                   class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num">
+                                   class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num">
                         </div>
                     </div>
 
@@ -340,29 +340,29 @@ require_once __DIR__ . '/includes/auth.php';
     </section>
 
     <!-- Simple FAQ -->
-    <section id="faq" class="py-16 bg-white border-t border-slate-100">
+    <section id="faq" class="py-16 bg-white dark:bg-[#0b0f14] border-t border-slate-100 dark:border-slate-800/80">
         <div class="max-w-2xl mx-auto px-4 sm:px-6 space-y-6">
-            <h2 class="text-xl font-bold text-slate-900 text-center mb-8">أسئلة شائعة</h2>
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white text-center mb-8">أسئلة شائعة</h2>
 
             <div class="space-y-3 text-xs">
-                <div class="border border-slate-200 rounded-xl p-4">
-                    <div class="font-bold text-slate-900 mb-1">هل يمكنني تجربة المنصة مجاناً؟</div>
-                    <p class="text-slate-600 leading-relaxed">نعم، نوفر فترة تجربة مجانية كاملة لمدة 14 يوماً بدون أي التزام مالي مسبق.</p>
+                <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-white dark:bg-[#161d27]">
+                    <div class="font-bold text-slate-900 dark:text-white mb-1">هل يمكنني تجربة المنصة مجاناً؟</div>
+                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">نعم، نوفر فترة تجربة مجانية كاملة لمدة 14 يوماً بدون أي التزام مالي مسبق.</p>
                 </div>
-                <div class="border border-slate-200 rounded-xl p-4">
-                    <div class="font-bold text-slate-900 mb-1">هل العقود مطابقة للقانون الجزائري 90-11؟</div>
-                    <p class="text-slate-600 leading-relaxed">نعم، تم تدقيق بنود العقود ونظام العمل وفقاً لقانون العمل والتنظيمات المعتمدة من مفتشية العمل.</p>
+                <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-white dark:bg-[#161d27]">
+                    <div class="font-bold text-slate-900 dark:text-white mb-1">هل العقود مطابقة للقانون الجزائري 90-11؟</div>
+                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">نعم، تم تدقيق بنود العقود ونظام العمل وفقاً لقانون العمل والتنظيمات المعتمدة من مفتشية العمل.</p>
                 </div>
-                <div class="border border-slate-200 rounded-xl p-4">
-                    <div class="font-bold text-slate-900 mb-1">هل تعمل على هاتفي؟</div>
-                    <p class="text-slate-600 leading-relaxed">نعم، تعمل بسلاسة وسرعة على أي هاتف ذكي (أندرويد أو آيفون) من المتصفح مباشرة.</p>
+                <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-white dark:bg-[#161d27]">
+                    <div class="font-bold text-slate-900 dark:text-white mb-1">هل تعمل على هاتفي؟</div>
+                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">نعم، تعمل بسلاسة وسرعة على أي هاتف ذكي (أندرويد أو آيفون) من المتصفح مباشرة.</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Clean Footer -->
-    <footer class="border-t border-slate-100 py-8 bg-slate-50 text-xs text-slate-500">
+    <footer class="border-t border-slate-100 dark:border-slate-800 py-8 bg-slate-50 dark:bg-[#0b0f14] text-xs text-slate-500 dark:text-slate-400">
         <div class="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
                 © <?= date('Y') ?> منصة تاكسي نقيلو (TAXI-NAGUILOU). الجزائر.

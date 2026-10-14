@@ -113,8 +113,8 @@ if ($pdo) {
 
     <!-- Live Fleet Table with Exact Requested Columns -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
+        <div class="overflow-x-auto pb-3">
+            <table class="w-full min-w-[1300px] text-right text-xs">
                 <thead class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200/90 whitespace-nowrap">
                     <tr>
                         <th class="p-3.5">المركبة</th>
@@ -207,59 +207,69 @@ if ($pdo) {
 
                                 <!-- 6. رقم اللوحة -->
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <span class="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 border border-amber-300 inline-block" dir="ltr">
+                                    <span class="taxi-license-plate font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 border border-amber-500 inline-block tracking-wider" dir="ltr">
                                         <?= htmlspecialchars($v['plate_number']) ?>
                                     </span>
                                 </td>
 
                                 <!-- 7. تاريخ انتهاء التأمين -->
-                                <td class="p-3.5 text-center whitespace-nowrap font-num">
-                                    <span class="inline-block <?= $insWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($v['insurance_expiry'] ?? '—') ?>
-                                    </span>
-                                    <?php if ($v['ins_days'] !== null && $v['ins_days'] <= 30): ?>
-                                        <span class="block text-[9px] text-rose-500 font-sans font-bold"><?= $v['ins_days'] <= 0 ? 'منتهي!' : "باقي {$v['ins_days']} يوم" ?></span>
-                                    <?php endif; ?>
+                                <td class="p-3 text-center whitespace-nowrap font-num">
+                                    <div class="flex flex-col items-center justify-center leading-tight py-0.5">
+                                        <span class="inline-block <?= $insWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
+                                            <?= htmlspecialchars($v['insurance_expiry'] ?? '—') ?>
+                                        </span>
+                                        <?php if ($v['ins_days'] !== null && $v['ins_days'] <= 30): ?>
+                                            <span class="mt-0.5 inline-block text-[10px] text-rose-500 font-sans font-bold"><?= $v['ins_days'] <= 0 ? 'منتهي!' : "باقي {$v['ins_days']} يوم" ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <!-- 8. تاريخ انتهاء الفحص التقني -->
-                                <td class="p-3.5 text-center whitespace-nowrap font-num">
-                                    <span class="inline-block <?= $tcWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($v['technical_control_expiry'] ?? '—') ?>
-                                    </span>
-                                    <?php if ($v['tc_days'] !== null && $v['tc_days'] <= 30): ?>
-                                        <span class="block text-[9px] text-rose-500 font-sans font-bold"><?= $v['tc_days'] <= 0 ? 'منتهي!' : "باقي {$v['tc_days']} يوم" ?></span>
-                                    <?php endif; ?>
+                                <td class="p-3 text-center whitespace-nowrap font-num">
+                                    <div class="flex flex-col items-center justify-center leading-tight py-0.5">
+                                        <span class="inline-block <?= $tcWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
+                                            <?= htmlspecialchars($v['technical_control_expiry'] ?? '—') ?>
+                                        </span>
+                                        <?php if ($v['tc_days'] !== null && $v['tc_days'] <= 30): ?>
+                                            <span class="mt-0.5 inline-block text-[10px] text-rose-500 font-sans font-bold"><?= $v['tc_days'] <= 0 ? 'منتهي!' : "باقي {$v['tc_days']} يوم" ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <!-- 9. تاريخ انتهاء طفاية الحريق -->
-                                <td class="p-3.5 text-center whitespace-nowrap font-num">
-                                    <span class="inline-block <?= $extWarning ? 'text-amber-700 font-bold' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($v['extinguisher_expiry'] ?? '—') ?>
-                                    </span>
-                                    <?php if ($v['ext_days'] !== null && $v['ext_days'] <= 30): ?>
-                                        <span class="block text-[9px] text-amber-600 font-sans font-bold"><?= $v['ext_days'] <= 0 ? 'منتهي!' : "باقي {$v['ext_days']} يوم" ?></span>
-                                    <?php endif; ?>
+                                <td class="p-3 text-center whitespace-nowrap font-num">
+                                    <div class="flex flex-col items-center justify-center leading-tight py-0.5">
+                                        <span class="inline-block <?= $extWarning ? 'text-amber-700 font-bold' : 'text-slate-700' ?>" dir="ltr">
+                                            <?= htmlspecialchars($v['extinguisher_expiry'] ?? '—') ?>
+                                        </span>
+                                        <?php if ($v['ext_days'] !== null && $v['ext_days'] <= 30): ?>
+                                            <span class="mt-0.5 inline-block text-[10px] text-amber-600 font-sans font-bold"><?= $v['ext_days'] <= 0 ? 'منتهي!' : "باقي {$v['ext_days']} يوم" ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <!-- 10. تاريخ انتهاء GPL -->
-                                <td class="p-3.5 text-center whitespace-nowrap font-num">
-                                    <span class="inline-block <?= $gplWarning ? 'text-amber-700 font-bold' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($v['gpl_expiry'] ?? '—') ?>
-                                    </span>
-                                    <?php if ($v['gpl_days'] !== null && $v['gpl_days'] <= 30): ?>
-                                        <span class="block text-[9px] text-amber-600 font-sans font-bold"><?= $v['gpl_days'] <= 0 ? 'منتهي!' : "باقي {$v['gpl_days']} يوم" ?></span>
-                                    <?php endif; ?>
+                                <td class="p-3 text-center whitespace-nowrap font-num">
+                                    <div class="flex flex-col items-center justify-center leading-tight py-0.5">
+                                        <span class="inline-block <?= $gplWarning ? 'text-amber-700 font-bold' : 'text-slate-700' ?>" dir="ltr">
+                                            <?= htmlspecialchars($v['gpl_expiry'] ?? '—') ?>
+                                        </span>
+                                        <?php if ($v['gpl_days'] !== null && $v['gpl_days'] <= 30): ?>
+                                            <span class="mt-0.5 inline-block text-[10px] text-amber-600 font-sans font-bold"><?= $v['gpl_days'] <= 0 ? 'منتهي!' : "باقي {$v['gpl_days']} يوم" ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <!-- 11. تاريخ انتهاء شهادة العداد -->
-                                <td class="p-3.5 text-center whitespace-nowrap font-num">
-                                    <span class="inline-block <?= $sacWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($v['saccuriometre_expiry'] ?? '—') ?>
-                                    </span>
-                                    <?php if ($v['sac_days'] !== null && $v['sac_days'] <= 30): ?>
-                                        <span class="block text-[9px] text-rose-500 font-sans font-bold"><?= $v['sac_days'] <= 0 ? 'منتهي!' : "باقي {$v['sac_days']} يوم" ?></span>
-                                    <?php endif; ?>
+                                <td class="p-3 text-center whitespace-nowrap font-num">
+                                    <div class="flex flex-col items-center justify-center leading-tight py-0.5">
+                                        <span class="inline-block <?= $sacWarning ? 'text-rose-600 font-bold' : 'text-slate-700' ?>" dir="ltr">
+                                            <?= htmlspecialchars($v['saccuriometre_expiry'] ?? '—') ?>
+                                        </span>
+                                        <?php if ($v['sac_days'] !== null && $v['sac_days'] <= 30): ?>
+                                            <span class="mt-0.5 inline-block text-[10px] text-rose-500 font-sans font-bold"><?= $v['sac_days'] <= 0 ? 'منتهي!' : "باقي {$v['sac_days']} يوم" ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <!-- 12. الحالة -->

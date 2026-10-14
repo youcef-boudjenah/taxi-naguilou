@@ -390,50 +390,50 @@ if ($pdo) {
         <!-- Segmented Filter Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
             <a href="drivers.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
                 الكل
             </a>
 
             <a href="drivers.php?filter=actifs<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
                 <span>سائقون نشطون</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/80 font-num font-bold text-slate-900"><?= $countActifs ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/80 dark:bg-slate-700 font-num font-bold text-slate-900 dark:text-slate-100"><?= $countActifs ?></span>
             </a>
 
             <a href="drivers.php?filter=trial_1<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_1' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_1' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 hover:bg-amber-100 dark:hover:bg-amber-500/20' ?>">
                 <span>تجريبية 1</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200/80 font-num font-bold text-amber-950"><?= $countTrial1 ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200/80 dark:bg-amber-500/30 font-num font-bold text-amber-950 dark:text-amber-200"><?= $countTrial1 ?></span>
             </a>
 
             <a href="drivers.php?filter=trial_2<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_2' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_2' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-50 dark:bg-blue-500/10 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 hover:bg-blue-100 dark:hover:bg-blue-500/20' ?>">
                 <span>تجريبية 2</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-200/80 font-num font-bold text-blue-950"><?= $countTrial2 ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-200/80 dark:bg-blue-500/30 font-num font-bold text-blue-950 dark:text-blue-200"><?= $countTrial2 ?></span>
             </a>
 
             <a href="drivers.php?filter=trial_3<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_3' ? 'bg-indigo-600 text-white font-bold' : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_3' ? 'bg-indigo-600 text-white font-bold' : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-900 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-500/20' ?>">
                 <span>تجريبية 3</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-200/80 font-num font-bold text-indigo-950"><?= $countTrial3 ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-200/80 dark:bg-indigo-500/30 font-num font-bold text-indigo-950 dark:text-indigo-200"><?= $countTrial3 ?></span>
             </a>
 
             <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'official' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'official' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100 dark:hover:bg-emerald-500/20' ?>">
                 <span>سائق رسمي</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200/80 font-num font-bold text-emerald-950"><?= $countOfficial ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200/80 dark:bg-emerald-500/30 font-num font-bold text-emerald-950 dark:text-emerald-200"><?= $countOfficial ?></span>
             </a>
 
             <a href="drivers.php?filter=permanence<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'permanence' ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' ?>">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'permanence' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
                 <span>المداومة</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-700 text-white font-num"><?= $countPermanence ?></span>
             </a>
 
             <a href="debts.php?filter=all" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 bg-slate-100 text-slate-600 hover:bg-slate-200">
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                 <span>سابقون (ديون)</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 font-num font-bold text-slate-800"><?= $countAnciens ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 dark:bg-slate-700 font-num font-bold text-slate-800 dark:text-slate-200"><?= $countAnciens ?></span>
             </a>
         </div>
     </div>
@@ -488,26 +488,26 @@ if ($pdo) {
                                                         <span><?= $curB['label'] ?></span>
                                                         <svg class="w-2.5 h-2.5 opacity-60 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
                                                     </button>
-                                                    <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-200 p-1 text-right">
+                                                    <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-48 bg-white dark:bg-[#161d27] rounded-xl shadow-xl border border-slate-200 dark:border-slate-700/80 p-1.5 text-right">
                                                         <form method="POST" action="">
                                                             <?= csrf_field() ?>
                                                             <input type="hidden" name="action" value="update_driver_stage">
                                                             <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
-                                                            <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 text-amber-900 transition flex items-center justify-between">
+                                                            <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 dark:hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 transition flex items-center justify-between">
                                                                 <span>فترة تجريبية الأولى</span>
-                                                                <?= $stage === 'trial_1' ? '✓' : '' ?>
+                                                                <?= $stage === 'trial_1' ? '<span class="text-amber-500 font-bold">✓</span>' : '' ?>
                                                             </button>
-                                                            <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 text-blue-900 transition flex items-center justify-between">
+                                                            <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 dark:hover:bg-blue-500/20 text-blue-900 dark:text-blue-300 transition flex items-center justify-between">
                                                                 <span>تجريبية الثانية</span>
-                                                                <?= $stage === 'trial_2' ? '✓' : '' ?>
+                                                                <?= $stage === 'trial_2' ? '<span class="text-blue-500 font-bold">✓</span>' : '' ?>
                                                             </button>
-                                                            <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 text-indigo-900 transition flex items-center justify-between">
+                                                            <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 transition flex items-center justify-between">
                                                                 <span>تجريبية الثالثة</span>
-                                                                <?= $stage === 'trial_3' ? '✓' : '' ?>
+                                                                <?= $stage === 'trial_3' ? '<span class="text-indigo-500 font-bold">✓</span>' : '' ?>
                                                             </button>
-                                                            <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 text-emerald-900 transition flex items-center justify-between border-t border-slate-100">
+                                                            <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 transition flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 mt-1 pt-1">
                                                                 <span>سائق رسمي</span>
-                                                                <?= $stage === 'official' ? '✓' : '' ?>
+                                                                <?= $stage === 'official' ? '<span class="text-emerald-500 font-bold">✓</span>' : '' ?>
                                                             </button>
                                                         </form>
                                                     </div>
