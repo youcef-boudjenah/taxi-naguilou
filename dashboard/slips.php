@@ -22,11 +22,19 @@ if ($pdo) {
 
 // Active tab
 $activeTab = $_GET['tab'] ?? 'generator'; // 'generator' or 'history'
+if (is_driver() && !isset($_GET['print_id'])) {
+    $activeTab = 'history';
+}
 
 // Handle New Slip Generation
 $generatedSlip = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'generate_slip') {
     require_csrf_token();
+    if (is_driver()) {
+        set_flash('error', 'عذراً، لا تملك صلاحية إنشاء جداول الإرسال.');
+        redirect('/dashboard/slips.php?tab=history');
+        exit;
+    }
     $vehicleId = intval($_POST['vehicle_id'] ?? 0);
     $driverId = intval($_POST['driver_id'] ?? 0);
     $recipient = trim($_POST['recipient'] ?? 'Direction des Transports de la Wilaya d\'Alger (DTW)');
@@ -78,14 +86,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $slipsHistory = [];
 if ($pdo) {
     try {
-        $stmtH = $pdo->query("
-            SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
-                   u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
-            FROM transmission_slips s
-            JOIN vehicles v ON s.vehicle_id = v.id
-            JOIN users u ON s.driver_id = u.id
-            ORDER BY s.id DESC
-        ");
+        if (is_driver()) {
+            $stmtH = $pdo->prepare("
+                SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
+                       u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
+                FROM transmission_slips s
+                JOIN vehicles v ON s.vehicle_id = v.id
+                JOIN users u ON s.driver_id = u.id
+                WHERE s.driver_id = ?
+                ORDER BY s.id DESC
+            ");
+            $stmtH->execute([$_SESSION['user_id']]);
+        } else {
+            $stmtH = $pdo->query("
+                SELECT s.*, v.brand, v.model, v.plate_number, v.door_number,
+                       u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license
+                FROM transmission_slips s
+                JOIN vehicles v ON s.vehicle_id = v.id
+                JOIN users u ON s.driver_id = u.id
+                ORDER BY s.id DESC
+            ");
+        }
         $slipsHistory = $stmtH ? $stmtH->fetchAll() : [];
     } catch (\Throwable $e) {
         $slipsHistory = [];
@@ -135,6 +156,7 @@ if (isset($_GET['print_id']) && $pdo) {
         
         <!-- Segmented Tab Navigation -->
         <div class="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold">
+            <?php if (!is_driver()): ?>
             <a href="slips.php?tab=generator" 
                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition <?= $activeTab === 'generator' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' ?>">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -142,6 +164,7 @@ if (isset($_GET['print_id']) && $pdo) {
                 </svg>
                 <span>المولّد (Générateur)</span>
             </a>
+            <?php endif; ?>
             <a href="slips.php?tab=history" 
                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition <?= $activeTab === 'history' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' ?>">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -156,6 +179,7 @@ if (isset($_GET['print_id']) && $pdo) {
         <!-- TAB 1: GENERATEUR DE BORDEREAUX -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
+            <?php if (!is_driver()): ?>
             <!-- Left Column: Generator Form -->
             <div class="lg:col-span-5 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
                 <div class="border-b border-slate-100 pb-3">
@@ -250,9 +274,10 @@ if (isset($_GET['print_id']) && $pdo) {
                     </div>
                 </form>
             </div>
+            <?php endif; ?>
 
             <!-- Right Column: Official Bordereau Document Preview & Print Button -->
-            <div class="lg:col-span-7 space-y-4">
+            <div class="<?= is_driver() ? 'lg:col-span-12 max-w-3xl mx-auto w-full' : 'lg:col-span-7' ?> space-y-4">
                 
                 <div class="flex items-center justify-between">
                     <div class="text-xs font-bold text-slate-600">
@@ -353,6 +378,7 @@ if (isset($_GET['print_id']) && $pdo) {
                     <h3 class="font-bold text-slate-900 text-sm">أرشيف جداول الإرسال الرسمية</h3>
                     <p class="text-xs text-slate-400">سجل كامل لجداول الإرسال الصادرة للمصالح الولائية والميدانية</p>
                 </div>
+                <?php if (!is_driver()): ?>
                 <a href="slips.php?tab=generator" 
                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
@@ -360,6 +386,7 @@ if (isset($_GET['print_id']) && $pdo) {
                     </svg>
                     <span>إنشاء جدول جديد</span>
                 </a>
+                <?php endif; ?>
             </div>
 
             <div class="overflow-x-auto">

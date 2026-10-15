@@ -53,8 +53,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
     }
 }
 
-// Fallback: If no ID supplied or not found, select first available driver
+// Fallback: If no ID supplied or not found, select first available driver (or own ID if driver)
 if (!$driver && $pdo) {
+    if (is_driver() && !empty($_SESSION['user_id'])) {
+        redirect('/dashboard/driver_fiche.php?id=' . intval($_SESSION['user_id']));
+    }
     $firstDriverId = (int)$pdo->query("SELECT id FROM users WHERE role = 'driver' ORDER BY id ASC LIMIT 1")->fetchColumn();
     if ($firstDriverId > 0) {
         redirect('/dashboard/driver_fiche.php?id=' . $firstDriverId);
@@ -134,12 +137,21 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
     <!-- Top Action Toolbar (Hidden in Print) -->
     <div class="max-w-5xl mx-auto mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 no-print bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div class="flex items-center gap-3">
+            <?php if (!is_driver()): ?>
             <a href="drivers.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
                 <span>سجل السائقين</span>
             </a>
+            <?php else: ?>
+            <a href="index.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+                <span>لوحة التحكم</span>
+            </a>
+            <?php endif; ?>
             <div class="h-5 w-px bg-slate-200"></div>
             <div>
                 <span class="text-xs font-bold text-slate-400">البطاقة الفنية للسائق المهني:</span>

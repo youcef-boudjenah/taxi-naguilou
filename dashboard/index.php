@@ -26,21 +26,32 @@ $counts = [
 
 if ($pdo) {
     try {
-        $counts['vehicles']         = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
-        $counts['fleet_tracking']   = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'active'")->fetchColumn();
-        $counts['drivers']          = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
-        $counts['contracts']        = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
-        $counts['cnas']             = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
-        $counts['leaves']           = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE status = 'approved' AND end_date >= CURDATE()")->fetchColumn();
-        $counts['slips']            = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE status = 'active'")->fetchColumn();
-        $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
-        $counts['planning']         = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
-        $counts['debts']            = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE status = 'endette'")->fetchColumn();
-        $counts['billing']          = (float)$pdo->query("SELECT COALESCE(SUM(paid_amount), 0) FROM billings WHERE status = 'paid'")->fetchColumn();
-        $counts['notifications']    = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
-        $counts['users']            = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-        $counts['audit_logs']       = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
-        $counts['settings']         = (int)$pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();
+        if ($isTaxiDriver) {
+            $stmtDriverSlips = $pdo->prepare("SELECT COUNT(*) FROM transmission_slips WHERE driver_id = ?");
+            $stmtDriverSlips->execute([$user['id']]);
+            $counts['slips'] = (int)$stmtDriverSlips->fetchColumn();
+
+            $counts['notifications'] = (int)$unreadNotifCount;
+            $counts['planning'] = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
+            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+            $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+        } else {
+            $counts['vehicles']         = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+            $counts['fleet_tracking']   = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'active'")->fetchColumn();
+            $counts['drivers']          = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
+            $counts['contracts']        = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
+            $counts['cnas']             = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
+            $counts['leaves']           = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE status = 'approved' AND end_date >= CURDATE()")->fetchColumn();
+            $counts['slips']            = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE status = 'active'")->fetchColumn();
+            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+            $counts['planning']         = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
+            $counts['debts']            = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE status = 'endette'")->fetchColumn();
+            $counts['billing']          = (float)$pdo->query("SELECT COALESCE(SUM(paid_amount), 0) FROM billings WHERE status = 'paid'")->fetchColumn();
+            $counts['notifications']    = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
+            $counts['users']            = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+            $counts['audit_logs']       = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
+            $counts['settings']         = (int)$pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();
+        }
     } catch (\Throwable $e) {
         error_log("Dashboard query error: " . $e->getMessage());
     }
@@ -54,6 +65,7 @@ if ($pdo) {
          Category 1: الأسطول والمركبات (Fleet & Vehicles)
          ============================================== -->
 
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- 1. السائقون والبطاقات المهنية -->
     <a href="<?= url('/dashboard/drivers.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -72,6 +84,26 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">دفاتر المقررة والبطاقات الفنية</p>
         </div>
     </a>
+    <?php elseif ($isTaxiDriver): ?>
+    <!-- 1. بطاقتي الفنية ودفتر المقررة (Driver Dedicated Card) -->
+    <a href="<?= url('/dashboard/driver_fiche.php?id=' . $user['id']) ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 font-num">
+                ملفي المهني
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-violet-600 transition">بطاقتي الفنية ودفتر المقررة</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">بيانات الركوب، التأمين، والعقد 90-11</p>
+        </div>
+    </a>
+    <?php endif; ?>
 
     <!-- 2. سجل المركبات والوثائق -->
     <a href="<?= url('/dashboard/vehicles.php') ?>" data-category="fleet" 
@@ -92,6 +124,7 @@ if ($pdo) {
         </div>
     </a>
 
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- 3. عقود العمل (قانون 90-11) -->
     <a href="<?= url('/dashboard/contracts.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -110,7 +143,9 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">عقود إيجار واستغلال رخصة الأجرة</p>
         </div>
     </a>
+    <?php endif; ?>
 
+    <?php if ($isSuperOrAdmin): ?>
     <!-- 4. الضمان الاجتماعي (CNAS) -->
     <a href="<?= url('/dashboard/cnas.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -129,7 +164,9 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">تصريحات الأجراء والاشتراكات</p>
         </div>
     </a>
+    <?php endif; ?>
 
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- 5. تتبع الأسطول الميداني -->
     <a href="<?= url('/dashboard/fleet.php') ?>" data-category="fleet" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -193,6 +230,7 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">إنابة المركبات والإجازات الرسمية</p>
         </div>
     </a>
+    <?php endif; ?>
 
     <!-- 8. جداول الإرسال (Bordereaux) -->
     <a href="<?= url('/dashboard/slips.php') ?>" data-category="drivers" 
@@ -255,6 +293,7 @@ if ($pdo) {
          Category 3: المالية والاشتراكات (Finance & Subscriptions)
          ============================================== -->
 
+    <?php if ($isSuperOrAdmin): ?>
     <!-- 11. المالية والديون -->
     <a href="<?= url('/dashboard/debts.php') ?>" data-category="finance" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -273,7 +312,9 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">مستحقات السائقين وجداول التحصيل</p>
         </div>
     </a>
+    <?php endif; ?>
 
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- 12. الفوترة والاشتراكات -->
     <a href="<?= url('/dashboard/billing.php') ?>" data-category="finance" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -292,6 +333,7 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">BaridiMob / CCP والدفع الشهري</p>
         </div>
     </a>
+    <?php endif; ?>
 
     <!-- ==============================================
          Category 4: النظام والتنبيهات (System & Alerts)
@@ -322,6 +364,7 @@ if ($pdo) {
         </div>
     </a>
 
+    <?php if ($isSuperOrAdmin): ?>
     <!-- 14. المستخدمون والصلاحيات -->
     <a href="<?= url('/dashboard/users.php') ?>" data-category="system" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -379,6 +422,7 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">الهوية الجبائية والبيانات البنكية</p>
         </div>
     </a>
+    <?php endif; ?>
 
     <!-- 17. الموقع الرئيسي -->
     <a href="<?= url('/') ?>" target="_blank" data-category="system" 

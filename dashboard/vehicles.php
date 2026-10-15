@@ -638,6 +638,7 @@ if (isset($_GET['edit']) && $pdo) {
 
 </div>
 
+<?php if (is_admin() || is_owner()): ?>
 <!-- Modal: Add / Edit Vehicle -->
 <div id="addVehicleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm <?= $editVehicle ? 'flex' : 'hidden' ?> flex items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl max-h-[92vh] overflow-y-auto space-y-5 text-right m-auto">
@@ -1059,9 +1060,13 @@ if (isset($_GET['edit']) && $pdo) {
         </div>
 
         <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+            <?php if (is_admin()): ?>
             <a href="/dashboard/settings.php#fleet-presets" target="_blank" class="text-[11px] text-amber-600 hover:underline font-semibold">
                 إدارة الإعدادات العامة ↗
             </a>
+            <?php else: ?>
+            <div></div>
+            <?php endif; ?>
             <div class="flex items-center gap-2">
                 <button type="button" onclick="closeQuickPresetModal()" class="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50">
                     إلغاء
@@ -1073,6 +1078,7 @@ if (isset($_GET['edit']) && $pdo) {
         </div>
     </div>
 </div>
+<?php endif; // is_admin || is_owner ?>
 
 <script>
 // Driver and Preset state

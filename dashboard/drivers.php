@@ -478,11 +478,19 @@ if ($pdo) {
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-700 text-white font-num"><?= $countPermanence ?></span>
             </a>
 
+            <?php if (is_admin()): ?>
             <a href="debts.php?filter=all" 
                class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                 <span>سابقون (ديون)</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 dark:bg-slate-700 font-num font-bold text-slate-800 dark:text-slate-200"><?= $countAnciens ?></span>
             </a>
+            <?php else: ?>
+            <a href="drivers.php?filter=anciens<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'anciens' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
+                <span>سائقون سابقون</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 dark:bg-slate-700 font-num font-bold text-slate-800 dark:text-slate-200"><?= $countAnciens ?></span>
+            </a>
+            <?php endif; ?>
         </div>
     </div>
 

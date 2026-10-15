@@ -22,6 +22,11 @@ if (isset($_GET['print_id']) && $pdo) {
     $report = $stmtP->fetch();
 
     if ($report) {
+        if (is_driver() && (int)$report['driver_id'] !== (int)$_SESSION['user_id']) {
+            set_flash('error', 'عذراً، لا يمكنك الاطلاع على محاضر رحلات السائقين الآخرين.');
+            redirect('/dashboard/traveler_reports.php');
+            exit;
+        }
         $stmtPass = $pdo->prepare("SELECT * FROM traveler_passengers WHERE report_id = ? ORDER BY seat_number ASC");
         $stmtPass->execute([$printId]);
         $passengers = $stmtPass->fetchAll();
@@ -243,14 +248,26 @@ $driversList = [];
 
 if ($pdo) {
     try {
-        $stmtR = $pdo->query("
+        $whereRep = ["1=1"];
+        $paramsRep = [];
+        if (is_driver()) {
+            $whereRep[] = "r.driver_id = ?";
+            $paramsRep[] = intval($_SESSION['user_id']);
+        } elseif (is_owner() && !is_admin()) {
+            $whereRep[] = "(v.owner_id = ? OR v.owner_id IS NULL)";
+            $paramsRep[] = intval($_SESSION['user_id']);
+        }
+
+        $stmtR = $pdo->prepare("
             SELECT r.*, v.plate_number, v.brand, v.model, u.full_name as driver_name, u.phone as driver_phone,
                    (SELECT COUNT(*) FROM traveler_passengers WHERE report_id = r.id) as registered_passengers
             FROM traveler_reports r
             JOIN vehicles v ON r.vehicle_id = v.id
             JOIN users u ON r.driver_id = u.id
+            WHERE " . implode(' AND ', $whereRep) . "
             ORDER BY r.departure_date DESC, r.departure_time DESC
         ");
+        $stmtR->execute($paramsRep);
         $reports = $stmtR ? $stmtR->fetchAll() : [];
 
         $vehiclesList = $pdo->query("SELECT id, brand, model, plate_number FROM vehicles WHERE status = 'active' ORDER BY brand ASC")->fetchAll();
@@ -269,6 +286,7 @@ if ($pdo) {
             <h2 class="text-lg font-black text-slate-900">محاضر ودفاتر المسافرين (PV de Voyageurs)</h2>
             <p class="text-xs text-slate-500 mt-1">تنظيم الرحلات ما بين الولايات، تسجيل هويات الركاب (بطاقات التعريف CNI)، وإصدار أوراق العبور الرسمية المعتمدة.</p>
         </div>
+        <?php if (is_admin()): ?>
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('newReportModal').classList.remove('hidden')"
                     class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-2">
@@ -276,6 +294,7 @@ if ($pdo) {
                 <span>إصدار محضر سفر جديد</span>
             </button>
         </div>
+        <?php endif; ?>
     </div>
 
     <?php if ($message): ?>
@@ -373,6 +392,7 @@ if ($pdo) {
 
 </div>
 
+<?php if (is_admin()): ?>
 <!-- Modal: New Traveler Report -->
 <div id="newReportModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
@@ -485,5 +505,6 @@ if ($pdo) {
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

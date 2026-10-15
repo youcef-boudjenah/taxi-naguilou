@@ -2,10 +2,17 @@
 // dashboard/leaves.php - Driver Leaves & Relief Driver Dispatch
 $pageTitle = 'نظام السائق البديل والعطل';
 require_once __DIR__ . '/../includes/header.php';
+require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
-$vehicles = $pdo->query("SELECT id, brand, model, plate_number, current_driver_id FROM vehicles ORDER BY plate_number ASC")->fetchAll();
-$drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+if (is_owner() && !is_admin()) {
+    $stmtVeh = $pdo->prepare("SELECT id, brand, model, plate_number, current_driver_id FROM vehicles WHERE owner_id = ? OR owner_id IS NULL ORDER BY plate_number ASC");
+    $stmtVeh->execute([intval($_SESSION['user_id'])]);
+    $vehicles = $stmtVeh->fetchAll() ?: [];
+} else {
+    $vehicles = $pdo->query("SELECT id, brand, model, plate_number, current_driver_id FROM vehicles ORDER BY plate_number ASC")->fetchAll() ?: [];
+}
+$drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll() ?: [];
 
 // Handle New Leave & Relief Assignment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_leave') {
@@ -59,7 +66,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch leaves
-$leaves = $pdo->query("
+$whereLeaves = "1=1";
+$paramsLeaves = [];
+if (is_owner() && !is_admin()) {
+    $whereLeaves = "(v.owner_id = ? OR v.owner_id IS NULL)";
+    $paramsLeaves = [intval($_SESSION['user_id'])];
+}
+
+$stmtL = $pdo->prepare("
     SELECT l.*, v.brand, v.model, v.plate_number, v.door_number,
            u1.full_name as main_driver, u1.phone as main_phone,
            u2.full_name as relief_driver, u2.phone as relief_phone
@@ -67,11 +81,20 @@ $leaves = $pdo->query("
     JOIN vehicles v ON l.vehicle_id = v.id
     JOIN users u1 ON l.driver_id = u1.id
     LEFT JOIN users u2 ON l.replacement_driver_id = u2.id
+    WHERE $whereLeaves
     ORDER BY l.id DESC
-")->fetchAll();
+");
+$stmtL->execute($paramsLeaves);
+$leaves = $stmtL->fetchAll() ?: [];
 
 $totalLeaves = count($leaves);
-$activeReliefCount = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE replacement_driver_id IS NOT NULL AND end_date >= CURDATE()")->fetchColumn();
+if (is_owner() && !is_admin()) {
+    $stmtArc = $pdo->prepare("SELECT COUNT(*) FROM leaves l JOIN vehicles v ON l.vehicle_id = v.id WHERE l.replacement_driver_id IS NOT NULL AND l.end_date >= CURDATE() AND (v.owner_id = ? OR v.owner_id IS NULL)");
+    $stmtArc->execute([intval($_SESSION['user_id'])]);
+    $activeReliefCount = (int)$stmtArc->fetchColumn();
+} else {
+    $activeReliefCount = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE replacement_driver_id IS NOT NULL AND end_date >= CURDATE()")->fetchColumn();
+}
 ?>
 
 <div class="space-y-6">

@@ -151,6 +151,7 @@ foreach ($allShifts as $sh) {
             <p class="text-xs text-slate-500 mt-1">حراسة الأسطول الليلي وجدول مناوبات وسائقي المداومة (CHAUFFEURS PERMANENCE)</p>
         </div>
 
+        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('addNightModal').classList.remove('hidden')"
                     class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
@@ -167,6 +168,7 @@ foreach ($allShifts as $sh) {
                 <span>برمجة مناوبة جديدة</span>
             </button>
         </div>
+        <?php endif; ?>
     </div>
 
     <!-- Section 1: Garde de nuit du parc -->
@@ -211,6 +213,7 @@ foreach ($allShifts as $sh) {
                             <?php endif; ?>
                         </div>
 
+                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                         <div class="pt-1">
                             <form method="POST" action="">
                                 <?= csrf_field() ?>
@@ -222,6 +225,7 @@ foreach ($allShifts as $sh) {
                                 </button>
                             </form>
                         </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -355,6 +359,7 @@ foreach ($allShifts as $sh) {
 
 </div>
 
+<?php if ($isSuperOrAdmin || $isFleetOwner): ?>
 <!-- Modal: Add Shift Schedule -->
 <div id="addShiftModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white max-w-md w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
@@ -470,5 +475,6 @@ foreach ($allShifts as $sh) {
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

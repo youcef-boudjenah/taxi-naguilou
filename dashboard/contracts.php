@@ -6,14 +6,20 @@ require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
 
-$vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll();
+if (is_owner() && !is_admin()) {
+    $stmtV = $pdo->prepare("SELECT id, brand, model, plate_number, door_number FROM vehicles WHERE owner_id = ? OR owner_id IS NULL ORDER BY plate_number ASC");
+    $stmtV->execute([$_SESSION['user_id']]);
+    $vehicles = $stmtV->fetchAll() ?: [];
+} else {
+    $vehicles = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC")->fetchAll() ?: [];
+}
 $drivers = $pdo->query("
     SELECT u.id, u.full_name, u.phone, u.license_number, u.taxi_contract_start, u.taxi_contract_end,
            (SELECT v.id FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) as assigned_vehicle_id
     FROM users u 
     WHERE u.role = 'driver' AND u.status = 'active' 
     ORDER BY u.full_name ASC
-")->fetchAll();
+")->fetchAll() ?: [];
 
 // Handle Create Contract
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_contract') {
@@ -80,6 +86,12 @@ if ($filter === 'active') {
     $where[] = "c.end_date < CURDATE()";
 }
 
+if (is_owner() && !is_admin()) {
+    $where[] = "(c.owner_id = ? OR v.owner_id = ?)";
+    $params[] = intval($_SESSION['user_id']);
+    $params[] = intval($_SESSION['user_id']);
+}
+
 $sql = "
     SELECT c.*, 
            v.plate_number, v.brand, v.model, v.door_number,
@@ -109,11 +121,23 @@ if ($pdo) {
     }
 
     try {
-        $countTous = (int)$pdo->query("SELECT COUNT(*) FROM contracts")->fetchColumn();
+        if (is_owner() && !is_admin()) {
+            $stmtCt = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCt->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
+            $countTous = (int)$stmtCt->fetchColumn();
+        } else {
+            $countTous = (int)$pdo->query("SELECT COUNT(*) FROM contracts")->fetchColumn();
+        }
     } catch (\Throwable $e) { $countTous = count($contracts); }
 
     try {
-        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
+        if (is_owner() && !is_admin()) {
+            $stmtCa = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.end_date >= CURDATE() AND (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCa->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
+            $countActifs = (int)$stmtCa->fetchColumn();
+        } else {
+            $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
+        }
     } catch (\Throwable $e) { $countActifs = 0; }
 
     $countExpires = max(0, $countTous - $countActifs);

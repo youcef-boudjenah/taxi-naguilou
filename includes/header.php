@@ -289,18 +289,22 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                 <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
                             <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                                 <a href="<?= url('/dashboard/fleet.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition">
                                     <span>تتبع الأسطول الميداني</span>
                                     <span class="text-[10px] text-slate-400 font-num">GPS</span>
                                 </a>
+                                <?php endif; ?>
                                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition">
                                     <span>سجل المركبات والوثائق</span>
                                     <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
                                 </a>
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                                 <a href="<?= url('/dashboard/insurance.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition">
                                     <span>التأمين والمراقبة التقنية</span>
                                     <span class="text-[10px] text-slate-400 font-num">SAA / GPL</span>
                                 </a>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -311,24 +315,34 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                 <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
                             <div class="absolute right-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                                 <a href="<?= url('/dashboard/drivers.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition">
                                     <span>السائقون والبطاقات المهنية</span>
                                     <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
                                 </a>
+                                <?php endif; ?>
+                                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition">
+                                    <span><?= $isTaxiDriver ? 'بطاقتي الفنية (دفتر المقررة)' : 'البطاقة الفنية للسائق' ?></span>
+                                    <span class="text-[10px] text-slate-400 font-num">Fiche</span>
+                                </a>
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                                 <a href="<?= url('/dashboard/contracts.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition">
                                     <span>عقود العمل (قانون 90-11)</span>
                                     <span class="text-[10px] text-slate-400 font-num">قانوني</span>
                                 </a>
+                                <?php endif; ?>
                                 <?php if ($isSuperOrAdmin): ?>
                                 <a href="<?= url('/dashboard/cnas.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition">
                                     <span>الضمان الاجتماعي (CNAS)</span>
                                     <span class="text-[10px] text-slate-400 font-num">أجراء</span>
                                 </a>
                                 <?php endif; ?>
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                                 <a href="<?= url('/dashboard/leaves.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition">
                                     <span>السائق البديل والعطل</span>
                                     <span class="text-[10px] text-slate-400 font-num">إنابة</span>
                                 </a>
+                                <?php endif; ?>
                                 <a href="<?= url('/dashboard/slips.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-800 transition">
                                     <span>جداول الإرسال (Bordereaux)</span>
                                     <span class="text-[10px] text-slate-400 font-num">DTW</span>
@@ -545,16 +559,37 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <!-- Mobile Navigation Drawer / Dropdown -->
         <div id="mobileNavDrawer" class="hidden xl:hidden bg-white border-b border-slate-200/90 px-4 py-3 shadow-lg z-40 space-y-3">
             <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/fleet.php') ?>" class="p-2 rounded-lg bg-blue-50 text-blue-700">📍 تتبع الأسطول</a>
+                <?php endif; ?>
                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/drivers.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-700">👤 سجل السائقين</a>
+                <?php endif; ?>
+                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 <?= $isTaxiDriver ? 'بطاقتي الفنية' : 'البطاقة الفنية' ?></a>
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/contracts.php') ?>" class="p-2 rounded-lg bg-teal-50 text-teal-700">📄 عقود 90-11</a>
                 <a href="<?= url('/dashboard/insurance.php') ?>" class="p-2 rounded-lg bg-emerald-50 text-emerald-700">🛡️ التأمين والفحص</a>
+                <?php endif; ?>
+                <?php if ($isSuperOrAdmin): ?>
                 <a href="<?= url('/dashboard/cnas.php') ?>" class="p-2 rounded-lg bg-sky-50 text-sky-700">🏥 الضمان CNAS</a>
+                <?php endif; ?>
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/billing.php') ?>" class="p-2 rounded-lg bg-emerald-50 text-emerald-800">🧾 الفوترة CCP</a>
+                <?php endif; ?>
+                <?php if ($isSuperOrAdmin): ?>
                 <a href="<?= url('/dashboard/debts.php') ?>" class="p-2 rounded-lg bg-rose-50 text-rose-700">💳 المالية والديون</a>
+                <?php endif; ?>
                 <a href="<?= url('/dashboard/slips.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-900">📋 جداول الإرسال</a>
+                <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="p-2 rounded-lg bg-cyan-50 text-cyan-700">📜 محاضر PV</a>
+                <a href="<?= url('/dashboard/planning.php') ?>" class="p-2 rounded-lg bg-purple-50 text-purple-700">🌙 مداومة وحظيرة</a>
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/leaves.php') ?>" class="p-2 rounded-lg bg-indigo-50 text-indigo-700">🌴 العطل والبديل</a>
+                <?php endif; ?>
+                <?php if ($isSuperOrAdmin): ?>
+                <a href="<?= url('/dashboard/users.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">👥 المستخدمون</a>
+                <a href="<?= url('/dashboard/settings.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">⚙️ الإعدادات</a>
+                <?php endif; ?>
             </div>
             <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <div class="flex items-center gap-2">
@@ -576,7 +611,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     <!-- On Launcher Grid (index.php): Filter Pills -->
                     <div class="flex items-center gap-1.5 shrink-0" id="categoryFilterBar">
                         <button type="button" data-filter="all" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-900 text-white">
-                            الكل (18)
+                            الكل
                         </button>
                         <button type="button" data-filter="fleet" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
                             الأسطول والمركبات
@@ -584,9 +619,11 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         <button type="button" data-filter="drivers" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
                             السائقون والتشغيل
                         </button>
+                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                         <button type="button" data-filter="finance" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
                             المالية والاشتراكات
                         </button>
+                        <?php endif; ?>
                         <button type="button" data-filter="system" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
                             النظام والتنبيهات
                         </button>
@@ -620,13 +657,19 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                 if ($pKey === 'cnas' && !$isSuperOrAdmin) continue;
                                 if ($pKey === 'debts' && !$isSuperOrAdmin) continue;
                                 if ($pKey === 'users' && !$isSuperOrAdmin) continue;
+                                if ($pKey === 'audit_logs' && !$isSuperOrAdmin) continue;
                                 if ($pKey === 'settings' && !$isSuperOrAdmin) continue;
+                                if (in_array($pKey, ['fleet', 'insurance', 'drivers', 'contracts', 'leaves', 'billing']) && !$isSuperOrAdmin && !$isFleetOwner) continue;
                                 if ($pKey === 'contract_view') continue; // Not a standalone listing
-                                if ($pKey === 'driver_fiche' && !isset($_GET['id'])) continue; // Only relevant when viewing fiche
+                                if ($pKey === 'driver_fiche' && !isset($_GET['id']) && !$isTaxiDriver) continue;
                                 
                                 $isCurrent = ($currentPage === $pKey);
+                                $targetUrl = $pInfo['url'];
+                                if ($pKey === 'driver_fiche' && $isTaxiDriver) {
+                                    $targetUrl .= '?id=' . $user['id'];
+                                }
                             ?>
-                                <a href="<?= url($pInfo['url']) ?>" 
+                                <a href="<?= url($targetUrl) ?>" 
                                    class="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition shadow-2xs <?= $isCurrent ? 'bg-slate-900 text-white font-black' : 'bg-slate-100 hover:bg-slate-200 text-slate-600' ?>">
                                     <?= $pInfo['title'] ?>
                                 </a>
