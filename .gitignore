@@ -1,6 +1,7 @@
 # Environment & temporary files
 cookie.txt
 *.log
+install.lock
 .system_generated/
 test_check.php
 test_contracts.php

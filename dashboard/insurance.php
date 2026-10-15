@@ -56,6 +56,93 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Edit Insurance Record
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_insurance') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بتعديل وثائق التأمين.');
+        redirect('/dashboard/insurance.php');
+    }
+    $policyId = intval($_POST['policy_id'] ?? 0);
+    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $policyNumber = trim($_POST['policy_number'] ?? '');
+    $company = trim($_POST['company'] ?? 'SAA');
+    $coverageType = trim($_POST['coverage_type'] ?? 'Tous Risques + Transport Public Voyageurs');
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d', strtotime('+1 year'));
+    $premium = floatval($_POST['premium_amount'] ?? 35000);
+    $attestation = trim($_POST['attestation_number'] ?? '');
+
+    if ($vehicleId > 0 && !empty($endDate)) {
+        try {
+            $pdo->beginTransaction();
+            if ($policyId > 0) {
+                $stmt = $pdo->prepare("
+                    UPDATE insurance_policies 
+                    SET policy_number = ?, company = ?, coverage_type = ?, start_date = ?, end_date = ?, premium_amount = ?, attestation_number = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$policyNumber, $company, $coverageType, $startDate, $endDate, $premium, $attestation, $policyId]);
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO insurance_policies (vehicle_id, policy_number, company, coverage_type, start_date, end_date, premium_amount, attestation_number, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                ");
+                $stmt->execute([$vehicleId, $policyNumber, $company, $coverageType, $startDate, $endDate, $premium, $attestation]);
+            }
+
+            // Synchronize with vehicles table
+            $stmtVeh = $pdo->prepare("
+                UPDATE vehicles 
+                SET insurance_expiry = ?, insurance_company = ?
+                WHERE id = ?
+            ");
+            $stmtVeh->execute([$endDate, $company, $vehicleId]);
+
+            $pdo->commit();
+            log_audit($pdo, 'insurance_edited', 'insurance_policies', $policyId, "تعديل بيانات وثيقة التأمين للمركبة رقم $vehicleId لدى شركة $company");
+            set_flash('success', "تم تعديل وثيقة التأمين بنجاح");
+            redirect('/dashboard/insurance.php');
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء تعديل وثيقة التأمين: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'يرجى ملء جميع الحقول الإلزامية');
+    }
+}
+
+// Handle Delete Insurance Record
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_insurance') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف وثائق التأمين.');
+        redirect('/dashboard/insurance.php');
+    }
+    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $policyId = intval($_POST['policy_id'] ?? 0);
+    if ($vehicleId > 0) {
+        try {
+            $pdo->beginTransaction();
+            if ($policyId > 0) {
+                $pdo->prepare("DELETE FROM insurance_policies WHERE id = ?")->execute([$policyId]);
+            }
+            $pdo->prepare("UPDATE vehicles SET insurance_expiry = NULL, insurance_company = NULL WHERE id = ?")->execute([$vehicleId]);
+            $pdo->commit();
+            log_audit($pdo, 'insurance_deleted', 'vehicles', $vehicleId, "حذف وتصفير وثيقة التأمين للمركبة رقم $vehicleId");
+            set_flash('success', "تم حذف وثيقة التأمين للمركبة بنجاح");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء حذف الوثيقة: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/insurance.php');
+}
+
 // Filters & Search
 $search = trim($_GET['search'] ?? '');
 $filterCompany = trim($_GET['company'] ?? 'all');
@@ -392,13 +479,39 @@ foreach ($rows as $r) {
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <button onclick="openRenewModalFor(<?= $row['vehicle_id'] ?>, '<?= htmlspecialchars($row['plate_number']) ?>', '<?= htmlspecialchars($company) ?>')"
-                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                                        </svg>
-                                        <span>تجديد</span>
-                                    </button>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button onclick="openRenewModalFor(<?= $row['vehicle_id'] ?>, '<?= htmlspecialchars($row['plate_number']) ?>', '<?= htmlspecialchars($company) ?>')"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-2xs" title="تجديد / تمديد">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تجديد</span>
+                                        </button>
+                                        <?php if (!empty($row['insurance_expiry'])): ?>
+                                            <button type="button"
+                                                    onclick='openEditInsuranceModal(<?= json_encode($row, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs" title="تعديل الوثيقة">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span class="hidden sm:inline">تعديل</span>
+                                            </button>
+                                        <?php endif; ?>
+                                        <?php if (is_admin() && !empty($row['insurance_expiry'])): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف وتصفير وثيقة التأمين لهذه المركبة؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_insurance">
+                                            <input type="hidden" name="vehicle_id" value="<?= $row['vehicle_id'] ?>">
+                                            <input type="hidden" name="policy_id" value="<?= $row['policy_id'] ?? 0 ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف التأمين">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                             </tr>
@@ -499,6 +612,98 @@ foreach ($rows as $r) {
     </div>
 </div>
 
+<!-- Modal: Edit Insurance Policy -->
+<div id="editInsuranceModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden space-y-4 p-6 sm:p-7 text-right m-auto">
+        <div class="border-b border-slate-100 pb-3 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-900">تعديل بيانات وثيقة التأمين</h3>
+                <span id="editInsPlate" class="text-xs text-amber-600 font-bold font-mono"></span>
+            </div>
+            <button type="button" onclick="document.getElementById('editInsuranceModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_insurance">
+            <input type="hidden" id="editPolicyId" name="policy_id" value="">
+            <input type="hidden" id="editVehicleId" name="vehicle_id" value="">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">شركة التأمين المعتمدة *</label>
+                    <select id="editInsCompany" name="company" required
+                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold">
+                        <option value="SAA">SAA - الشركة الوطنية للتأمين</option>
+                        <option value="CAAT">CAAT - الشركة الجزائرية للتأمينات</option>
+                        <option value="CAAR">CAAR - الصندوق الجزائري للتأمين وإعادة التأمين</option>
+                        <option value="CASH">CASH Assurances</option>
+                        <option value="Alliance">Alliance Assurances</option>
+                        <option value="Macir">Macir Vie / Macir Assurances</option>
+                        <option value="Trust">Trust Algeria</option>
+                        <option value="CIAR">CIAR Assurances</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">رقم بوليصة التأمين (N° Police) *</label>
+                    <input type="text" id="editInsPolicyNumber" name="policy_number" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-mono text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold">
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">طبيعة الضمانات والتغطية (Formule)</label>
+                <select id="editInsCoverage" name="coverage_type" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold">
+                    <option value="Tous Risques + Transport Public Voyageurs">Tous Risques + Transport Public Voyageurs (شامل مع تأمين المسافرين)</option>
+                    <option value="Tierce Collision + Transport Public">Tierce Collision + Transport Public</option>
+                    <option value="Responsabilité Civile (Obligatoire) + Défense & Recours">Responsabilité Civile (المسؤولية المدنية الإلزامية)</option>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ سريان الوثيقة (Date d'Effet)</label>
+                    <input type="date" id="editInsStartDate" name="start_date"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold font-mono">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ نهاية التأمين (Échéance) *</label>
+                    <input type="date" id="editInsEndDate" name="end_date" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold font-mono">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">مبلغ قسط التأمين (DZD)</label>
+                    <input type="number" step="500" id="editInsPremium" name="premium_amount"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-bold">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">رقم الوصل / الشهادة المؤقتة</label>
+                    <input type="text" id="editInsAttestation" name="attestation_number"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-mono text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+            </div>
+
+            <div class="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button type="button" onclick="document.getElementById('editInsuranceModal').classList.add('hidden')"
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
+                </button>
+                <button type="submit"
+                        class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold shadow-xs transition">
+                    حفظ التعديلات
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function openRenewModalFor(vehId, plate, company) {
     const modal = document.getElementById('renewModal');
@@ -511,6 +716,24 @@ function openRenewModalFor(vehId, plate, company) {
     if (polInput) polInput.value = 'POL-' + (company || 'SAA') + '-<?= date('Y') ?>-' + Math.floor(1000 + Math.random() * 9000);
 
     modal.classList.remove('hidden');
+}
+
+function openEditInsuranceModal(data) {
+    if (!data) return;
+    document.getElementById('editPolicyId').value = data.policy_id || '';
+    document.getElementById('editVehicleId').value = data.vehicle_id || '';
+    document.getElementById('editInsPlate').textContent = data.plate_number ? 'مركبة: ' + data.plate_number : '';
+    
+    const company = data.pol_company || data.insurance_company || 'SAA';
+    document.getElementById('editInsCompany').value = company;
+    document.getElementById('editInsPolicyNumber').value = data.policy_number || ('POL-' + company + '-<?= date('Y') ?>');
+    document.getElementById('editInsCoverage').value = data.coverage_type || 'Tous Risques + Transport Public Voyageurs';
+    document.getElementById('editInsStartDate').value = data.start_date || '';
+    document.getElementById('editInsEndDate').value = data.end_date || data.insurance_expiry || '';
+    document.getElementById('editInsPremium').value = data.premium_amount || 35000;
+    document.getElementById('editInsAttestation').value = data.attestation_number || '';
+    
+    document.getElementById('editInsuranceModal').classList.remove('hidden');
 }
 </script>
 

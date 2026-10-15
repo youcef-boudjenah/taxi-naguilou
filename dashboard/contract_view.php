@@ -55,7 +55,7 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
     <title>عقد عمل رسمي <?= htmlspecialchars($contract['contract_number']) ?> | تاكسي نقيلو</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -70,8 +70,8 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
                         }
                     },
                     fontFamily: {
-                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif']
+                        sans: ['Cairo', 'Tajawal', 'sans-serif'],
+                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
                     }
                 }
             }
@@ -80,15 +80,20 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
     <?= render_theme_head() ?>
     <style>
         html, body, input, button, select, textarea { 
-            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif; 
+            font-family: 'Cairo', 'Tajawal', sans-serif !important; 
+            font-weight: 400;
             text-rendering: optimizeLegibility; 
             -webkit-font-smoothing: antialiased; 
+            -moz-osx-font-smoothing: grayscale;
         }
+        .font-black { font-weight: 700 !important; }
+        .font-extrabold { font-weight: 650 !important; }
+        .font-bold { font-weight: 600 !important; }
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
         .font-num, .font-mono, [dir="ltr"] { 
-            font-family: 'Plus Jakarta Sans', 'Alexandria', 'Cairo', sans-serif !important; 
+            font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif !important; 
             font-feature-settings: "tnum" 1; 
             font-variant-numeric: tabular-nums; 
             unicode-bidi: isolate; 
@@ -100,30 +105,30 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
         }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-900 min-h-screen py-8 px-4">
+<body class="bg-slate-100 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 min-h-screen py-8 px-4 transition-colors">
 
     <!-- Top Action Toolbar (Hidden in print) -->
-    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div class="flex items-center gap-3">
             <?php if (!is_driver()): ?>
-            <a href="contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+            <a href="contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
                 <span>العودة إلى قائمة العقود</span>
             </a>
             <?php else: ?>
-            <a href="driver_fiche.php?id=<?= $user['id'] ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+            <a href="driver_fiche.php?id=<?= $user['id'] ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
                 <span>العودة إلى البطاقة الفنية</span>
             </a>
             <?php endif; ?>
-            <span class="text-xs font-bold text-slate-500">رقم العقد: <span class="font-num text-slate-900 font-mono inline-block font-bold" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
+            <span class="text-xs font-bold text-slate-600 dark:text-slate-400">رقم العقد: <span class="font-num text-slate-900 dark:text-white font-mono inline-block font-bold" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
         </div>
         <div class="flex items-center gap-2">
-            <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs flex items-center gap-2">
+            <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs flex items-center gap-2 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
                 </svg>
@@ -134,56 +139,56 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
     </div>
 
     <!-- Official Document Paper -->
-    <div class="contract-paper max-w-4xl mx-auto bg-white p-8 sm:p-12 rounded-2xl border border-slate-200 shadow-md space-y-6 text-slate-900 text-xs sm:text-sm leading-relaxed">
+    <div class="contract-paper max-w-4xl mx-auto bg-white dark:bg-[#161d27] p-8 sm:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md space-y-6 text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-relaxed">
         
         <!-- Republic Official Header with Logo -->
-        <div class="border-b-2 border-slate-900 pb-5 space-y-3">
+        <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-16 h-16 object-contain rounded-full border border-amber-300 shadow-sm shrink-0">
+                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-16 h-16 object-contain rounded-full border border-amber-300 dark:border-amber-600/40 shadow-sm shrink-0">
                 <div class="text-center space-y-1 flex-1">
-                    <h1 class="text-base sm:text-lg font-bold">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
-                    <h2 class="text-xs sm:text-sm font-semibold text-slate-700">وزارة العمل والتشغيل والضمان الاجتماعي • وزارة النقل</h2>
-                    <div class="text-[11px] font-bold text-amber-700">EURL TAXI NAGUILOU Services</div>
+                    <h1 class="text-base sm:text-lg font-bold text-slate-950 dark:text-white">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
+                    <h2 class="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">وزارة العمل والتشغيل والضمان الاجتماعي • وزارة النقل</h2>
+                    <div class="text-[11px] font-bold text-amber-700 dark:text-amber-400 font-num">EURL TAXI NAGUILOU Services</div>
                 </div>
-                <div class="w-16 text-center text-[10px] text-slate-400 font-num shrink-0">
+                <div class="w-16 text-center text-[10px] text-slate-500 dark:text-slate-400 font-num shrink-0">
                     <div>اعتماد DTW</div>
-                    <div class="font-bold text-slate-800" dir="ltr">16/2024</div>
+                    <div class="font-bold text-slate-800 dark:text-slate-200" dir="ltr">16/2024</div>
                 </div>
             </div>
             <div class="text-center pt-1">
-                <span class="inline-block px-4 py-1 border border-slate-900 rounded font-black text-sm sm:text-base">
+                <span class="inline-block px-4 py-1 border border-slate-900 dark:border-slate-600 rounded font-black text-sm sm:text-base text-slate-950 dark:text-white">
                     عقد عمل نموذجي لسائق سيارة أجرة (القانون 90-11)
                 </span>
             </div>
-            <div class="text-center text-[11px] text-slate-600 font-num">
-                الرقم التسلسلي للعقد: <strong class="inline-block font-mono" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></strong> • تاريخ الإصدار: <span class="font-num inline-block" dir="ltr"><?= date('Y-m-d') ?></span>
+            <div class="text-center text-[11px] text-slate-600 dark:text-slate-400 font-num">
+                الرقم التسلسلي للعقد: <strong class="inline-block font-mono text-slate-900 dark:text-white" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></strong> • تاريخ الإصدار: <span class="font-num inline-block" dir="ltr"><?= date('Y-m-d') ?></span>
             </div>
         </div>
 
         <!-- The Parties -->
-        <div class="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+        <div class="space-y-3 bg-slate-50 dark:bg-[#1a2332] p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
             <div>
-                <strong>الطرف الأول (المستخدم / صاحب رخصة الاستغلال):</strong><br>
-                السيد/المؤسسة: <strong class="text-slate-900"><?= htmlspecialchars($contract['owner_name']) ?></strong>، 
-                الهاتف: <span class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['owner_phone']) ?></span>، 
-                المقيم بـ: <?= htmlspecialchars($contract['owner_wilaya']) ?>.
+                <strong class="text-slate-800 dark:text-slate-300">الطرف الأول (المستخدم / صاحب رخصة الاستغلال):</strong><br>
+                السيد/المؤسسة: <strong class="text-slate-950 dark:text-white font-bold"><?= htmlspecialchars($contract['owner_name']) ?></strong>، 
+                الهاتف: <span class="font-num inline-block text-slate-900 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($contract['owner_phone']) ?></span>، 
+                المقيم بـ: <span class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($contract['owner_wilaya']) ?></span>.
             </div>
-            <div class="border-t border-slate-200 pt-2">
-                <strong>الطرف الثاني (العامل / سائق سيارة الأجرة):</strong><br>
-                السيد: <strong class="text-slate-900"><?= htmlspecialchars($contract['driver_name']) ?></strong>، 
-                رقم رخصة السياقة: <span class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['driver_license'] ?? 'مسجل بالملف') ?></span>، 
-                الهاتف: <span class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['driver_phone']) ?></span>، 
-                المقيم بـ: <?= htmlspecialchars($contract['driver_wilaya']) ?>.
+            <div class="border-t border-slate-200 dark:border-slate-800 pt-2">
+                <strong class="text-slate-800 dark:text-slate-300">الطرف الثاني (العامل / سائق سيارة الأجرة):</strong><br>
+                السيد: <strong class="text-slate-950 dark:text-white font-bold"><?= htmlspecialchars($contract['driver_name']) ?></strong>، 
+                رقم رخصة السياقة: <span class="font-num font-mono inline-block text-slate-900 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($contract['driver_license'] ?? 'مسجل بالملف') ?></span>، 
+                الهاتف: <span class="font-num inline-block text-slate-900 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($contract['driver_phone']) ?></span>، 
+                المقيم بـ: <span class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($contract['driver_wilaya']) ?></span>.
             </div>
-            <div class="border-t border-slate-200 pt-2 text-[11px] text-slate-600">
-                <strong>بيانات سيارة الأجرة المعنية:</strong> 
+            <div class="border-t border-slate-200 dark:border-slate-800 pt-2 text-[11px] text-slate-600 dark:text-slate-400">
+                <strong class="text-slate-800 dark:text-slate-300">بيانات سيارة الأجرة المعنية:</strong> 
                 <?php if (!empty($contract['plate_number'])): ?>
-                    الصانع والنوع: <?= htmlspecialchars(($contract['brand'] ?? '') . ' ' . ($contract['model'] ?? '')) ?> • 
-                    رقم اللوحة: <strong class="font-num font-mono inline-block" dir="ltr"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
-                    رقم الباب المعتمد: <strong class="font-num inline-block" dir="ltr"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
-                    اللون: <?= htmlspecialchars($contract['color'] ?? 'أصفر') ?>.
+                    الصانع والنوع: <span class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars(($contract['brand'] ?? '') . ' ' . ($contract['model'] ?? '')) ?></span> • 
+                    رقم اللوحة: <strong class="font-num font-mono inline-block text-slate-950 dark:text-white" dir="ltr"><?= htmlspecialchars($contract['plate_number']) ?></strong> • 
+                    رقم الباب المعتمد: <strong class="font-num inline-block text-slate-950 dark:text-white" dir="ltr"><?= htmlspecialchars($contract['door_number']) ?></strong> • 
+                    اللون: <span class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($contract['color'] ?? 'أصفر') ?></span>.
                 <?php else: ?>
-                    <span class="text-amber-800 font-bold">مركبة الأسطول: قيد التخصيص والتعيين</span>
+                    <span class="text-amber-800 dark:text-amber-300 font-bold">مركبة الأسطول: قيد التخصيص والتعيين</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -277,22 +282,22 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
         </div>
 
         <!-- Official Signatures Box -->
-        <div class="pt-8 border-t-2 border-slate-900 grid grid-cols-3 gap-6 text-center text-xs">
+        <div class="pt-8 border-t-2 border-slate-900 dark:border-slate-700 grid grid-cols-3 gap-6 text-center text-xs">
             <div class="space-y-12">
-                <span class="font-bold">توقيع وبصمة السائق (الطرف الثاني)</span>
-                <div class="text-[11px] text-slate-400 italic">قرئ وصودق عليه</div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">توقيع وبصمة السائق (الطرف الثاني)</span>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 italic">قرئ وصودق عليه</div>
             </div>
 
             <div class="space-y-12">
-                <span class="font-bold">تأشيرة وختم منصة تاكسي نقيلو</span>
-                <div class="w-16 h-16 rounded-full border-2 border-dashed border-amber-500 mx-auto flex items-center justify-center text-[10px] text-amber-700 font-bold">
+                <span class="font-bold text-slate-800 dark:text-slate-200">تأشيرة وختم منصة تاكسي نقيلو</span>
+                <div class="w-16 h-16 rounded-full border-2 border-dashed border-amber-500 mx-auto flex items-center justify-center text-[10px] text-amber-700 dark:text-amber-400 font-bold">
                     موثق رقمياً
                 </div>
             </div>
 
             <div class="space-y-12">
-                <span class="font-bold">ختم وتوقيع المستخدم (الطرف الأول)</span>
-                <div class="text-[11px] text-slate-400 italic">قرئ وصودق عليه</div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">ختم وتوقيع المستخدم (الطرف الأول)</span>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 italic">قرئ وصودق عليه</div>
             </div>
         </div>
 

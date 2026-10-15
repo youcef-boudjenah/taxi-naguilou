@@ -97,12 +97,14 @@ $erpNavCategories = [
             'slips' => ['title' => 'جداول الإرسال (Bordereaux)', 'url' => '/dashboard/slips.php', 'badge' => 'DTW'],
             'traveler_reports' => ['title' => 'محاضر المسافرين (PV)', 'url' => '/dashboard/traveler_reports.php', 'badge' => 'سفر'],
             'planning' => ['title' => 'حراسة الحظيرة (3j)', 'url' => '/dashboard/planning.php', 'badge' => 'مناوبة'],
+            'verifications' => ['title' => 'مركز التدقيق والمصادقة', 'url' => '/dashboard/verifications.php', 'badge' => 'تدقيق'],
         ]
     ],
     'finance' => [
         'name' => 'المالية والاشتراكات',
         'color' => 'emerald',
         'pages' => [
+            'analytics' => ['title' => 'التحليلات والمؤشرات (KPIs)', 'url' => '/dashboard/analytics.php', 'badge' => 'تنفيذي'],
             'debts' => ['title' => 'المالية والديون', 'url' => '/dashboard/debts.php', 'badge' => 'ذمم'],
             'billing' => ['title' => 'الفوترة والاشتراكات (CCP)', 'url' => '/dashboard/billing.php', 'badge' => 'CCP'],
         ]
@@ -115,6 +117,7 @@ $erpNavCategories = [
             'users' => ['title' => 'المستخدمون والصلاحيات', 'url' => '/dashboard/users.php', 'badge' => 'صلاحيات'],
             'audit_logs' => ['title' => 'سجل التدقيق والرقابة', 'url' => '/dashboard/audit_logs.php', 'badge' => 'أمان'],
             'settings' => ['title' => 'إعدادات المنصة والهوية', 'url' => '/dashboard/settings.php', 'badge' => 'نظام'],
+            'import'   => ['title' => 'استيراد البيانات (نقل)', 'url' => '/dashboard/import.php', 'badge' => 'نقل'],
         ]
     ]
 ];
@@ -140,7 +143,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -157,8 +160,8 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         }
                     },
                     fontFamily: {
-                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif']
+                        sans: ['Cairo', 'Tajawal', 'sans-serif'],
+                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
                     },
                     boxShadow: {
                         '2xs': '0 1px 2px 0 rgba(0, 0, 0, 0.03)',
@@ -171,15 +174,27 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <style>
         * { box-sizing: border-box; }
         html, body, input, button, select, textarea {
-            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif;
+            font-family: 'Cairo', 'Tajawal', sans-serif !important;
+            font-weight: 400;
             text-rendering: optimizeLegibility;
             -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Soften overly thick typography */
+        .font-black {
+            font-weight: 700 !important;
+        }
+        .font-extrabold {
+            font-weight: 650 !important;
+        }
+        .font-bold {
+            font-weight: 600 !important;
         }
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
         .font-num, .font-mono, [dir="ltr"], .num-ltr {
-            font-family: 'Plus Jakarta Sans', 'Alexandria', 'Cairo', sans-serif !important;
+            font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif !important;
             font-feature-settings: "tnum" 1;
             font-variant-numeric: tabular-nums;
             unicode-bidi: isolate;
@@ -366,6 +381,10 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                 <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
                             <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
+                                <a href="<?= url('/dashboard/analytics.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition">
+                                    <span>التحليلات والمؤشرات (KPIs)</span>
+                                    <span class="text-[10px] text-slate-400 font-num">تنفيذي</span>
+                                </a>
                                 <?php if ($isSuperOrAdmin): ?>
                                 <a href="<?= url('/dashboard/debts.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-rose-50 hover:text-rose-700 transition">
                                     <span>المالية والديون</span>
@@ -580,6 +599,9 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <?php if ($isSuperOrAdmin): ?>
                 <a href="<?= url('/dashboard/debts.php') ?>" class="p-2 rounded-lg bg-rose-50 text-rose-700">💳 المالية والديون</a>
                 <?php endif; ?>
+                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                <a href="<?= url('/dashboard/analytics.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-900">📊 التحليلات التنفيذية</a>
+                <?php endif; ?>
                 <a href="<?= url('/dashboard/slips.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-900">📋 جداول الإرسال</a>
                 <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="p-2 rounded-lg bg-cyan-50 text-cyan-700">📜 محاضر PV</a>
                 <a href="<?= url('/dashboard/planning.php') ?>" class="p-2 rounded-lg bg-purple-50 text-purple-700">🌙 مداومة وحظيرة</a>
@@ -636,47 +658,30 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     </div>
 
                 <?php else: ?>
-                    <!-- On Inner Pages: Breadcrumbs + Sibling Module Jump Pills -->
-                    <div class="flex items-center gap-2 text-xs font-bold text-slate-500 shrink-0">
-                        <a href="<?= url('/dashboard/index.php') ?>" class="text-slate-700 hover:text-amber-600 transition flex items-center gap-1">
-                            <span>⊞ لوحة التحكم</span>
-                        </a>
-                        <span class="text-slate-300">/</span>
-                        <?php if ($activeCategoryName): ?>
-                            <span class="text-slate-400 font-medium"><?= $activeCategoryName ?></span>
+                    <!-- Clean, Streamlined Breadcrumb Bar -->
+                    <div class="flex items-center justify-between w-full">
+                        <nav aria-label="Breadcrumb" class="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                            <a href="<?= url('/dashboard/index.php') ?>" class="text-slate-600 hover:text-amber-600 transition flex items-center gap-1.5" title="الرئيسية">
+                                <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                                </svg>
+                                <span>لوحة التحكم</span>
+                            </a>
                             <span class="text-slate-300">/</span>
-                        <?php endif; ?>
-                        <span class="text-slate-900 font-black truncate max-w-[200px]"><?= $pageTitle ?? 'الوحدة الحالية' ?></span>
-                    </div>
+                            <?php if ($activeCategoryName): ?>
+                                <span class="text-slate-400"><?= $activeCategoryName ?></span>
+                                <span class="text-slate-300">/</span>
+                            <?php endif; ?>
+                            <span class="text-slate-900 font-bold truncate max-w-[280px]"><?= explode('|', $pageTitle ?? '')[0] ?></span>
+                        </nav>
 
-                    <!-- Sibling Category Pills for Instant Module Jump -->
-                    <?php if ($activeCategoryKey && isset($erpNavCategories[$activeCategoryKey]['pages'])): ?>
-                        <div class="flex items-center gap-1.5 overflow-x-auto py-0.5">
-                            <?php foreach ($erpNavCategories[$activeCategoryKey]['pages'] as $pKey => $pInfo): 
-                                // Role-based visibility
-                                if ($pKey === 'cnas' && !$isSuperOrAdmin) continue;
-                                if ($pKey === 'debts' && !$isSuperOrAdmin) continue;
-                                if ($pKey === 'users' && !$isSuperOrAdmin) continue;
-                                if ($pKey === 'audit_logs' && !$isSuperOrAdmin) continue;
-                                if ($pKey === 'settings' && !$isSuperOrAdmin) continue;
-                                if (in_array($pKey, ['fleet', 'insurance', 'drivers', 'contracts', 'leaves', 'billing']) && !$isSuperOrAdmin && !$isFleetOwner) continue;
-                                if ($pKey === 'contract_view') continue; // Not a standalone listing
-                                if ($pKey === 'driver_fiche' && !isset($_GET['id']) && !$isTaxiDriver) continue;
-                                
-                                $isCurrent = ($currentPage === $pKey);
-                                $targetUrl = $pInfo['url'];
-                                if ($pKey === 'driver_fiche' && $isTaxiDriver) {
-                                    $targetUrl .= '?id=' . $user['id'];
-                                }
-                            ?>
-                                <a href="<?= url($targetUrl) ?>" 
-                                   class="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition shadow-2xs <?= $isCurrent ? 'bg-slate-900 text-white font-black' : 'bg-slate-100 hover:bg-slate-200 text-slate-600' ?>">
-                                    <?= $pInfo['title'] ?>
-                                </a>
-                            <?php endforeach; ?>
+                        <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span class="text-slate-500 font-medium">تاكسي نقيلو ERP</span>
+                            <span class="text-slate-300">•</span>
+                            <span class="font-num text-[11px] text-slate-400"><?= date('Y-m-d') ?></span>
                         </div>
-                    <?php endif; ?>
-
+                    </div>
                 <?php endif; ?>
 
             </div>

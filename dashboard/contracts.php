@@ -63,6 +63,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Edit Contract
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_contract') {
+    require_csrf_token();
+    $contractId = intval($_POST['contract_id'] ?? 0);
+    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d');
+    $monthlyWage = floatval($_POST['monthly_wage'] ?? 45000.00);
+    $status = in_array($_POST['status'] ?? '', ['signed', 'draft', 'terminated']) ? $_POST['status'] : 'signed';
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($contractId > 0 && $vehicleId > 0 && $driverId > 0) {
+        try {
+            $stmt = $pdo->prepare("
+                UPDATE contracts 
+                SET driver_id = ?, vehicle_id = ?, start_date = ?, end_date = ?, monthly_wage = ?, status = ?, notes = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$driverId, $vehicleId, $startDate, $endDate, $monthlyWage, $status, $notes, $contractId]);
+            
+            if ($status === 'signed') {
+                $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
+            }
+
+            log_audit($pdo, 'contract_updated', 'contracts', $contractId, "تعديل بيانات العقد رقم $contractId");
+            set_flash('success', "تم تعديل بيانات العقد بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تعديل العقد: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'يرجى ملء جميع الحقول المطلوبة');
+    }
+    redirect('/dashboard/contracts.php');
+}
+
+// Handle Delete Contract
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_contract') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف العقود.');
+        redirect('/dashboard/contracts.php');
+    }
+    $contractId = intval($_POST['contract_id'] ?? 0);
+    if ($contractId > 0) {
+        try {
+            $stmt = $pdo->prepare("DELETE FROM contracts WHERE id = ?");
+            $stmt->execute([$contractId]);
+            log_audit($pdo, 'contract_deleted', 'contracts', $contractId, "حذف العقد رقم $contractId");
+            set_flash('success', "تم حذف العقد بنجاح من السجل");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء حذف العقد: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/contracts.php');
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, active, expired
@@ -346,14 +403,47 @@ if ($pdo) {
 
                                 <!-- Actions -->
                                 <td class="p-3.5 whitespace-nowrap text-center print:hidden">
-                                    <a href="contract_view.php?id=<?= $c['id'] ?>" 
-                                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition border border-amber-200/60 shadow-2xs">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
-                                        <span>معاينة وطباعة</span>
-                                    </a>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <a href="contract_view.php?id=<?= $c['id'] ?>" 
+                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition border border-amber-200/60 shadow-2xs" title="معاينة وطباعة">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                            <span class="hidden sm:inline">معاينة</span>
+                                        </a>
+                                        <button type="button" 
+                                                onclick='openEditContractModal(<?= json_encode([
+                                                    "id" => (int)$c["id"],
+                                                    "contract_number" => $c["contract_number"],
+                                                    "driver_id" => (int)$c["driver_id"],
+                                                    "vehicle_id" => (int)$c["vehicle_id"],
+                                                    "start_date" => $c["start_date"],
+                                                    "end_date" => $c["end_date"],
+                                                    "monthly_wage" => (float)$c["monthly_wage"],
+                                                    "status" => $c["status"],
+                                                    "notes" => $c["notes"] ?? ""
+                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل العقد">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تعديل</span>
+                                        </button>
+                                        <?php if (is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا العقد نهائياً من السجل؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_contract">
+                                            <input type="hidden" name="contract_id" value="<?= $c['id'] ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف العقد">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                             </tr>
@@ -562,9 +652,107 @@ function recalculateContractEndDate() {
 }
 
 // Initial calculation on page load
-document.addEventListener('DOMContentLoaded', function() {
-    recalculateContractEndDate();
-});
+</script>
+
+<!-- Modal: Edit Contract -->
+<div id="editContractModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+                <h3 class="font-bold text-slate-900 text-lg">تعديل بيانات العقد</h3>
+                <span class="text-xs text-slate-500 font-num" id="editContractNumLabel"></span>
+            </div>
+            <button onclick="closeEditContractModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_contract">
+            <input type="hidden" name="contract_id" id="editContractId">
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">السائق المكلف <span class="text-rose-500">*</span></label>
+                <select name="driver_id" id="editContractDriver" required class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <?php foreach ($drivers as $d): ?>
+                        <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">المركبة <span class="text-rose-500">*</span></label>
+                <select name="vehicle_id" id="editContractVehicle" required class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <?php foreach ($vehicles as $v): ?>
+                        <option value="<?= $v['id'] ?>"><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> - <?= htmlspecialchars($v['plate_number']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ البداية <span class="text-rose-500">*</span></label>
+                    <input type="date" name="start_date" id="editContractStartDate" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ النهاية <span class="text-rose-500">*</span></label>
+                    <input type="date" name="end_date" id="editContractEndDate" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">الأجر الشهري (دج) <span class="text-rose-500">*</span></label>
+                    <input type="number" step="100" name="monthly_wage" id="editContractWage" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">الوضعية القانونية <span class="text-rose-500">*</span></label>
+                    <select name="status" id="editContractStatus" class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                        <option value="signed">ساري وموثق (Signé)</option>
+                        <option value="draft">مسودة (Brouillon)</option>
+                        <option value="terminated">ملغى / منتهي (Résilié)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">ملاحظات العقد</label>
+                <textarea name="notes" id="editContractNotes" rows="2" class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"></textarea>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onclick="closeEditContractModal()" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold transition">إلغاء</button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">حفظ التعديلات</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditContractModal(data) {
+    document.getElementById('editContractId').value = data.id || '';
+    document.getElementById('editContractNumLabel').textContent = data.contract_number ? `رقم العقد: ${data.contract_number}` : '';
+    document.getElementById('editContractDriver').value = data.driver_id || '';
+    document.getElementById('editContractVehicle').value = data.vehicle_id || '';
+    document.getElementById('editContractStartDate').value = data.start_date || '';
+    document.getElementById('editContractEndDate').value = data.end_date || '';
+    document.getElementById('editContractWage').value = data.monthly_wage || 45000;
+    document.getElementById('editContractStatus').value = data.status || 'signed';
+    document.getElementById('editContractNotes').value = data.notes || '';
+
+    const modal = document.getElementById('editContractModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeEditContractModal() {
+    const modal = document.getElementById('editContractModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

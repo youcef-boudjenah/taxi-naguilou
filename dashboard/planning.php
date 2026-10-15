@@ -83,6 +83,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     redirect('/dashboard/planning.php');
 }
 
+// Handle Delete Shift
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_shift') {
+    require_csrf_token();
+    $shiftId = intval($_POST['shift_id'] ?? 0);
+    if ($shiftId > 0 && $pdo) {
+        try {
+            $pdo->prepare("DELETE FROM driver_schedules WHERE id = ?")->execute([$shiftId]);
+            log_audit($pdo, 'shift_deleted', 'driver_schedules', $shiftId, "إلغاء وحذف مناوبة السائق رقم $shiftId");
+            set_flash('success', 'تم حذف وإلغاء المناوبة بنجاح');
+        } catch (\Throwable $e) {
+            set_flash('error', 'تعذر حذف المناوبة: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/planning.php');
+}
+
 // Fetch Night Watch records
 $nightWatch = [];
 if ($pdo) {
@@ -256,19 +272,22 @@ foreach ($allShifts as $sh) {
                     <svg class="w-3.5 h-3.5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
-                    <span>CHAUFFEURS PERMANENCE</span>
+                    <span><?= count($shifts) ?> مناوبة مجدولة</span>
                 </span>
             </div>
         </div>
 
-        <!-- 3-Day Columns Layout -->
+        <!-- 3 Days Columns Grid -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
+
             <!-- Day 0 (Aujourd'hui) -->
-            <div class="bg-slate-50/70 rounded-xl border border-slate-200 p-4 space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <div class="font-bold text-slate-900 text-xs">اليوم (Aujourd'hui)</div>
-                    <span class="font-num text-xs font-bold text-amber-700 font-mono"><?= $today ?></span>
+            <div class="bg-amber-50/50 rounded-xl border border-amber-200/80 p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-amber-200/60 pb-2">
+                    <div class="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                        <span>اليوم (Aujourd'hui)</span>
+                    </div>
+                    <span class="font-num text-xs font-bold text-amber-800 font-mono"><?= $today ?></span>
                 </div>
 
                 <div class="space-y-2">
@@ -277,11 +296,21 @@ foreach ($allShifts as $sh) {
                             <div class="bg-white p-3 rounded-lg border <?= $s['is_permanence'] ? 'border-amber-300 shadow-2xs' : 'border-slate-200' ?> text-xs space-y-1">
                                 <div class="flex items-center justify-between">
                                     <span class="font-bold text-slate-900"><?= htmlspecialchars($s['driver_name']) ?></span>
-                                    <?php if ($s['is_permanence']): ?>
-                                        <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
-                                    <?php else: ?>
-                                        <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
-                                    <?php endif; ?>
+                                    <div class="flex items-center gap-1.5">
+                                        <?php if ($s['is_permanence']): ?>
+                                            <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
+                                        <?php else: ?>
+                                            <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('إلغاء وحذف هذه المناوبة؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_shift">
+                                            <input type="hidden" name="shift_id" value="<?= $s['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 text-xs px-1" title="حذف المناوبة">✕</button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                                 <div class="text-[11px] text-slate-500 font-num" dir="ltr">
                                     <?= htmlspecialchars($s['brand'] . ' ' . $s['model']) ?> • <?= htmlspecialchars($s['plate_number']) ?>
@@ -307,11 +336,21 @@ foreach ($allShifts as $sh) {
                             <div class="bg-white p-3 rounded-lg border <?= $s['is_permanence'] ? 'border-amber-300 shadow-2xs' : 'border-slate-200' ?> text-xs space-y-1">
                                 <div class="flex items-center justify-between">
                                     <span class="font-bold text-slate-900"><?= htmlspecialchars($s['driver_name']) ?></span>
-                                    <?php if ($s['is_permanence']): ?>
-                                        <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
-                                    <?php else: ?>
-                                        <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
-                                    <?php endif; ?>
+                                    <div class="flex items-center gap-1.5">
+                                        <?php if ($s['is_permanence']): ?>
+                                            <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
+                                        <?php else: ?>
+                                            <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('إلغاء وحذف هذه المناوبة؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_shift">
+                                            <input type="hidden" name="shift_id" value="<?= $s['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 text-xs px-1" title="حذف المناوبة">✕</button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                                 <div class="text-[11px] text-slate-500 font-num" dir="ltr">
                                     <?= htmlspecialchars($s['brand'] . ' ' . $s['model']) ?> • <?= htmlspecialchars($s['plate_number']) ?>
@@ -337,11 +376,21 @@ foreach ($allShifts as $sh) {
                             <div class="bg-white p-3 rounded-lg border <?= $s['is_permanence'] ? 'border-amber-300 shadow-2xs' : 'border-slate-200' ?> text-xs space-y-1">
                                 <div class="flex items-center justify-between">
                                     <span class="font-bold text-slate-900"><?= htmlspecialchars($s['driver_name']) ?></span>
-                                    <?php if ($s['is_permanence']): ?>
-                                        <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
-                                    <?php else: ?>
-                                        <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
-                                    <?php endif; ?>
+                                    <div class="flex items-center gap-1.5">
+                                        <?php if ($s['is_permanence']): ?>
+                                            <span class="px-2 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[10px]">PERMANENCE</span>
+                                        <?php else: ?>
+                                            <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase"><?= $s['shift_type'] ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('إلغاء وحذف هذه المناوبة؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_shift">
+                                            <input type="hidden" name="shift_id" value="<?= $s['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 text-xs px-1" title="حذف المناوبة">✕</button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                                 <div class="text-[11px] text-slate-500 font-num" dir="ltr">
                                     <?= htmlspecialchars($s['brand'] . ' ' . $s['model']) ?> • <?= htmlspecialchars($s['plate_number']) ?>
@@ -356,7 +405,6 @@ foreach ($allShifts as $sh) {
 
         </div>
     </div>
-
 </div>
 
 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>

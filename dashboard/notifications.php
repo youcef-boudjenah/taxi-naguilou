@@ -44,6 +44,35 @@ if (isset($_REQUEST['action'])) {
         log_audit($pdo, 'run_audit_scan', 'notifications', null, "مسح وتدقيق دوري للأسطول - إضافة $addedCount تنبيهات جديدة");
         set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول وتحديث مركز التنبيهات بنجاح");
         redirect('/dashboard/notifications.php');
+    } elseif ($act === 'add_notification' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        require_csrf_token();
+        if (!is_admin()) {
+            set_flash('error', 'غير مصرح.');
+            redirect('/dashboard/notifications.php');
+        }
+        $title = trim($_POST['title'] ?? '');
+        $message = trim($_POST['message'] ?? '');
+        $type = in_array($_POST['type'] ?? '', ['urgent', 'warning', 'info', 'success']) ? $_POST['type'] : 'info';
+        $link = trim($_POST['link'] ?? '');
+        if (!empty($title) && !empty($message)) {
+            $stmt = $pdo->prepare("INSERT INTO notifications (type, title, message, link, is_read, created_at) VALUES (?, ?, ?, ?, 0, NOW())");
+            $stmt->execute([$type, $title, $message, $link ?: null]);
+            $notifId = (int)$pdo->lastInsertId();
+            log_audit($pdo, 'notification_created', 'notifications', $notifId, "بث إشعار إداري جديد: $title");
+            set_flash('success', 'تم إرسال وبث الإشعار بنجاح');
+        } else {
+            set_flash('error', 'يرجى إدخال عنوان ونص الإشعار.');
+        }
+        redirect('/dashboard/notifications.php');
+    } elseif ($act === 'delete_all_read') {
+        if (!is_admin()) {
+            set_flash('error', 'غير مصرح.');
+            redirect('/dashboard/notifications.php');
+        }
+        $count = $pdo->query("DELETE FROM notifications WHERE is_read = 1")->rowCount();
+        log_audit($pdo, 'notifications_cleared', 'notifications', null, "تنظيف $count إشعارات مقروءة");
+        set_flash('success', "تم حذف وتنظيف $count إشعار مقروء بنجاح");
+        redirect('/dashboard/notifications.php');
     }
 }
 
@@ -116,7 +145,17 @@ if ($pdo) {
             <p class="text-xs text-slate-500 mt-1">مراقبة التنبيهات الفنية، وثائق التأمين، رخص السائقين، واستحقاقات الاشتراكات في الوقت الفعلي</p>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center flex-wrap gap-2">
+            <?php if (is_admin()): ?>
+                <button type="button" onclick="document.getElementById('newNotifModal').classList.remove('hidden')"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    <span>إرسال إشعار جديد</span>
+                </button>
+            <?php endif; ?>
+
             <a href="notifications.php?action=run_audit_scan" 
                class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
                 <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -127,11 +166,22 @@ if ($pdo) {
             
             <?php if ($unreadCount > 0): ?>
                 <a href="notifications.php?action=mark_all_read" 
-                   class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs">
+                   class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                     </svg>
                     <span>تحديد الكل كمقروء</span>
+                </a>
+            <?php endif; ?>
+
+            <?php if (is_admin() && ($totalNotifs - $unreadCount) > 0): ?>
+                <a href="notifications.php?action=delete_all_read" 
+                   onclick="return confirm('هل تريد حذف جميع الإشعارات المقروءة لتنظيف القائمة؟')"
+                   class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-xs" title="حذف وتنظيف المقروءة">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                    <span>تنظيف المقروءة</span>
                 </a>
             <?php endif; ?>
         </div>
@@ -332,5 +382,63 @@ if ($pdo) {
     </div>
 
 </div>
+
+<?php if (is_admin()): ?>
+<!-- Modal: New Manual Notification -->
+<div id="newNotifModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div>
+                <h3 class="text-sm font-bold text-slate-900">إرسال وبث إشعار نظام جديد</h3>
+                <span class="text-xs text-slate-500">نشر تنبيه أو رسالة إدارية لكافة مستخدمي المنصة</span>
+            </div>
+            <button type="button" onclick="document.getElementById('newNotifModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        <form method="POST" action="notifications.php?action=add_notification" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">عنوان الإشعار *</label>
+                <input type="text" name="title" required placeholder="مثال: تنبيه بخصوص تجديد وثائق التأمين لشهر نوفمبر"
+                       class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">نوع الإشعار ومستوى الأهمية *</label>
+                    <select name="type" required class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+                        <option value="info">ℹ️ معلومة عادية (Info)</option>
+                        <option value="warning">⚠️ تحذير إداري (Warning)</option>
+                        <option value="urgent">🚨 عاجل وحرج (Urgent)</option>
+                        <option value="success">✅ نجاح / إشعار إيجابي (Success)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">رابط الإجراء السريع (اختياري)</label>
+                    <input type="text" name="link" placeholder="مثال: /dashboard/vehicles.php"
+                           class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-mono text-[11px]" dir="ltr">
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">نص وتفاصيل الإشعار *</label>
+                <textarea name="message" rows="3" required placeholder="اكتب تفاصيل التنبيه أو التوجيهات الموجهة للسائقين أو الإدارة..."
+                          class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500"></textarea>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button type="button" onclick="document.getElementById('newNotifModal').classList.add('hidden')"
+                        class="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition">
+                    بث الإشعار الآن
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

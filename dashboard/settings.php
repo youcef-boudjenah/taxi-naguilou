@@ -1,14 +1,126 @@
 <?php
 // dashboard/settings.php - Platform, Legal & Fiscal Settings
-$pageTitle = 'إعدادات المنصة والهوية الجبائية';
-require_once __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/auth.php';
 require_admin();
 
 $pdo = getDBConnection();
 $message = null;
 $messageType = null;
 
-// Handle Wipe All Operational Data (Danger Zone)
+// 1. Handle Backup Export (before header to prevent output corruption)
+if (isset($_GET['action']) && $_GET['action'] === 'export_backup' && $pdo) {
+    require_once __DIR__ . '/../includes/backup_importer.php';
+    $dump = export_full_backup($pdo);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Content-Disposition: attachment; filename="taxi_naguilou_backup_' . date('Y-m-d_His') . '.json"');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    echo json_encode($dump, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 2. Handle Backup Upload & Restore
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_backup' && $pdo) {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط مدير المنصة مخول برفع واستعادة النسخ الاحتياطية.');
+        redirect('/dashboard/settings.php');
+        exit;
+    }
+
+    require_once __DIR__ . '/../includes/backup_importer.php';
+
+    $payload = null;
+    if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
+        $tmp = $_FILES['backup_file']['tmp_name'];
+        $raw = file_get_contents($tmp);
+        $raw = preg_replace('/^\xEF\xBB\xBF/', '', $raw);
+        $payload = json_decode($raw, true);
+    } elseif (!empty($_POST['backup_json_text'])) {
+        $raw = preg_replace('/^\xEF\xBB\xBF/', '', trim($_POST['backup_json_text']));
+        $payload = json_decode($raw, true);
+    }
+
+    if (!is_array($payload)) {
+        set_flash('error', 'الملف المرفوع ليس ملف JSON صالحاً أو تالف.');
+        redirect('/dashboard/settings.php#backup-section');
+        exit;
+    }
+
+    $result = import_full_backup($pdo, $payload);
+    if ($result['success']) {
+        $c = $result['counts'];
+        $msg = "تم استعادة النسخة الاحتياطية بنجاح! (" . 
+            "{$c['users']} مستخدم، {$c['vehicles']} مركبة، {$c['contracts']} عقد، {$c['subscriptions']} اشتراك، {$c['slips']} جدول إرسال)";
+        log_audit($pdo, 'backup_restored', 'system', null, $msg);
+        set_flash('success', $msg);
+    } else {
+        set_flash('error', $result['message']);
+    }
+    redirect('/dashboard/settings.php#backup-section');
+    exit;
+}
+
+// 3. Handle Import Scraped Live Data
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'import_scraped_live' && $pdo) {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط مدير المنصة مخول باستيراد البيانات.');
+        redirect('/dashboard/settings.php');
+        exit;
+    }
+
+    require_once __DIR__ . '/../includes/backup_importer.php';
+
+    $payload = null;
+    $liveBackupPath = __DIR__ . '/../uploads/backups/scraped_backup_live.json';
+    if (file_exists($liveBackupPath)) {
+        $raw = preg_replace('/^\xEF\xBB\xBF/', '', file_get_contents($liveBackupPath));
+        $payload = json_decode($raw, true);
+    }
+
+    if (!is_array($payload) || empty($payload['tables']['users'])) {
+        $dir = 'C:/Users/boudj/.gemini/antigravity-ide/brain/3fa97054-7e8a-4df1-995c-d96c125949a3/scratch/scraped_api_data';
+        if (is_dir($dir)) {
+            $readJson = function($path) {
+                if (!file_exists($path)) return [];
+                $content = preg_replace('/^\xEF\xBB\xBF/', '', file_get_contents($path));
+                return json_decode($content, true) ?: [];
+            };
+            $payload = [
+                'users'              => $readJson("$dir/users.json"),
+                'vehicles'           => $readJson("$dir/vehicles.json"),
+                'contracts'          => $readJson("$dir/contracts.json"),
+                'subscriptions'      => $readJson("$dir/subscriptions.json"),
+                'transmission_slips' => $readJson("$dir/transmission-slips.json"),
+                'notifications'      => $readJson("$dir/notifications.json"),
+                'settings'           => $readJson("$dir/tenant_settings.json"),
+            ];
+        }
+    }
+
+    if (!is_array($payload) || empty($payload)) {
+        set_flash('error', 'ملف البيانات المستخرجة غير متوفر حالياً.');
+        redirect('/dashboard/settings.php#backup-section');
+        exit;
+    }
+
+    $result = import_full_backup($pdo, $payload);
+    if ($result['success']) {
+        $c = $result['counts'];
+        $msg = "تم استيراد ومعالجة بيانات الموقع القديم المباشرة بنجاح! (" . 
+            "{$c['users']} مستخدم/سائق، {$c['vehicles']} مركبة، {$c['contracts']} عقد، {$c['subscriptions']} اشتراك، {$c['notifications']} إشعار)";
+        log_audit($pdo, 'live_data_imported', 'system', null, $msg);
+        set_flash('success', $msg);
+    } else {
+        set_flash('error', $result['message']);
+    }
+    redirect('/dashboard/settings.php#backup-section');
+    exit;
+}
+
+$pageTitle = 'إعدادات المنصة والهوية الجبائية';
+require_once __DIR__ . '/../includes/header.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'wipe_all_data' && $pdo) {
     require_csrf_token();
     if (!is_admin()) {
@@ -25,7 +137,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     try {
-        $pdo->beginTransaction();
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
 
         $tablesToWipe = [
@@ -83,7 +194,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
-        $pdo->commit();
+        if ($pdo->inTransaction()) {
+            $pdo->commit();
+        }
 
         log_audit($pdo, 'factory_reset', 'system', null, 'إعادة ضبط شاملة وحذف وتصفير جميع بيانات الأسطول والسائقين والعمليات');
         set_flash('success', 'تم حذف وتصفير جميع بيانات النظام الميدانية والتشغيلية بنجاح، مع الحفاظ على حسابات الإدارة.');
@@ -157,6 +270,14 @@ $wipeStats = [
     'reports'   => 0,
     'debts'     => 0,
 ];
+$backupStats = [
+    'users'         => 0,
+    'vehicles'      => 0,
+    'contracts'     => 0,
+    'subscriptions' => 0,
+    'slips'         => 0,
+    'notifications' => 0,
+];
 if ($pdo) {
     try {
         $wipeStats['vehicles']  = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
@@ -165,6 +286,13 @@ if ($pdo) {
         $wipeStats['slips']     = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips")->fetchColumn();
         $wipeStats['reports']   = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
         $wipeStats['debts']     = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts")->fetchColumn();
+
+        $backupStats['users']         = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+        $backupStats['vehicles']      = $wipeStats['vehicles'];
+        $backupStats['contracts']     = $wipeStats['contracts'];
+        $backupStats['subscriptions'] = (int)$pdo->query("SELECT COUNT(*) FROM driver_subscriptions")->fetchColumn();
+        $backupStats['slips']         = $wipeStats['slips'];
+        $backupStats['notifications'] = (int)$pdo->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
     } catch (\Throwable $e) {}
 }
 
@@ -532,6 +660,177 @@ if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
         </div>
 
     </form>
+
+    <!-- ==============================================
+         SECTION 4.5: النسخ الاحتياطي واستعادة ورفع البيانات (Backup & Restore Zone)
+         ============================================== -->
+    <div id="backup-section" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden space-y-0">
+        
+        <!-- Header Banner -->
+        <div class="p-5 sm:p-6 bg-gradient-to-l from-amber-50/60 via-white to-slate-50/40 dark:from-amber-950/20 dark:via-slate-900 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="flex items-start gap-3.5">
+                    <div class="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0 shadow-2xs">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0l-3-3m3 3l3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-black text-slate-900 dark:text-white text-base">النسخ الاحتياطي واستعادة ورفع البيانات (Backup & Migration)</h3>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-mono">JSON Native</span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                            تصدير قاعدة البيانات بالكامل بصيغة JSON، رفع واستعادة النسخ الاحتياطية الميدانية، أو مزامنة بيانات الموقع القديم (taxi-naguilou.com) بنقرة واحدة.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 shrink-0">
+                    <a href="?action=export_backup" 
+                       class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 font-bold text-xs transition shadow-xs">
+                        <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                        </svg>
+                        <span>تصدير نسخة احتياطية (JSON)</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live DB Counts Bar -->
+        <div class="p-4 sm:p-5 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/80">
+            <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-2.5">إحصائيات السجلات المحفوظة حالياً في قاعدة البيانات المحلية:</span>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">المستخدمون والسائقون</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['users'] ?></span>
+                </div>
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">مركبات الأسطول</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['vehicles'] ?></span>
+                </div>
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">عقود العمل (90-11)</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['contracts'] ?></span>
+                </div>
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">الاشتراكات الشهرية</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['subscriptions'] ?></span>
+                </div>
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">جداول الإرسال</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['slips'] ?></span>
+                </div>
+                <div class="p-2.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80 text-center">
+                    <span class="text-[10px] text-slate-400 block font-semibold">مركز التنبيهات</span>
+                    <span class="text-sm font-black text-slate-900 dark:text-white font-num"><?= $backupStats['notifications'] ?></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Backup Grid -->
+        <div class="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Card A: رفع واستعادة نسخة احتياطية (Upload & Restore) -->
+            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/50 space-y-4 shadow-2xs">
+                <div class="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <span class="text-lg">📤</span>
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900 dark:text-white">رفع واستعادة نسخة احتياطية (Upload Backup JSON)</h4>
+                        <p class="text-[11px] text-slate-400 mt-0.5">اختر ملف JSON للنسخة الاحتياطية لدمج أو استعادة السجلات</p>
+                    </div>
+                </div>
+
+                <form method="POST" action="" enctype="multipart/form-data" class="space-y-4" onsubmit="return confirm('تأكيد: هل ترغب في بدء استعادة البيانات من الملف المرفوع ودمجها في النظام؟');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="upload_backup">
+
+                    <!-- File Drag Drop Area -->
+                    <div class="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-5 text-center hover:border-amber-400 dark:hover:border-amber-500 transition cursor-pointer bg-slate-50/50 dark:bg-slate-900/30"
+                         onclick="document.getElementById('backupFileInput').click()">
+                        <div class="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-2">
+                            📁
+                        </div>
+                        <span class="text-xs font-bold text-slate-700 dark:text-slate-200 block" id="selectedBackupFileName">
+                            اضغط لاختيار ملف النسخة الاحتياطية (.json)
+                        </span>
+                        <span class="text-[10px] text-slate-400 mt-1 block">يدعم ملفات JSON الصادرة من النظام أو ملفات استخراج الموقع القديم</span>
+                        <input type="file" id="backupFileInput" name="backup_file" accept=".json" class="hidden" 
+                               onchange="if(this.files[0]) document.getElementById('selectedBackupFileName').textContent = '📄 ' + this.files[0].name + ' (' + Math.round(this.files[0].size/1024) + ' KB)'">
+                    </div>
+
+                    <!-- Collapsible JSON text paste -->
+                    <details class="text-[11px] text-slate-500">
+                        <summary class="font-bold text-slate-600 dark:text-slate-400 cursor-pointer hover:text-amber-600">أو الصق محتوى JSON يدوياً هنا...</summary>
+                        <textarea name="backup_json_text" rows="4" placeholder='{"tables": {...}} أو {"users": [...]}' 
+                                  class="w-full mt-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-mono text-slate-800 dark:text-slate-200 resize-none" dir="ltr"></textarea>
+                    </details>
+
+                    <button type="submit" 
+                            class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-xs flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                        </svg>
+                        <span>بدء رفع واستعادة النسخة الاحتياطية</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Card B: مزامنة بيانات الموقع القديم المباشرة & روابط سريعة -->
+            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/50 space-y-4 shadow-2xs flex flex-col justify-between">
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-black text-slate-900 dark:text-white">مزامنة بيانات الموقع القديم (taxi-naguilou.com)</h4>
+                            <p class="text-[11px] text-slate-400 mt-0.5">استيراد مباشر للبيانات المستخرجة من واجهة الخادم السحابي Live API</p>
+                        </div>
+                    </div>
+
+                    <div class="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="inline-flex items-center gap-1.5 text-xs font-black text-emerald-900 dark:text-emerald-300">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                حزمة البيانات المباشرة جاهزة على الخادم
+                            </span>
+                            <span class="text-[10px] font-mono px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 rounded font-bold">Live Scraped</span>
+                        </div>
+                        <p class="text-[11px] text-emerald-800/80 dark:text-emerald-400 leading-relaxed">
+                            تم سحب وتنظيف جميع البيانات الرسمية: <strong class="font-bold">99 مستخدم/سائق</strong>، <strong class="font-bold">94 سيارة أجرة</strong>، <strong class="font-bold">90 عقد قانون 90-11</strong>، <strong class="font-bold">95 اشتراك شهري</strong>، و<strong class="font-bold">100 إشعار</strong>.
+                        </p>
+                    </div>
+
+                    <form method="POST" action="<?= url('/dashboard/settings.php') ?>" onsubmit="return confirm('تأكيد: هل ترغب في مزامنة واستيراد جميع بيانات الموقع القديم إلى هذه المنصة؟');">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="import_scraped_live">
+                        <button type="submit" 
+                                class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition shadow-xs flex items-center justify-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                            </svg>
+                            <span>استيراد وتحديث بيانات الموقع القديم بنقرة واحدة</span>
+                        </button>
+                    </form>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <span class="text-[11px] text-slate-400 font-semibold">هل ترغب في استيراد ملفات CSV مخصصة أو جداول معينة؟</span>
+                    <a href="<?= url('/dashboard/import.php') ?>" 
+                       class="font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 inline-flex items-center gap-1">
+                        <span>أداة الاستيراد المتقدم</span>
+                        <span>←</span>
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
 
     <!-- ==============================================
          SECTION 5: منطقة العمليات الحساسة • حذف وتصفير البيانات (Danger Zone)

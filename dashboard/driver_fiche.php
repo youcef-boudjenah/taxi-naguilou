@@ -75,6 +75,38 @@ if (is_driver() && (int)$driver['id'] !== (int)$_SESSION['user_id']) {
     redirect('/dashboard/index.php');
 }
 
+// Load Yearly Breakdown & Subscriptions for this driver (Feature from Old Website)
+$driverSubs = [];
+$driverVersements = [];
+$debtSummary = null;
+$totalSubDue = 0;
+$totalSubPaid = 0;
+
+if ($driver && $pdo) {
+    try {
+        $stmtSubs = $pdo->prepare("SELECT * FROM driver_subscriptions WHERE driver_id = ? ORDER BY period_month ASC");
+        $stmtSubs->execute([$driver['id']]);
+        $rows = $stmtSubs->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as $r) {
+            $driverSubs[$r['period_month']] = $r;
+            $totalSubDue += floatval($r['total_due'] ?? 0);
+            $totalSubPaid += floatval($r['paid_amount'] ?? 0);
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $stmtV = $pdo->prepare("SELECT * FROM versements WHERE driver_id = ? ORDER BY payment_date DESC LIMIT 8");
+        $stmtV->execute([$driver['id']]);
+        $driverVersements = $stmtV->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {}
+
+    try {
+        $stmtDebt = $pdo->prepare("SELECT * FROM driver_debts WHERE user_id = ? LIMIT 1");
+        $stmtDebt->execute([$driver['id']]);
+        $debtSummary = $stmtDebt->fetch(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {}
+}
+
 $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_name']);
 ?>
 <!DOCTYPE html>
@@ -85,7 +117,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
     <title>البطاقة الفنية للسائق <?= htmlspecialchars($driver['full_name']) ?> | تاكسي نقيلو</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -101,8 +133,8 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                         }
                     },
                     fontFamily: {
-                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif']
+                        sans: ['Cairo', 'Tajawal', 'sans-serif'],
+                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
                     }
                 }
             }
@@ -111,15 +143,20 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
     <?= render_theme_head() ?>
     <style>
         html, body, input, button, select, textarea { 
-            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif; 
+            font-family: 'Cairo', 'Tajawal', sans-serif !important; 
+            font-weight: 400;
             text-rendering: optimizeLegibility; 
             -webkit-font-smoothing: antialiased; 
+            -moz-osx-font-smoothing: grayscale;
         }
+        .font-black { font-weight: 700 !important; }
+        .font-extrabold { font-weight: 650 !important; }
+        .font-bold { font-weight: 600 !important; }
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
         .font-num, .font-mono, [dir="ltr"] { 
-            font-family: 'Plus Jakarta Sans', 'Alexandria', 'Cairo', sans-serif !important; 
+            font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif !important; 
             font-feature-settings: "tnum" 1; 
             font-variant-numeric: tabular-nums; 
             unicode-bidi: isolate; 
@@ -132,44 +169,44 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-900 min-h-screen py-6 px-3 sm:px-6">
+<body class="bg-slate-100 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 min-h-screen py-6 px-3 sm:px-6 transition-colors">
 
     <!-- Top Action Toolbar (Hidden in Print) -->
-    <div class="max-w-5xl mx-auto mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 no-print bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-        <div class="flex items-center gap-3">
+    <div class="max-w-5xl mx-auto mb-6 flex flex-wrap items-center justify-between gap-3 no-print bg-white dark:bg-[#161d27] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div class="flex items-center gap-3 flex-wrap">
             <?php if (!is_driver()): ?>
-            <a href="drivers.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            <a href="drivers.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
+                <svg class="w-4 h-4 shrink-0 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                 </svg>
                 <span>سجل السائقين</span>
             </a>
             <?php else: ?>
-            <a href="index.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            <a href="index.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
+                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
                 </svg>
                 <span>لوحة التحكم</span>
             </a>
             <?php endif; ?>
-            <div class="h-5 w-px bg-slate-200"></div>
-            <div>
-                <span class="text-xs font-bold text-slate-400">البطاقة الفنية للسائق المهني:</span>
-                <span class="font-bold text-slate-900 text-xs mr-1"><?= htmlspecialchars($driver['full_name']) ?></span>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 font-num">
+            <div class="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-800"></div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-slate-600 dark:text-slate-400">البطاقة الفنية:</span>
+                <span class="font-extrabold text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['full_name']) ?></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">
                     <?= htmlspecialchars($driver['card_number'] ?? 'دفتر المقررة رقم 4') ?>
                 </span>
             </div>
         </div>
 
-        <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
             <?php if (!is_driver()): ?>
-                <form method="POST" action="" class="flex items-center gap-1.5">
+                <form method="POST" action="" class="inline-flex items-center m-0">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="update_driver_stage">
                     <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
                     <select name="probation_stage" onchange="this.form.submit()" 
-                            class="px-2.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-slate-50 hover:bg-white focus:bg-white transition cursor-pointer shadow-2xs"
+                            class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer shadow-2xs"
                             title="ترقية وتعديل المرحلة المهنية للسائق">
                         <option value="trial_1" <?= ($driver['probation_stage'] ?? 'trial_1') === 'trial_1' ? 'selected' : '' ?>>فترة تجريبية الأولى</option>
                         <option value="trial_2" <?= ($driver['probation_stage'] ?? '') === 'trial_2' ? 'selected' : '' ?>>تجريبية الثانية</option>
@@ -179,13 +216,23 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                 </form>
             <?php endif; ?>
             <?php if (!empty($driver['contract_id'])): ?>
-                <a href="contract_view.php?id=<?= $driver['contract_id'] ?>" target="_blank" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1.5">
-                    <svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                    <span>معاينة العقد (90-11)</span>
+                <a href="contract_view.php?id=<?= $driver['contract_id'] ?>" target="_blank" 
+                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                    <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                    <span>معاينة العقد <bdi dir="ltr">(90-11)</bdi></span>
                 </a>
             <?php endif; ?>
-            <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
+                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="كشف الحساب المالي الرسمي للسائق">
+                    <svg class="w-3.5 h-3.5 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>كشف الحساب <bdi dir="ltr">(Solde)</bdi></span>
+                </a>
+            <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer">
+                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
                 </svg>
                 <span>طباعة البطاقة الفنية (PDF)</span>
@@ -195,107 +242,111 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
     </div>
 
     <!-- Official Document Container (Fiche Technique Paper) -->
-    <div class="fiche-paper max-w-5xl mx-auto bg-white p-6 sm:p-10 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+    <div class="fiche-paper max-w-5xl mx-auto bg-white dark:bg-[#161d27] p-6 sm:p-10 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
 
         <!-- Header: Official Republic & Ministry Banner -->
-        <div class="border-b-2 border-slate-900 pb-5 space-y-2 text-center">
+        <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-2 text-center">
             <div class="flex items-center justify-between">
-                <div class="w-20 text-right text-[11px] font-bold text-slate-500 leading-tight">
+                <div class="w-28 text-right text-[11px] font-bold text-slate-600 dark:text-slate-300 leading-tight">
                     <div>الجمهورية الجزائرية</div>
                     <div>الديمقراطية الشعبية</div>
-                    <div class="text-[9px] text-slate-400 mt-1">مديرية النقل لولاية <?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></div>
+                    <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">مديرية النقل لولاية <?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></div>
                 </div>
                 <div class="text-center space-y-1">
-                    <div class="w-12 h-12 mx-auto rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center p-1.5 shadow-2xs">
+                    <div class="w-12 h-12 mx-auto rounded-2xl bg-amber-500/10 border border-amber-300 dark:border-amber-600/40 flex items-center justify-center p-1.5 shadow-2xs">
                         <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-full h-full object-contain">
                     </div>
-                    <h1 class="text-lg sm:text-xl font-black text-slate-900 tracking-tight">البطاقة الفنية للسائق المهني ودفتر المقررة</h1>
-                    <h2 class="text-xs font-bold text-amber-800 tracking-wide">FICHE TECHNIQUE DU CHAUFFEUR DE TAXI • LIVRET DE BORD</h2>
+                    <h1 class="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">البطاقة الفنية للسائق المهني ودفتر المقررة</h1>
+                    <h2 class="text-xs font-bold text-amber-700 dark:text-amber-400 tracking-wide font-num">FICHE TECHNIQUE DU CHAUFFEUR DE TAXI • LIVRET DE BORD</h2>
                 </div>
-                <div class="w-20 text-left text-[10px] text-slate-400 font-num">
-                    <div class="font-bold text-slate-800" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024') ?></div>
-                    <div>اعتماد رسمي</div>
-                    <div class="text-emerald-700 font-bold">مطابق 90-11</div>
+                <div class="w-28 text-left text-[10px] text-slate-600 dark:text-slate-400 font-num">
+                    <div class="font-bold text-slate-900 dark:text-white text-xs" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024') ?></div>
+                    <div class="text-slate-600 dark:text-slate-300">اعتماد رسمي</div>
+                    <div class="text-emerald-700 dark:text-emerald-400 font-bold">مطابق 90-11</div>
                 </div>
             </div>
         </div>
 
         <!-- Identity & Photo Card (Hero Strip) -->
-        <div class="bg-gradient-to-l from-amber-50/50 to-slate-50 p-5 rounded-2xl border border-amber-200/70 flex flex-col sm:flex-row items-center sm:items-start gap-6">
+        <div class="bg-slate-50/80 dark:bg-[#1a2332] p-5 rounded-2xl border border-amber-300/80 dark:border-amber-500/30 flex flex-col sm:flex-row items-center sm:items-start gap-6 shadow-2xs">
             
             <!-- Driver Photo with Seal & Stamp effect -->
             <div class="relative shrink-0">
-                <div class="w-32 h-40 rounded-xl overflow-hidden border-2 border-amber-400 shadow-md bg-white flex items-center justify-center">
-                    <?php if (!empty($driver['avatar_url'])): ?>
+                <div class="w-32 h-40 rounded-xl overflow-hidden border-2 border-amber-400 dark:border-amber-500 shadow-md bg-white dark:bg-slate-800 flex flex-col items-center justify-center relative">
+                    <?php if (!empty($driver['avatar_url']) && file_exists(__DIR__ . '/../' . ltrim($driver['avatar_url'], '/'))): ?>
                         <img src="<?= url($driver['avatar_url']) ?>" alt="<?= htmlspecialchars($driver['full_name']) ?>" class="w-full h-full object-cover">
                     <?php else: ?>
-                        <div class="w-full h-full bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-2xl">
-                            <?= mb_substr($driver['full_name'], 0, 1) ?>
+                        <!-- Sleek Driver Silhouette Avatar with Initials -->
+                        <div class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-amber-50/60 to-slate-100 dark:from-slate-800 dark:to-slate-900 text-slate-700 dark:text-slate-200 p-2">
+                            <div class="w-16 h-16 rounded-full bg-amber-500/20 dark:bg-amber-400/20 border-2 border-amber-400/50 flex items-center justify-center text-amber-700 dark:text-amber-300 font-black text-2xl mb-1 shadow-inner">
+                                <?= mb_substr($driver['full_name'], 0, 1) ?>
+                            </div>
+                            <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-num">سائق معتمد</span>
                         </div>
                     <?php endif; ?>
                 </div>
-                <div class="absolute -bottom-2 -left-2 px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[9px] shadow-xs">
-                    مصدق رسمياً
+                <div class="absolute -bottom-2.5 inset-x-0 mx-auto w-max px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-sm flex items-center gap-1">
+                    <span>✓</span><span>مصدق رسمياً</span>
                 </div>
             </div>
 
             <!-- Core Identity Info -->
             <div class="flex-1 space-y-3 text-right w-full">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/50 pb-2">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-3">
                     <div>
-                        <div class="text-xs font-bold text-slate-400">الاسم واللقب الكامل:</div>
-                        <h3 class="text-xl sm:text-2xl font-black text-slate-900 tracking-tight"><?= htmlspecialchars($driver['full_name']) ?></h3>
+                        <div class="text-xs font-bold text-slate-600 dark:text-slate-400">الاسم واللقب الكامل:</div>
+                        <h3 class="text-xl sm:text-2xl font-black text-slate-950 dark:text-white tracking-tight"><?= htmlspecialchars($driver['full_name']) ?></h3>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-slate-950 shadow-2xs">
                             سائق <?= $driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني' ?>
                         </span>
                         <?php
                         $stgVal = $driver['probation_stage'] ?? 'trial_1';
                         $stageBadges = [
-                            'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-100 text-amber-900 border-amber-300'],
-                            'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-100 text-blue-900 border-blue-300'],
-                            'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-100 text-indigo-900 border-indigo-300'],
-                            'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-100 text-emerald-900 border-emerald-300'],
+                            'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-700'],
+                            'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-700'],
+                            'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700'],
+                            'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'],
                         ];
                         $stg = $stageBadges[$stgVal] ?? $stageBadges['trial_1'];
                         ?>
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $stg['cls'] ?>">
                             <?= $stg['label'] ?>
                         </span>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                             نشط ميدانياً
                         </span>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                    <div>
-                        <span class="text-slate-400 block font-medium">اللقب (Nom):</span>
-                        <strong class="text-slate-900 text-sm font-bold"><?= htmlspecialchars($driver['last_name'] ?? 'حمو صالح') ?></strong>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 text-xs">
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">اللقب (Nom):</span>
+                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= htmlspecialchars($driver['last_name'] ?? 'حمو صالح') ?></strong>
                     </div>
-                    <div>
-                        <span class="text-slate-400 block font-medium">الاسم (Prénom):</span>
-                        <strong class="text-slate-900 text-sm font-bold"><?= htmlspecialchars($driver['first_name'] ?? 'يوسف') ?></strong>
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">الاسم (Prénom):</span>
+                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= htmlspecialchars($driver['first_name'] ?? 'يوسف') ?></strong>
                     </div>
-                    <div>
-                        <span class="text-slate-400 block font-medium">تاريخ ومكان الازدياد:</span>
-                        <strong class="text-slate-900 font-bold">
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">تاريخ ومكان الازدياد:</span>
+                        <strong class="text-slate-950 dark:text-white font-bold flex items-center gap-1">
                             <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['birth_date'] ?? '1992/04/01') ?></span> 
-                            (<?= htmlspecialchars($driver['birth_place'] ?? 'بعريانو تامست') ?>)
+                            <span>(<?= htmlspecialchars($driver['birth_place'] ?? 'بعريانو تامست') ?>)</span>
                         </strong>
                     </div>
-                    <div>
-                        <span class="text-slate-400 block font-medium">ابن (Fils de):</span>
-                        <strong class="text-slate-800"><?= htmlspecialchars($driver['father_name'] ?? 'أحمد') ?></strong>
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">ابن (Fils de):</span>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= htmlspecialchars($driver['father_name'] ?? 'أحمد') ?></strong>
                     </div>
-                    <div>
-                        <span class="text-slate-400 block font-medium">و (Et de):</span>
-                        <strong class="text-slate-800"><?= htmlspecialchars($driver['mother_name'] ?? 'حمو صالح خيرة') ?></strong>
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">و (Et de):</span>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= htmlspecialchars($driver['mother_name'] ?? 'حمو صالح خيرة') ?></strong>
                     </div>
-                    <div>
-                        <span class="text-slate-400 block font-medium">العنوان الشخصي:</span>
-                        <strong class="text-slate-800"><?= htmlspecialchars($driver['address'] ?? 'حي الحطابة، بلدية أدرار') ?></strong>
+                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">العنوان الشخصي:</span>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>"><?= htmlspecialchars($driver['address'] ?? 'حي الحطابة، بلدية أدرار') ?></strong>
                     </div>
                 </div>
             </div>
@@ -306,62 +357,68 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
             
             <!-- Box A: رخصة السياقة والكفاءة المهنية -->
-            <div class="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                     <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                        <h4 class="font-black text-slate-900 text-sm">بيانات رخصة السياقة والمهنة</h4>
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <h4 class="font-black text-slate-900 dark:text-white text-sm">بيانات رخصة السياقة والمهنة</h4>
                     </div>
-                    <span class="text-[10px] text-slate-400 font-bold uppercase">Permis de Conduire</span>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Permis de Conduire</span>
                 </div>
                 <div class="space-y-2 text-xs">
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">رقم رخصة السياقة:</span>
-                        <span class="font-num font-bold text-slate-900 text-sm" dir="ltr"><?= htmlspecialchars($driver['license_number'] ?? 'A02669719') ?></span>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">رقم رخصة السياقة:</span>
+                        <span class="font-num font-bold text-slate-950 dark:text-white text-sm" dir="ltr"><?= htmlspecialchars($driver['license_number'] ?? 'A02669719') ?></span>
                     </div>
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">تاريخ الإصدار:</span>
-                        <span class="font-num font-bold text-slate-800" dir="ltr"><?= htmlspecialchars($driver['license_issue_date'] ?? '2022/10/11') ?></span>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">تاريخ الإصدار:</span>
+                        <span class="font-num font-bold text-slate-900 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($driver['license_issue_date'] ?? '2022/10/11') ?></span>
                     </div>
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">جهة الإصدار الرسمية:</span>
-                        <span class="font-bold text-slate-800"><?= htmlspecialchars($driver['license_issue_place'] ?? 'بلدية أدرار') ?></span>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">جهة الإصدار الرسمية:</span>
+                        <span class="font-bold text-slate-900 dark:text-slate-200"><?= htmlspecialchars($driver['license_issue_place'] ?? 'بلدية أدرار') ?></span>
                     </div>
-                    <div class="flex justify-between py-1">
-                        <span class="text-slate-500">صلاحية رخصة السياقة:</span>
-                        <span class="font-num font-bold text-emerald-700" dir="ltr"><?= htmlspecialchars($driver['license_expiry'] ?? '2032/10/10') ?></span>
+                    <div class="flex justify-between items-center py-1">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">صلاحية رخصة السياقة:</span>
+                        <span class="font-num font-bold text-emerald-700 dark:text-emerald-400" dir="ltr"><?= htmlspecialchars($driver['license_expiry'] ?? '2032/10/10') ?></span>
                     </div>
                 </div>
             </div>
 
             <!-- Box B: المركبة ورقم التسجيل المعتمد -->
-            <div class="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                     <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                        <h4 class="font-black text-slate-900 text-sm">المركبة المستغلة ورخصة سيارة الأجرة</h4>
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                        <h4 class="font-black text-slate-900 dark:text-white text-sm">المركبة المستغلة ورخصة سيارة الأجرة</h4>
                     </div>
-                    <span class="text-[10px] text-slate-400 font-bold uppercase">Véhicule Assigné</span>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Véhicule Assigné</span>
                 </div>
                 <div class="space-y-2 text-xs">
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">رقم تسجيل المركبة (اللوحة الحالية):</span>
-                        <span class="font-num font-black text-slate-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-sm" dir="ltr">
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">رقم تسجيل المركبة (اللوحة الحالية):</span>
+                        <span class="font-num font-black text-slate-950 dark:text-white bg-amber-500/10 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-600/40 text-sm" dir="ltr">
                             <?= htmlspecialchars($driver['plate_number'] ?? '07039-115-01') ?>
                         </span>
                     </div>
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">المركبة السابقة المشطوبة بالدفتر:</span>
-                        <span class="font-num font-semibold text-slate-400 line-through" dir="ltr">04722-110-01</span>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">المركبة السابقة المشطوبة بالدفتر:</span>
+                        <span class="font-num font-semibold text-slate-400 dark:text-slate-500 line-through" dir="ltr">04722-110-01</span>
                     </div>
-                    <div class="flex justify-between py-1 border-b border-slate-50">
-                        <span class="text-slate-500">صنف وطراز المركبة:</span>
-                        <span class="font-bold text-slate-800"><?= htmlspecialchars($driver['brand'] ?? 'Dacia') ?> <?= htmlspecialchars($driver['model'] ?? 'Logan Taxi') ?> (باب: <?= htmlspecialchars($driver['door_number'] ?? '01') ?>)</span>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">صنف وطراز المركبة:</span>
+                        <span class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <span><?= htmlspecialchars($driver['brand'] ?? 'Dacia') ?> <?= htmlspecialchars($driver['model'] ?? 'Logan Taxi') ?></span>
+                            <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num text-[11px] font-bold" dir="ltr">(باب: <?= htmlspecialchars($driver['door_number'] ?? '01') ?>)</span>
+                        </span>
                     </div>
-                    <div class="flex justify-between py-1">
-                        <span class="text-slate-500">مدة صلاحية عقد رخصة الأجرة:</span>
-                        <span class="font-num font-bold text-indigo-700" dir="ltr">
-                            من <?= htmlspecialchars($driver['taxi_contract_start'] ?? '2024/09/01') ?> إلى <?= htmlspecialchars($driver['taxi_contract_end'] ?? '2027/08/31') ?>
+                    <div class="flex justify-between items-center py-1">
+                        <span class="text-slate-600 dark:text-slate-400 font-medium">مدة صلاحية عقد رخصة الأجرة:</span>
+                        <span class="font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
+                            <span>من</span>
+                            <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_start'] ?? '2024/09/01') ?></span>
+                            <span>إلى</span>
+                            <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_end'] ?? '2027/08/31') ?></span>
                         </span>
                     </div>
                 </div>
@@ -370,20 +427,20 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         </div>
 
         <!-- Section 3: الجدول الرسمي للفحوصات الطبية الدورية (Contrôles Médicaux) -->
-        <div class="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <h4 class="font-black text-slate-900 text-sm">الفحوصات الطبية الدورية (Contrôles Médicaux)</h4>
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الفحوصات الطبية الدورية (Contrôles Médicaux)</h4>
                 </div>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 font-num">
+                <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">
                     لائق صحياً وبدنياً
                 </span>
             </div>
 
             <div class="overflow-x-auto">
                 <table class="w-full text-right text-xs">
-                    <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                    <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
                         <tr>
                             <th class="p-2.5">الفحص الطبي الدوري</th>
                             <th class="p-2.5">تاريخ البداية</th>
@@ -393,31 +450,31 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                             <th class="p-2.5 text-center">الوضعية القانونية</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 font-medium">
-                        <tr class="bg-emerald-50/20">
-                            <td class="p-2.5 font-bold text-slate-900">الفحص الطبي الساري (مقررة معتمدة)</td>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                        <tr class="bg-emerald-50/20 dark:bg-emerald-950/20">
+                            <td class="p-2.5 font-bold text-slate-900 dark:text-white">الفحص الطبي الساري (مقررة معتمدة)</td>
                             <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['medical_exam_start'] ?? '2024/09/01') ?></td>
-                            <td class="p-2.5 font-num font-bold text-slate-900" dir="ltr"><?= htmlspecialchars($driver['medical_exam_end'] ?? '2026/08/31') ?></td>
-                            <td class="p-2.5 font-bold text-slate-700">سنتان (24 شهراً)</td>
+                            <td class="p-2.5 font-num font-bold text-slate-950 dark:text-white" dir="ltr"><?= htmlspecialchars($driver['medical_exam_end'] ?? '2026/08/31') ?></td>
+                            <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">سنتان (24 شهراً)</td>
                             <td class="p-2.5">
-                                <span class="inline-flex items-center gap-1 font-bold text-emerald-800 font-num" dir="ltr">
+                                <span class="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 font-num" dir="ltr">
                                     ✓ شهادة طبية معتمدة ومطابقة
                                 </span>
                             </td>
                             <td class="p-2.5 text-center">
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                                     ساري الصلاحية
                                 </span>
                             </td>
                         </tr>
-                        <tr class="text-slate-500">
-                            <td class="p-2.5 font-bold text-slate-700">الفحص الدوري المجدول القادم</td>
+                        <tr class="text-slate-500 dark:text-slate-400">
+                            <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">الفحص الدوري المجدول القادم</td>
                             <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_start'] ?? '2026/09/15') ?></td>
                             <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_end'] ?? '2028/09/14') ?></td>
-                            <td class="p-2.5">سنتان (تجديد)</td>
-                            <td class="p-2.5 font-num">مجدول دورياً وفق القانون</td>
+                            <td class="p-2.5 text-slate-600 dark:text-slate-400">سنتان (تجديد)</td>
+                            <td class="p-2.5 font-num text-slate-600 dark:text-slate-400">مجدول دورياً وفق القانون</td>
                             <td class="p-2.5 text-center">
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                                     تجديد مستقبلي
                                 </span>
                             </td>
@@ -428,103 +485,215 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         </div>
 
         <!-- Section 4: بداية النشاط (Début d'Activité) -->
-        <div class="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-                    <h4 class="font-black text-slate-900 text-sm">سريان النشاط المهني (Début d'Activité)</h4>
+                    <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                    <h4 class="font-black text-slate-900 dark:text-white text-sm">سريان النشاط المهني (Début d'Activité)</h4>
                 </div>
-                <span class="text-[10px] text-slate-400 font-bold uppercase">Activité Professionnelle</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Activité Professionnelle</span>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span class="text-slate-400 block font-medium">تاريخ بداية النشاط:</span>
-                    <strong class="text-slate-900 text-sm font-num font-black" dir="ltr"><?= htmlspecialchars($driver['activity_start_date'] ?? '2024/09/03') ?></strong>
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
+                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">تاريخ بداية النشاط:</span>
+                    <strong class="text-slate-950 dark:text-white text-sm font-num font-black" dir="ltr"><?= htmlspecialchars($driver['activity_start_date'] ?? '2024/09/03') ?></strong>
                 </div>
-                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span class="text-slate-400 block font-medium">دفتر المقررة / البطاقة:</span>
-                    <strong class="text-slate-900 text-sm font-num font-bold" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024-047') ?></strong>
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
+                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">دفتر المقررة / البطاقة:</span>
+                    <strong class="text-slate-950 dark:text-white text-sm font-num font-bold" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024-047') ?></strong>
                 </div>
-                <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <span class="text-slate-400 block font-medium">حالة النشاط والتوقف:</span>
-                    <strong class="text-emerald-700 text-sm font-bold">مستمر ميدانياً (دون توقف)</strong>
+                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
+                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">حالة النشاط والتوقف:</span>
+                    <strong class="text-emerald-700 dark:text-emerald-400 text-sm font-bold">مستمر ميدانياً (دون توقف)</strong>
                 </div>
             </div>
         </div>
 
-        <!-- Section 5: المعاينة الأصلية للصفحات الممسوحة ضوئياً (Livret Scans Lightbox) -->
-        <div class="p-5 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-4 no-print">
-            <div class="flex items-center justify-between border-b border-slate-200 pb-2.5">
+        <!-- Section 4.5: الجدول المالي السنوي للاشتراكات والديون (Décomposition Financière Annuelle) -->
+        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div class="flex items-center gap-2">
-                    <svg class="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
-                    </svg>
-                    <h4 class="font-black text-slate-900 text-sm">الوثائق الأصلية الممسوحة ضوئياً (دفتر السائق الأصلي)</h4>
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الجدول المالي السنوي للاشتراكات والديون (2026)</h4>
+                    <span class="text-[10px] text-slate-400 font-num font-bold">12 MOIS</span>
                 </div>
-                <span class="text-xs text-slate-500 font-medium">اضغط على أي صفحة لمعاينتها بدقة عالية</span>
+                <div class="flex items-center gap-2">
+                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num" dir="ltr">
+                        المستحق السنوي: <?= number_format($totalSubDue > 0 ? $totalSubDue : 48000, 2) ?> DZD
+                    </span>
+                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-num border border-emerald-200/60" dir="ltr">
+                        المحصل: <?= number_format($totalSubPaid, 2) ?> DZD
+                    </span>
+                    <?php 
+                        $resteDette = max(0, ($totalSubDue > 0 ? $totalSubDue : 48000) - $totalSubPaid);
+                    ?>
+                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $resteDette > 0 ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-500' ?> font-num" dir="ltr">
+                        الذمة: <?= number_format($resteDette, 2) ?> DZD
+                    </span>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                
-                <!-- Page 4 Scan -->
-                <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                    <div class="text-xs font-bold text-slate-700 flex items-center justify-between">
-                        <span>الصفحة 4: الهوية والرخصة</span>
-                        <span class="text-[10px] text-amber-700 font-num">Page 4</span>
-                    </div>
-                    <a href="<?= url('/uploads/scans/driver_booklet_page4.png') ?>" target="_blank" class="block aspect-[3/4] rounded-lg overflow-hidden border border-slate-100 hover:border-amber-400 transition group relative">
-                        <img src="<?= url('/uploads/scans/driver_booklet_page4.png') ?>" alt="الصفحة 4" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
-                        <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
-                            تكبير ومعاينة ↗
-                        </div>
-                    </a>
-                </div>
+            <!-- 12-Month Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-right text-xs">
+                    <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                            <th class="p-2.5">الشهر (Mois)</th>
+                            <th class="p-2.5 text-center">اشتراك المركبة</th>
+                            <th class="p-2.5 text-center">رسوم الحيز</th>
+                            <th class="p-2.5 text-center">المستحق الإجمالي</th>
+                            <th class="p-2.5 text-center">المسدد (Versé)</th>
+                            <th class="p-2.5 text-center">المتبقي (Reste)</th>
+                            <th class="p-2.5 text-center">الوضعية المالية</th>
+                            <th class="p-2.5 text-center">الوصل الرسمي</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                        <?php
+                        $arabicMonths = [
+                            1 => 'جانفي (Jan)', 2 => 'فيفري (Fév)', 3 => 'مارس (Mar)', 4 => 'أفريل (Avr)',
+                            5 => 'ماي (Mai)', 6 => 'جوان (Juin)', 7 => 'جويلية (Juil)', 8 => 'أوت (Août)',
+                            9 => 'سبتمبر (Sep)', 10 => 'أكتوبر (Oct)', 11 => 'نوفمبر (Nov)', 12 => 'ديسمبر (Déc)'
+                        ];
+                        $curMonthNum = intval(date('n'));
 
-                <!-- Page 7 Scan -->
-                <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                    <div class="text-xs font-bold text-slate-700 flex items-center justify-between">
-                        <span>الصفحة 7: عقد الرخصة والمركبة</span>
-                        <span class="text-[10px] text-amber-700 font-num">Page 7</span>
-                    </div>
-                    <a href="<?= url('/uploads/scans/driver_booklet_page7.png') ?>" target="_blank" class="block aspect-[3/4] rounded-lg overflow-hidden border border-slate-100 hover:border-amber-400 transition group relative">
-                        <img src="<?= url('/uploads/scans/driver_booklet_page7.png') ?>" alt="الصفحة 7" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
-                        <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
-                            تكبير ومعاينة ↗
-                        </div>
-                    </a>
-                </div>
+                        for ($m = 1; $m <= 12; $m++):
+                            $mKey = '2026-' . str_pad($m, 2, '0', STR_PAD_LEFT);
+                            $subItem = $driverSubs[$mKey] ?? null;
 
-                <!-- Medical & Activity Scan -->
-                <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
-                    <div class="text-xs font-bold text-slate-700 flex items-center justify-between">
-                        <span>الفحص الطبي وبداية النشاط</span>
-                        <span class="text-[10px] text-amber-700 font-num">Médical & Activité</span>
-                    </div>
-                    <a href="<?= url('/uploads/scans/driver_booklet_medical.png') ?>" target="_blank" class="block aspect-[3/4] rounded-lg overflow-hidden border border-slate-100 hover:border-amber-400 transition group relative">
-                        <img src="<?= url('/uploads/scans/driver_booklet_medical.png') ?>" alt="الفحص الطبي" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
-                        <div class="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
-                            تكبير ومعاينة ↗
-                        </div>
-                    </a>
-                </div>
+                            $vFee = $subItem ? floatval($subItem['vehicle_fee']) : 4000.00;
+                            $sFee = $subItem ? floatval($subItem['space_fee']) : 350.00;
+                            $totDue = $subItem ? floatval($subItem['total_due']) : 4350.00;
+                            $paid = $subItem ? floatval($subItem['paid_amount']) : 0.00;
+                            $rem = max(0, $totDue - $paid);
 
+                            $isPast = ($m < $curMonthNum);
+                            $isCur = ($m === $curMonthNum);
+                            $isUpcoming = ($m > $curMonthNum);
+
+                            $isRegle = ($subItem && $subItem['status'] === 'regle') || ($paid >= $totDue && $totDue > 0);
+                            $isPartiel = ($subItem && $subItem['status'] === 'partiel') || ($paid > 0 && $paid < $totDue);
+                        ?>
+                            <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition <?= $isCur ? 'bg-amber-50/30 dark:bg-amber-950/20' : '' ?>">
+                                <td class="p-2.5 whitespace-nowrap">
+                                    <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                        <?php if ($isCur): ?>
+                                            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                                        <?php endif; ?>
+                                        <span><?= $arabicMonths[$m] ?></span>
+                                    </div>
+                                    <span class="text-[10px] text-slate-400 font-num" dir="ltr"><?= $mKey ?></span>
+                                </td>
+                                <td class="p-2.5 text-center font-num text-slate-700 dark:text-slate-300" dir="ltr"><?= number_format($vFee, 0) ?> دج</td>
+                                <td class="p-2.5 text-center font-num text-slate-500 dark:text-slate-400" dir="ltr"><?= number_format($sFee, 0) ?> دج</td>
+                                <td class="p-2.5 text-center font-num font-bold text-slate-900 dark:text-white" dir="ltr"><?= number_format($totDue, 0) ?> دج</td>
+                                <td class="p-2.5 text-center font-num font-bold text-emerald-600 dark:text-emerald-400" dir="ltr"><?= number_format($paid, 0) ?> دج</td>
+                                <td class="p-2.5 text-center font-num font-bold <?= $rem > 0 && !$isUpcoming ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400' ?>" dir="ltr">
+                                    <?= $isUpcoming && $rem == $totDue ? '-' : number_format($rem, 0) . ' دج' ?>
+                                </td>
+                                <td class="p-2.5 text-center whitespace-nowrap">
+                                    <?php if ($isRegle): ?>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                            مسدد بالكامل ✓
+                                        </span>
+                                    <?php elseif ($isPartiel): ?>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                            تسوية جزئية
+                                        </span>
+                                    <?php elseif ($isUpcoming): ?>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                            استحقاق قادم
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
+                                            معلق (ذمة)
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="p-2.5 text-center whitespace-nowrap">
+                                    <?php if ($subItem): ?>
+                                        <a href="/dashboard/invoice.php?type=subscription&id=<?= $subItem['id'] ?>" target="_blank"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition shadow-2xs">
+                                            <span>فاتورة</span>
+                                            <span class="font-num">🖨️</span>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="text-[10px] text-slate-400 font-num">-</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endfor; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Versements History for this driver -->
+            <?php if (!empty($driverVersements)): ?>
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                <span class="block font-bold text-xs text-slate-700 dark:text-slate-300">سجل الوصولات والدفعات المباشرة (Derniers Versements):</span>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
+                    <?php foreach ($driverVersements as $vr): ?>
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="font-num font-black text-emerald-600 dark:text-emerald-400" dir="ltr"><?= number_format($vr['amount'] ?? 0, 2) ?> DZD</div>
+                            <div class="text-[10px] text-slate-400 font-num" dir="ltr"><?= substr($vr['payment_date'] ?? '', 0, 10) ?> • <?= htmlspecialchars($vr['payment_method'] ?? 'Espèces') ?></div>
+                        </div>
+                        <a href="/dashboard/invoice.php?type=versement&id=<?= $vr['id'] ?>" target="_blank" 
+                           class="px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold text-[10px] hover:bg-amber-500 hover:text-slate-950 transition">
+                            وصل 🖨️
+                        </a>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Section 5: الأرشفة الرقمية والتحقق الرسمي -->
+        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#1a2332]/60 space-y-4 no-print">
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                    </svg>
+                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الأرشفة والتوثيق القانوني للدفتر المهني</h4>
+                </div>
+                <span class="text-xs text-emerald-700 dark:text-emerald-400 font-bold">✓ ملف رقمي مصادق عليه</span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-xs">
+                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">وثيقة المقررة الأصلية</div>
+                    <div class="font-bold text-slate-900 dark:text-white">الصفحة 4 (الهوية والرخصة)</div>
+                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">مطابقة للمواصفات الرسمية</div>
+                </div>
+                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">وثيقة عقد الاستغلال</div>
+                    <div class="font-bold text-slate-900 dark:text-white">الصفحة 7 (المركبة والرخصة)</div>
+                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">سارية الصلاحية حتى 2027</div>
+                </div>
+                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">الشهادة الطبية</div>
+                    <div class="font-bold text-slate-900 dark:text-white">الفحص الدوري الساري</div>
+                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">معتمد من مفتشية النقل</div>
+                </div>
             </div>
         </div>
 
         <!-- Official Signatures & Seal Area (For Print & Authority Checks) -->
-        <div class="pt-6 border-t-2 border-slate-900 grid grid-cols-3 gap-6 text-center text-xs">
-            <div class="space-y-12">
-                <span class="font-bold text-slate-700 block">إمضاء وبصمة السائق المهني</span>
-                <div class="text-slate-400 text-[10px] italic">يوسف حمو صالح</div>
+        <div class="pt-6 border-t-2 border-slate-900 dark:border-slate-700 grid grid-cols-3 gap-6 text-center text-xs">
+            <div class="space-y-10">
+                <span class="font-bold text-slate-800 dark:text-slate-200 block">إمضاء وبصمة السائق المهني</span>
+                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold"><?= htmlspecialchars($driver['full_name']) ?></div>
             </div>
-            <div class="space-y-12">
-                <span class="font-bold text-slate-700 block">ختم وتأشيرة مؤسسة تاكسي نقيلو</span>
-                <div class="text-slate-400 text-[10px] italic">EURL TAXI NAGUILOU</div>
+            <div class="space-y-10">
+                <span class="font-bold text-slate-800 dark:text-slate-200 block">ختم وتأشيرة مؤسسة تاكسي نقيلو</span>
+                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold font-num">EURL TAXI NAGUILOU</div>
             </div>
-            <div class="space-y-12">
-                <span class="font-bold text-slate-700 block">تأشيرة مديرية النقل لولاية أدرار</span>
-                <div class="text-slate-400 text-[10px] italic">مفتشية النقل البري</div>
+            <div class="space-y-10">
+                <span class="font-bold text-slate-800 dark:text-slate-200 block">تأشيرة مديرية النقل لولاية <?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></span>
+                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold">مفتشية النقل البري</div>
             </div>
         </div>
 

@@ -72,6 +72,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                 $message = 'تمت إعادة تعيين كلمة المرور إلى (password123) بنجاح.';
                 $messageType = 'success';
             }
+        } elseif ($action === 'edit_user') {
+            $userId = intval($_POST['user_id'] ?? 0);
+            $fullName = trim($_POST['full_name'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
+            $role = $_POST['role'] ?? 'driver';
+            $status = in_array($_POST['status'] ?? '', ['active', 'suspended']) ? $_POST['status'] : 'active';
+            $password = trim($_POST['password'] ?? '');
+
+            if ($userId > 0 && !empty($fullName)) {
+                if (!empty($password)) {
+                    $passHash = password_hash($password, PASSWORD_BCRYPT);
+                    $stmtUp = $pdo->prepare("UPDATE users SET full_name = ?, email = ?, phone = ?, role = ?, status = ?, password_hash = ? WHERE id = ?");
+                    $stmtUp->execute([$fullName, $email, $phone, $role, $status, $passHash, $userId]);
+                } else {
+                    $stmtUp = $pdo->prepare("UPDATE users SET full_name = ?, email = ?, phone = ?, role = ?, status = ? WHERE id = ?");
+                    $stmtUp->execute([$fullName, $email, $phone, $role, $status, $userId]);
+                }
+                log_audit($pdo, 'user_updated', 'users', $userId, "تعديل بيانات المستخدم: $fullName ($role)");
+                $message = "تم تعديل بيانات المستخدم $fullName بنجاح.";
+                $messageType = 'success';
+            } else {
+                $message = 'يرجى إدخال اسم المستخدم.';
+                $messageType = 'error';
+            }
+        } elseif ($action === 'delete_user') {
+            $userId = intval($_POST['user_id'] ?? 0);
+            if ($userId === intval($_SESSION['user_id'])) {
+                $message = 'عذراً، لا يمكنك حذف حسابك الشخصي الذي تستخدمه حالياً.';
+                $messageType = 'error';
+            } elseif ($userId > 0) {
+                $targetRole = $pdo->query("SELECT role FROM users WHERE id = $userId")->fetchColumn();
+                if ($targetRole === 'super_admin' && !is_super_admin()) {
+                    $message = 'عذراً، فقط المدير العام مخول بحذف حسابات المشرفين العامين.';
+                    $messageType = 'error';
+                } else {
+                    try {
+                        $stmtDel = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                        $stmtDel->execute([$userId]);
+                        log_audit($pdo, 'user_deleted', 'users', $userId, "حذف حساب المستخدم رقم $userId");
+                        $message = 'تم حذف حساب المستخدم بنجاح.';
+                        $messageType = 'success';
+                    } catch (\PDOException $e) {
+                        if ($e->getCode() == '23000' || strpos($e->getMessage(), '1451') !== false) {
+                            $stmtUp = $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?");
+                            $stmtUp->execute([$userId]);
+                            log_audit($pdo, 'user_suspended_fk', 'users', $userId, "تجميد حساب المستخدم رقم $userId بدلاً من الحذف لوجود سجلات مرتبطة (عقود/مركبات/ديون)");
+                            $message = 'تعذر الحذف النهائي لوجود سجلات رسمية مرتبطة بالمستخدم (عقود، ديون، أو مركبات). تم تحويل حالة الحساب تلقائياً إلى "مجمد" حفاظاً على الأرشيف المالي والقانوني.';
+                            $messageType = 'warning';
+                        } else {
+                            $message = 'حدث خطأ أثناء محاولة الحذف: ' . htmlspecialchars($e->getMessage());
+                            $messageType = 'error';
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -279,8 +335,25 @@ $roleCounts = [
                                         <?= $statusLabel ?>
                                     </span>
                                 </td>
-                                <td class="p-4 text-center">
+                                <td class="p-4 text-center whitespace-nowrap">
                                     <div class="flex items-center justify-center gap-1.5">
+                                        <!-- Edit User Button -->
+                                        <button type="button"
+                                                onclick='openEditUserModal(<?= json_encode([
+                                                    "id" => (int)$u["id"],
+                                                    "full_name" => $u["full_name"],
+                                                    "email" => $u["email"] ?? "",
+                                                    "phone" => $u["phone"] ?? "",
+                                                    "role" => $u["role"],
+                                                    "status" => $u["status"]
+                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                title="تعديل بيانات المستخدم" 
+                                                class="p-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition text-xs flex items-center justify-center">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                        </button>
+
                                         <!-- Toggle Status Form -->
                                         <form method="POST" action="" class="inline">
                                             <?= csrf_field() ?>
@@ -308,6 +381,20 @@ $roleCounts = [
                                                 🔑
                                             </button>
                                         </form>
+
+                                        <!-- Delete User Form -->
+                                        <?php if ((int)$u['id'] !== (int)$_SESSION['user_id']): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا المستخدم نهائياً؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_user">
+                                            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                            <button type="submit" title="حذف المستخدم" class="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition text-xs">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -407,5 +494,96 @@ $roleCounts = [
         </form>
     </div>
 </div>
+
+<!-- Modal: Edit User -->
+<div id="editUserModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h3 class="text-sm font-black text-slate-900">تعديل بيانات المستخدم والصلاحيات</h3>
+            <button onclick="closeEditUserModal()" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        <form method="POST" action="" class="space-y-3 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_user">
+            <input type="hidden" name="user_id" id="editUserId">
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">الاسم واللقب *</label>
+                <input type="text" name="full_name" id="editUserFullName" required 
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
+                    <input type="email" name="email" id="editUserEmail" dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">رقم الهاتف</label>
+                    <input type="text" name="phone" id="editUserPhone" dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-num">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">الدور والصلاحية *</label>
+                    <select name="role" id="editUserRole" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+                        <option value="driver">سائق أجرة (Driver)</option>
+                        <option value="owner">مالك أسطول (Owner)</option>
+                        <option value="admin">مشرف إدارة (Admin)</option>
+                        <option value="super_admin">مدير المنصة (Super Admin)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">الحالة</label>
+                    <select name="status" id="editUserStatus" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+                        <option value="active">نشط ومفعل (Active)</option>
+                        <option value="suspended">موقوف / مجمد (Suspended)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">كلمة مرور جديدة (اتركه فارغاً إذا كنت لا ترغب بتغييرها)</label>
+                <input type="password" name="password" placeholder="اتركه فارغاً للحفاظ على القديمة" 
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500">
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeEditUserModal()" 
+                        class="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition">
+                    حفظ التعديلات
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditUserModal(data) {
+    document.getElementById('editUserId').value = data.id || '';
+    document.getElementById('editUserFullName').value = data.full_name || '';
+    document.getElementById('editUserEmail').value = data.email || '';
+    document.getElementById('editUserPhone').value = data.phone || '';
+    document.getElementById('editUserRole').value = data.role || 'driver';
+    document.getElementById('editUserStatus').value = data.status || 'active';
+
+    const modal = document.getElementById('editUserModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeEditUserModal() {
+    const modal = document.getElementById('editUserModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

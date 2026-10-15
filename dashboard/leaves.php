@@ -62,7 +62,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
             set_flash('error', 'حدث خطأ أثناء تسجيل العطلة: ' . $e->getMessage());
         }
+    } else {
+        set_flash('error', 'يرجى تحديد المركبة والسائق');
     }
+}
+
+// Handle Edit Leave
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_leave') {
+    require_csrf_token();
+    $leaveId = intval($_POST['leave_id'] ?? 0);
+    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $reliefDriverId = intval($_POST['replacement_driver_id'] ?? 0);
+    $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
+    $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d');
+    $reason = trim($_POST['reason'] ?? 'عطلة سنوية نظامية');
+    $status = in_array($_POST['status'] ?? '', ['approved', 'pending', 'rejected', 'completed']) ? $_POST['status'] : 'approved';
+
+    if ($leaveId > 0 && $vehicleId > 0 && $driverId > 0) {
+        try {
+            $stmt = $pdo->prepare("
+                UPDATE leaves 
+                SET vehicle_id = ?, driver_id = ?, replacement_driver_id = ?, start_date = ?, end_date = ?, reason = ?, status = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $vehicleId, $driverId, $reliefDriverId > 0 ? $reliefDriverId : null,
+                $startDate, $endDate, $reason, $status, $leaveId
+            ]);
+
+            // Sync replacement driver on vehicle
+            if ($reliefDriverId > 0 && $status === 'approved') {
+                $pdo->prepare("UPDATE vehicles SET replacement_driver_id = ? WHERE id = ?")->execute([$reliefDriverId, $vehicleId]);
+            } else {
+                $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE id = ? AND replacement_driver_id = ?")->execute([$vehicleId, $reliefDriverId]);
+            }
+
+            log_audit($pdo, 'leave_updated', 'leaves', $leaveId, "تعديل بيانات العطلة رقم $leaveId");
+            set_flash('success', "تم تعديل بيانات الإجازة والسائق البديل بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تعديل الإجازة: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'يرجى ملء جميع الحقول المطلوبة');
+    }
+    redirect('/dashboard/leaves.php');
+}
+
+// Handle Delete Leave
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_leave') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بإلغاء وحذف العطل.');
+        redirect('/dashboard/leaves.php');
+    }
+    $leaveId = intval($_POST['leave_id'] ?? 0);
+    if ($leaveId > 0) {
+        try {
+            // Check vehicle replacement driver
+            $leaveData = $pdo->query("SELECT vehicle_id, replacement_driver_id FROM leaves WHERE id = $leaveId")->fetch();
+            if ($leaveData && $leaveData['replacement_driver_id']) {
+                $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE id = ? AND replacement_driver_id = ?")->execute([$leaveData['vehicle_id'], $leaveData['replacement_driver_id']]);
+            }
+
+            $stmtDel = $pdo->prepare("DELETE FROM leaves WHERE id = ?");
+            $stmtDel->execute([$leaveId]);
+            log_audit($pdo, 'leave_deleted', 'leaves', $leaveId, "حذف العطلة رقم $leaveId");
+            set_flash('success', "تم إلغاء وحذف العطلة بنجاح واستعادة حالة المركبة الأصلية");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء حذف العطلة: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/leaves.php');
 }
 
 // Fetch leaves
@@ -208,9 +279,41 @@ if (is_owner() && !is_admin()) {
                                     </span>
                                 </td>
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <a href="slips.php" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
-                                        جدول الإرسال
-                                    </a>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <a href="slips.php" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition" title="جدول الإرسال">
+                                            <span>جدول الإرسال</span>
+                                        </a>
+                                        <button type="button"
+                                                onclick='openEditLeaveModal(<?= json_encode([
+                                                    "id" => (int)$l["id"],
+                                                    "vehicle_id" => (int)$l["vehicle_id"],
+                                                    "driver_id" => (int)$l["driver_id"],
+                                                    "replacement_driver_id" => (int)($l["replacement_driver_id"] ?? 0),
+                                                    "start_date" => $l["start_date"],
+                                                    "end_date" => $l["end_date"],
+                                                    "reason" => $l["reason"],
+                                                    "status" => $l["status"] ?? "approved"
+                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] transition border border-blue-200/60 shadow-2xs" title="تعديل الإجازة">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تعديل</span>
+                                        </button>
+                                        <?php if (is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من إلغاء وحذف هذه العطلة؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_leave">
+                                            <input type="hidden" name="leave_id" value="<?= $l['id'] ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] transition border border-rose-200/60 shadow-2xs" title="حذف العطلة">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -323,5 +426,113 @@ if (is_owner() && !is_admin()) {
 
     </div>
 </div>
+
+<!-- Modal: Edit Leave -->
+<div id="editLeaveModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 class="font-bold text-slate-900 text-lg">تعديل بيانات العطلة والسائق البديل</h3>
+            <button onclick="closeEditLeaveModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_leave">
+            <input type="hidden" name="leave_id" id="editLeaveId">
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">المركبة المعنية <span class="text-rose-500">*</span></label>
+                <select name="vehicle_id" id="editLeaveVehicle" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold">
+                    <?php foreach ($vehicles as $v): ?>
+                        <option value="<?= $v['id'] ?>"><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> - <?= htmlspecialchars($v['plate_number']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">السائق الأصلي (في عطلة) <span class="text-rose-500">*</span></label>
+                <select name="driver_id" id="editLeaveDriver" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold">
+                    <?php foreach ($drivers as $d): ?>
+                        <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">السائق البديل (Remplaçant)</label>
+                <select name="replacement_driver_id" id="editLeaveReliefDriver" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold">
+                    <option value="0">-- بدون بديل (المركبة في حالة توقف) --</option>
+                    <?php foreach ($drivers as $d): ?>
+                        <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">بداية العطلة <span class="text-rose-500">*</span></label>
+                    <input type="date" name="start_date" id="editLeaveStartDate" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">نهاية العطلة <span class="text-rose-500">*</span></label>
+                    <input type="date" name="end_date" id="editLeaveEndDate" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">سبب العطلة</label>
+                    <input type="text" name="reason" id="editLeaveReason" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-semibold">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">الحالة</label>
+                    <select name="status" id="editLeaveStatus" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-bold">
+                        <option value="approved">معتمدة (Approuvée)</option>
+                        <option value="pending">قيد الانتظار (En attente)</option>
+                        <option value="completed">منتهية (Terminée)</option>
+                        <option value="rejected">مرفوضة (Rejetée)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeEditLeaveModal()"
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
+                    حفظ التعديلات
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditLeaveModal(data) {
+    document.getElementById('editLeaveId').value = data.id || '';
+    document.getElementById('editLeaveVehicle').value = data.vehicle_id || '';
+    document.getElementById('editLeaveDriver').value = data.driver_id || '';
+    document.getElementById('editLeaveReliefDriver').value = data.replacement_driver_id || 0;
+    document.getElementById('editLeaveStartDate').value = data.start_date || '';
+    document.getElementById('editLeaveEndDate').value = data.end_date || '';
+    document.getElementById('editLeaveReason').value = data.reason || '';
+    document.getElementById('editLeaveStatus').value = data.status || 'approved';
+
+    const modal = document.getElementById('editLeaveModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeEditLeaveModal() {
+    const modal = document.getElementById('editLeaveModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

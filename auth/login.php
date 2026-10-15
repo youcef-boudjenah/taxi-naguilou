@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>تسجيل الدخول | تاكسي نقيلو</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -38,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 extend: {
                     colors: { amber: { 500: '#f59e0b', 600: '#d97706' } },
                     fontFamily: { 
-                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'], 
-                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif'] 
+                        sans: ['Cairo', 'Tajawal', 'sans-serif'], 
+                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif'] 
                     }
                 }
             }
@@ -48,10 +48,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?= render_theme_head() ?>
     <style>
         html, body, input, button, select, textarea { 
-            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif; 
+            font-family: 'Cairo', 'Tajawal', sans-serif !important; 
+            font-weight: 400;
             text-rendering: optimizeLegibility; 
             -webkit-font-smoothing: antialiased; 
+            -moz-osx-font-smoothing: grayscale;
         }
+        .font-black { font-weight: 700 !important; }
+        .font-extrabold { font-weight: 650 !important; }
+        .font-bold { font-weight: 600 !important; }
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
@@ -93,42 +98,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div>
                     <label for="email" class="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
                     <input type="email" id="email" name="email" required dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-right"
-                           placeholder="admin@taxinaguilou.dz">
+                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-left font-mono"
+                           placeholder="naguiloutaxi@gmail.com" value="naguiloutaxi@gmail.com">
                 </div>
 
                 <div>
                     <div class="flex items-center justify-between mb-1">
                         <label for="password" class="block text-xs font-bold text-slate-700">كلمة المرور</label>
-                        <span class="text-[11px] text-slate-400">الافتراضية: password123</span>
+                        <button type="button" onclick="togglePassVisibility()" class="text-[11px] font-bold text-amber-600 hover:text-amber-700 select-none">
+                            <span id="passToggleText">إظهار كلمة المرور 👁️</span>
+                        </button>
                     </div>
-                    <input type="password" id="password" name="password" required dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-right"
-                           placeholder="••••••••">
+                    <div class="relative">
+                        <input type="password" id="password" name="password" required dir="ltr"
+                               class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-left font-mono"
+                               placeholder="moh2026">
+                    </div>
                 </div>
 
-                <button type="submit" class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm transition shadow-sm">
-                    دخول إلى المنصة ←
+                <button type="submit" class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm transition shadow-sm flex items-center justify-center gap-2">
+                    <span>دخول إلى المنصة</span>
+                    <span>←</span>
                 </button>
             </form>
 
-            <!-- Quick 1-Click Demo Accounts -->
+            <!-- Quick 1-Click Demo & Admin Accounts -->
             <div class="pt-4 border-t border-slate-100 space-y-2.5">
                 <div class="text-[11px] font-bold text-slate-400 text-center uppercase tracking-wider">
-                    ⚡ تجربة سريعة بنقرة واحدة (حسابات تجريبية):
+                    ⚡ تعبئة سريعة بنقرة واحدة:
                 </div>
-                <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="fillLogin('naguiloutaxi@gmail.com', 'moh2026')" 
+                            class="px-2 py-2 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-xs font-black text-amber-950 transition text-center shadow-2xs">
+                        👑 محمد نقيلو (Super Admin)
+                    </button>
                     <button type="button" onclick="fillLogin('admin@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-xs font-bold text-slate-700 hover:text-amber-900 transition text-center">
-                        مدير المنصة
+                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
+                        🛡️ مدير تجريبي
                     </button>
                     <button type="button" onclick="fillLogin('owner@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-xs font-bold text-slate-700 hover:text-amber-900 transition text-center">
-                        مالك أسطول
+                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
+                        🚕 مالك أسطول
                     </button>
                     <button type="button" onclick="fillLogin('driver1@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-xs font-bold text-slate-700 hover:text-amber-900 transition text-center">
-                        سائق تاكسي
+                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
+                        👤 سائق تاكسي
                     </button>
                 </div>
             </div>
@@ -147,6 +161,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function fillLogin(email, password) {
             document.getElementById('email').value = email;
             document.getElementById('password').value = password;
+        }
+
+        function togglePassVisibility() {
+            const input = document.getElementById('password');
+            const text = document.getElementById('passToggleText');
+            if (input.type === 'password') {
+                input.type = 'text';
+                text.textContent = 'إخفاء كلمة المرور 🔒';
+            } else {
+                input.type = 'password';
+                text.textContent = 'إظهار كلمة المرور 👁️';
+            }
         }
     </script>
 </body>

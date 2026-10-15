@@ -2,6 +2,7 @@
 // dashboard/vehicles.php - Full Fleet & Vehicle Management
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
+$user = current_user();
 
 $pdo = getDBConnection();
 $drivers = [];
@@ -369,7 +370,7 @@ if (isset($_GET['edit']) && $pdo) {
         </div>
         <div class="flex items-center gap-2">
             <?php if (is_admin() || is_owner()): ?>
-            <button onclick="document.getElementById('addVehicleModal').classList.toggle('hidden')" 
+            <button onclick="openVehicleModal()" 
                     class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-all shadow-sm">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -640,7 +641,7 @@ if (isset($_GET['edit']) && $pdo) {
 
 <?php if (is_admin() || is_owner()): ?>
 <!-- Modal: Add / Edit Vehicle -->
-<div id="addVehicleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm <?= $editVehicle ? 'flex' : 'hidden' ?> flex items-center justify-center p-4 overflow-y-auto">
+<div id="addVehicleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm <?= $editVehicle ? 'flex' : 'hidden' ?> items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl max-h-[92vh] overflow-y-auto space-y-5 text-right m-auto">
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -650,11 +651,11 @@ if (isset($_GET['edit']) && $pdo) {
                 </h3>
                 <p class="text-xs text-slate-500 mt-0.5">أدخل بيانات المركبة وتواريخ صلاحية المراقبة التقنية والتأمين والعداد</p>
             </div>
-            <a href="vehicles.php" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+            <button type="button" onclick="closeVehicleModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
-            </a>
+            </button>
         </div>
 
         <form method="POST" action="" class="space-y-4 text-xs">
@@ -1015,11 +1016,12 @@ if (isset($_GET['edit']) && $pdo) {
                         </div>
                     </div>
                 </div>
+            </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <a href="vehicles.php" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                <button type="button" onclick="closeVehicleModal()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
                     إلغاء
-                </a>
+                </button>
                 <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
                     <?= $editVehicle ? 'حفظ التعديلات' : 'إضافة المركبة إلى الأسطول' ?>
                 </button>
@@ -1085,6 +1087,22 @@ if (isset($_GET['edit']) && $pdo) {
 const ALL_DRIVERS = <?= json_encode($drivers, JSON_UNESCAPED_UNICODE) ?>;
 let VEHICLE_PRESETS = <?= json_encode($vehiclePresets, JSON_UNESCAPED_UNICODE) ?>;
 let driverSearchDebounce = null;
+
+function openVehicleModal() {
+    const modal = document.getElementById('addVehicleModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+
+function closeVehicleModal() {
+    const modal = document.getElementById('addVehicleModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
 
 // ==========================================
 // 1. AJAX & Interactive Driver Search

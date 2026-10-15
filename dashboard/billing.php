@@ -204,6 +204,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
 }
 
+// Handle Edit / Custom Subscription Override
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_subscription') {
+    require_csrf_token();
+    $subId = intval($_POST['subscription_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $spaceFee = floatval($_POST['space_fee'] ?? 0);
+    $vehicleFee = floatval($_POST['vehicle_fee'] ?? 0);
+    $paidAmount = floatval($_POST['paid_amount'] ?? 0);
+    $totalDue = $spaceFee + $vehicleFee;
+    $status = in_array($_POST['payment_status'] ?? '', ['regle', 'partiel', 'en_attente']) ? $_POST['payment_status'] : ($paidAmount >= $totalDue ? 'regle' : ($paidAmount > 0 ? 'partiel' : 'en_attente'));
+    $paymentMethod = $_POST['payment_method'] ?? 'baridimob';
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($driverId > 0) {
+        try {
+            if ($subId > 0) {
+                $stmtUpd = $pdo->prepare("
+                    UPDATE driver_subscriptions 
+                    SET space_fee = ?, vehicle_fee = ?, total_due = ?, paid_amount = ?, status = ?, payment_method = ?, notes = ?
+                    WHERE id = ?
+                ");
+                $stmtUpd->execute([$spaceFee, $vehicleFee, $totalDue, $paidAmount, $status, $paymentMethod, $notes, $subId]);
+            } else {
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO driver_subscriptions (driver_id, period_month, space_fee, vehicle_fee, vehicles_count, total_due, paid_amount, status, payment_method, notes)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                ");
+                $stmtIns->execute([$driverId, $selectedPeriod, $spaceFee, $vehicleFee, $totalDue, $paidAmount, $status, $paymentMethod, $notes]);
+            }
+            log_audit($pdo, 'subscription_updated', 'driver_subscriptions', $driverId, "تعديل اشتراك السائق $driverId لشهر $selectedPeriod");
+            set_flash('success', "تم حفظ وتعديل بيانات الاشتراك بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تعديل الاشتراك: ' . $e->getMessage());
+        }
+    }
+    redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
+}
+
+// Handle Delete Subscription
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_subscription') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف قيود الاشتراكات.');
+        redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
+    }
+    $subId = intval($_POST['subscription_id'] ?? 0);
+    if ($subId > 0) {
+        try {
+            $pdo->prepare("DELETE FROM driver_subscriptions WHERE id = ?")->execute([$subId]);
+            log_audit($pdo, 'subscription_deleted', 'driver_subscriptions', $subId, "حذف اشتراك رقم $subId");
+            set_flash('success', "تم حذف / تصفير قيد الاشتراك للفترة المحددة بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء حذف الاشتراك: ' . $e->getMessage());
+        }
+    }
+    redirect("/dashboard/billing.php?month={$selectedMonth}&year={$selectedYear}");
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
 $statusFilter = $_GET['status'] ?? 'all';
@@ -662,13 +720,55 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
 
                                 <!-- 8. الإجراءات -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <button onclick="openDriverPayment(<?= (int)$r['driver_id'] ?>, '<?= htmlspecialchars($r['driver_name'], ENT_QUOTES) ?>', <?= $remaining > 0 ? $remaining : $tot ?>)" 
-                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                        </svg>
-                                        <span>تسجيل دفعة</span>
-                                    </button>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button onclick="openDriverPayment(<?= (int)$r['driver_id'] ?>, '<?= htmlspecialchars($r['driver_name'], ENT_QUOTES) ?>', <?= $remaining > 0 ? $remaining : $tot ?>)" 
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs" title="تسجيل دفعة">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                            </svg>
+                                            <span class="hidden sm:inline">دفعة</span>
+                                        </button>
+                                        <button type="button"
+                                                onclick='openEditSubModal(<?= json_encode([
+                                                    "subscription_id" => (int)($r["subscription_id"] ?? 0),
+                                                    "driver_id" => (int)$r["driver_id"],
+                                                    "driver_name" => $r["driver_name"],
+                                                    "space_fee" => (float)$sFee,
+                                                    "vehicle_fee" => (float)$vFee,
+                                                    "paid_amount" => (float)$paidAmount,
+                                                    "payment_status" => $status,
+                                                    "payment_method" => $r["payment_method"] ?? "baridimob",
+                                                    "notes" => $r["payment_notes"] ?? ""
+                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل الاشتراك والمبالغ">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تعديل</span>
+                                        </button>
+                                        <?php if (!empty($r['subscription_id'])): ?>
+                                        <a href="/dashboard/invoice.php?type=subscription&id=<?= (int)$r['subscription_id'] ?>" target="_blank"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs transition border border-emerald-200/60 shadow-2xs" title="طباعة الفاتورة / الوصل">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.07-.37-2.18-.37-3.329 0-4.418 3.582-8 8-8s8 3.582 8 8c0 1.15-.13 2.26-.37 3.329m-15.26 0A7.962 7.962 0 004 10.5C4 6.082 7.582 2.5 12 2.5s8 3.582 8 8c0 1.18-.255 2.3-.72 3.329m-14.56 0h14.56m-14.56 0A3.5 3.5 0 003.5 17h17a3.5 3.5 0 00-.72-3.171M6 17v4h12v-4" />
+                                            </svg>
+                                            <span class="hidden sm:inline">فاتورة</span>
+                                        </a>
+                                        <?php endif; ?>
+                                        <?php if (!empty($r['subscription_id']) && is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف وتصفير اشتراك هذا السائق لهذا الشهر؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_subscription">
+                                            <input type="hidden" name="subscription_id" value="<?= $r['subscription_id'] ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف وتصفير الاشتراك">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                             </tr>
@@ -778,6 +878,85 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
     </div>
 </div>
 
+<!-- Modal: Edit Subscription Record -->
+<div id="editSubModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+                <h3 class="font-bold text-slate-900 text-lg">تعديل اشتراك ومستحقات السائق</h3>
+                <span id="editSubDriverLabel" class="text-xs font-semibold text-amber-700 block mt-0.5"></span>
+            </div>
+            <button onclick="closeEditSubModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_subscription">
+            <input type="hidden" name="subscription_id" id="editSubId">
+            <input type="hidden" name="driver_id" id="editSubDriverId">
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">اشتراك الفضاء الشهري (دج)</label>
+                    <input type="number" step="100" name="space_fee" id="editSubSpaceFee" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-num font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">اشتراك المركبة (دج)</label>
+                    <input type="number" step="100" name="vehicle_fee" id="editSubVehicleFee" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-num font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">المبلغ المسدد فعلياً (دج)</label>
+                    <input type="number" step="100" name="paid_amount" id="editSubPaidAmount" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-num font-bold text-emerald-600 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">حالة التسديد</label>
+                    <select name="payment_status" id="editSubStatus" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition">
+                        <option value="regle">مُسدد بالكامل (Réglé)</option>
+                        <option value="partiel">تسوية جزئية (Partiel)</option>
+                        <option value="en_attente">معلق (En attente)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">طريقة الدفع</label>
+                    <select name="payment_method" id="editSubMethod" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white transition">
+                        <option value="baridimob">بريدي موب (BaridiMob)</option>
+                        <option value="especes">نقداً (Espèces)</option>
+                        <option value="ccp">حوالة بريدية (CCP)</option>
+                        <option value="virement">تحويل بنكي</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">ملاحظات الفوترة</label>
+                    <input type="text" name="notes" id="editSubNotes" placeholder="ملاحظة أو تعديل..."
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeEditSubModal()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
+                    حفظ التعديلات
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function openDriverPayment(driverId, driverName, amount) {
     const modal = document.getElementById('manualPaymentModal');
@@ -792,6 +971,28 @@ function openDriverPayment(driverId, driverName, amount) {
     }
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+}
+
+function openEditSubModal(data) {
+    document.getElementById('editSubId').value = data.subscription_id || 0;
+    document.getElementById('editSubDriverId').value = data.driver_id || 0;
+    document.getElementById('editSubDriverLabel').textContent = 'السائق: ' + (data.driver_name || '');
+    document.getElementById('editSubSpaceFee').value = data.space_fee || 1000;
+    document.getElementById('editSubVehicleFee').value = data.vehicle_fee || 0;
+    document.getElementById('editSubPaidAmount').value = data.paid_amount || 0;
+    document.getElementById('editSubStatus').value = data.payment_status || 'en_attente';
+    document.getElementById('editSubMethod').value = data.payment_method || 'baridimob';
+    document.getElementById('editSubNotes').value = data.notes || '';
+
+    const modal = document.getElementById('editSubModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeEditSubModal() {
+    const modal = document.getElementById('editSubModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 </script>
 

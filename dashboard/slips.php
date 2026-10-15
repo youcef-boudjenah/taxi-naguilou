@@ -82,6 +82,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Edit Slip
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_slip') {
+    require_csrf_token();
+    if (is_driver()) {
+        set_flash('error', 'عذراً، لا تملك صلاحية تعديل جداول الإرسال.');
+        redirect('/dashboard/slips.php?tab=history');
+        exit;
+    }
+    $slipId = intval($_POST['slip_id'] ?? 0);
+    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $routeLine = trim($_POST['route_line'] ?? '');
+    $issueDate = !empty($_POST['issue_date']) ? $_POST['issue_date'] : date('Y-m-d');
+    $validUntil = !empty($_POST['valid_until']) ? $_POST['valid_until'] : date('Y-m-d');
+    $status = in_array($_POST['status'] ?? '', ['active', 'expired', 'cancelled']) ? $_POST['status'] : 'active';
+
+    if ($slipId > 0 && $vehicleId > 0 && $driverId > 0) {
+        try {
+            $stmt = $pdo->prepare("
+                UPDATE transmission_slips 
+                SET vehicle_id = ?, driver_id = ?, route_line = ?, issue_date = ?, valid_until = ?, status = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$vehicleId, $driverId, $routeLine, $issueDate, $validUntil, $status, $slipId]);
+            log_audit($pdo, 'slip_updated', 'transmission_slips', $slipId, "تعديل جدول الإرسال رقم $slipId");
+            set_flash('success', "تم تعديل جدول الإرسال بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تعديل جدول الإرسال: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'يرجى ملء جميع الحقول المطلوبة');
+    }
+    redirect('/dashboard/slips.php?tab=history');
+}
+
+// Handle Delete Slip
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_slip') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف جداول الإرسال.');
+        redirect('/dashboard/slips.php?tab=history');
+        exit;
+    }
+    $slipId = intval($_POST['slip_id'] ?? 0);
+    if ($slipId > 0) {
+        try {
+            $stmt = $pdo->prepare("DELETE FROM transmission_slips WHERE id = ?");
+            $stmt->execute([$slipId]);
+            log_audit($pdo, 'slip_deleted', 'transmission_slips', $slipId, "حذف جدول الإرسال رقم $slipId");
+            set_flash('success', "تم حذف جدول الإرسال بنجاح من الأرشيف");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء حذف جدول الإرسال: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/slips.php?tab=history');
+}
+
 // Fetch History of Slips
 $slipsHistory = [];
 if ($pdo) {
@@ -428,18 +485,64 @@ if (isset($_GET['print_id']) && $pdo) {
                                         <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['valid_until']) ?></span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap text-center">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/60">
-                                            ساري (Actif)
-                                        </span>
+                                        <?php 
+                                        $st = $slip['status'] ?? 'active';
+                                        if ($st === 'active'): ?>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/60">
+                                                ساري (Actif)
+                                            </span>
+                                        <?php elseif ($st === 'expired'): ?>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] border border-slate-200/60">
+                                                منتهي (Expiré)
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200/60">
+                                                ملغى (Annulé)
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap text-center">
-                                        <a href="slips.php?tab=generator&print_id=<?= $slip['id'] ?>"
-                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-xs">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
-                                            </svg>
-                                            <span>معاينة وطباعة</span>
-                                        </a>
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <a href="slips.php?tab=generator&print_id=<?= $slip['id'] ?>"
+                                               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition shadow-xs" title="معاينة وطباعة">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
+                                                </svg>
+                                                <span class="hidden sm:inline">طباعة</span>
+                                            </a>
+                                            <?php if (!is_driver()): ?>
+                                            <button type="button"
+                                                    onclick='openEditSlipModal(<?= json_encode([
+                                                        "id" => (int)$slip["id"],
+                                                        "slip_number" => $slip["slip_number"],
+                                                        "vehicle_id" => (int)$slip["vehicle_id"],
+                                                        "driver_id" => (int)$slip["driver_id"],
+                                                        "route_line" => $slip["route_line"],
+                                                        "issue_date" => $slip["issue_date"],
+                                                        "valid_until" => $slip["valid_until"],
+                                                        "status" => $slip["status"] ?? "active"
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] transition border border-blue-200/60 shadow-2xs" title="تعديل الجدول">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span class="hidden sm:inline">تعديل</span>
+                                            </button>
+                                            <?php endif; ?>
+                                            <?php if (is_admin()): ?>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف جدول الإرسال هذا نهائياً من الأرشيف؟')" class="inline">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_slip">
+                                                <input type="hidden" name="slip_id" value="<?= $slip['id'] ?>">
+                                                <button type="submit" 
+                                                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] transition border border-rose-200/60 shadow-2xs" title="حذف الجدول">
+                                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -478,6 +581,98 @@ if (isset($_GET['print_id']) && $pdo) {
         border: none;
     }
 }
-</style>
+<!-- Modal: Edit Slip -->
+<div id="editSlipModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+                <h3 class="font-bold text-slate-900 text-lg">تعديل جدول الإرسال</h3>
+                <span class="text-xs text-slate-500 font-num" id="editSlipNumLabel"></span>
+            </div>
+            <button onclick="closeEditSlipModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_slip">
+            <input type="hidden" name="slip_id" id="editSlipId">
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">المركبة المعنية <span class="text-rose-500">*</span></label>
+                <select name="vehicle_id" id="editSlipVehicle" required class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <?php foreach ($vehicles as $v): ?>
+                        <option value="<?= $v['id'] ?>"><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> - <?= htmlspecialchars($v['plate_number']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">السائق المكلف <span class="text-rose-500">*</span></label>
+                <select name="driver_id" id="editSlipDriver" required class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <?php foreach ($drivers as $d): ?>
+                        <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">الموضوع / خط السير <span class="text-rose-500">*</span></label>
+                <textarea name="route_line" id="editSlipRouteLine" rows="2" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تاريخ الإصدار <span class="text-rose-500">*</span></label>
+                    <input type="date" name="issue_date" id="editSlipIssueDate" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">صالح إلى غاية <span class="text-rose-500">*</span></label>
+                    <input type="date" name="valid_until" id="editSlipValidUntil" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">الحالة <span class="text-rose-500">*</span></label>
+                <select name="status" id="editSlipStatus" class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <option value="active">ساري (Actif)</option>
+                    <option value="expired">منتهي الصلاحية (Expiré)</option>
+                    <option value="cancelled">ملغى (Annulé)</option>
+                </select>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onclick="closeEditSlipModal()" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold transition">إلغاء</button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">حفظ التعديلات</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditSlipModal(data) {
+    document.getElementById('editSlipId').value = data.id || '';
+    document.getElementById('editSlipNumLabel').textContent = data.slip_number ? `رقم الجدول: ${data.slip_number}` : '';
+    document.getElementById('editSlipVehicle').value = data.vehicle_id || '';
+    document.getElementById('editSlipDriver').value = data.driver_id || '';
+    document.getElementById('editSlipRouteLine').value = data.route_line || '';
+    document.getElementById('editSlipIssueDate').value = data.issue_date || '';
+    document.getElementById('editSlipValidUntil').value = data.valid_until || '';
+    document.getElementById('editSlipStatus').value = data.status || 'active';
+
+    const modal = document.getElementById('editSlipModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeEditSlipModal() {
+    const modal = document.getElementById('editSlipModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

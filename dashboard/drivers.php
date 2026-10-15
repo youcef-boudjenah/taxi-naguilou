@@ -101,15 +101,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
             }
 
-            // Auto-issue official labor contract from taxi contract dates so admin never enters duplicates
-            if (!empty($taxiContractStart) && !empty($taxiContractEnd)) {
+            // Auto-issue official labor contract from taxi contract dates when vehicle is assigned
+            if (!empty($taxiContractStart) && !empty($taxiContractEnd) && $assignedVehicleId && $assignedVehicleId > 0) {
                 $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
                 $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
                 $stmtContract = $pdo->prepare("
                     INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
                     VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11')
                 ");
-                $stmtContract->execute([$contractNum, $newDriverId, ($assignedVehicleId && $assignedVehicleId > 0) ? $assignedVehicleId : null, $user['id'], $taxiContractStart, $taxiContractEnd]);
+                $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'], $taxiContractStart, $taxiContractEnd]);
             }
 
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
@@ -135,6 +135,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Delete Driver
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_driver') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف السائقين.');
+        redirect('/dashboard/drivers.php');
+    }
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    if ($driverId > 0) {
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+            $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE replacement_driver_id = ?")->execute([$driverId]);
+            $pdo->prepare("DELETE FROM users WHERE id = ? AND role = 'driver'")->execute([$driverId]);
+            $pdo->commit();
+
+            log_audit($pdo, 'driver_deleted', 'users', $driverId, "حذف السائق رقم $driverId وفك ارتباط المركبات التابعة له");
+            set_flash('success', "تم حذف السائق وفك ارتباطه بالمركبات بنجاح");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($e->getCode() == '23000' || strpos($e->getMessage(), '1451') !== false) {
+                // Safely unassign vehicles and set status to suspended
+                $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+                $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE replacement_driver_id = ?")->execute([$driverId]);
+                $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ? AND role = 'driver'")->execute([$driverId]);
+                log_audit($pdo, 'driver_suspended_fk', 'users', $driverId, "تجميد حساب السائق رقم $driverId بدلاً من الحذف لوجود سجلات رسمية مرتبطة");
+                set_flash('warning', 'تعذر الحذف النهائي للسائق لوجود سجلات رسمية مرتبطة به (عقود عمل، ديون، أو تصريحات CNAS). تم فك ارتباط المركبات بنجاح وتحويل حسابه إلى "مجمد" حفاظاً على الأرشيف المالي والقانوني.');
+            } else {
+                set_flash('error', 'حدث خطأ أثناء حذف السائق: ' . $e->getMessage());
+            }
+        }
+    }
+    redirect('/dashboard/drivers.php');
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, actifs, permanence, anciens, trial_1, trial_2, trial_3, official
@@ -154,11 +191,11 @@ $activeVehicles = [];
 
 if ($pdo) {
     // Determine vehicle join condition safely based on available columns
-    $joinVehOn = "v.current_driver_id = u.id";
+    $joinVehOn = "(v.current_driver_id = u.id OR v.owner_id = u.id)";
     try {
         $checkCol = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'replacement_driver_id'")->fetchColumn();
         if ($checkCol) {
-            $joinVehOn = "(v.current_driver_id = u.id OR v.replacement_driver_id = u.id)";
+            $joinVehOn = "(v.current_driver_id = u.id OR v.owner_id = u.id OR v.replacement_driver_id = u.id)";
         }
     } catch (\Throwable $e) {}
 
@@ -170,7 +207,7 @@ if ($pdo) {
                    DATEDIFF(u.medical_cert_expiry, CURDATE()) as med_days
             FROM users u
             LEFT JOIN vehicles v ON $joinVehOn
-            WHERE u.role = 'driver'
+            WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
               AND (
                   (u.license_expiry IS NOT NULL AND u.license_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
                   OR
@@ -208,7 +245,7 @@ if ($pdo) {
             SELECT u.*, v.plate_number, v.brand, v.model, v.door_number
             FROM users u
             LEFT JOIN vehicles v ON $joinVehOn
-            WHERE u.role = 'driver'
+            WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
         ";
         $params = [];
 
@@ -233,6 +270,12 @@ if ($pdo) {
         $isPerm = in_array($d['id'], $permanenceDriverIds);
         $d['is_permanence'] = $isPerm;
 
+        if ($filter === 'actifs' && ($d['status'] ?? '') !== 'active') {
+            continue;
+        }
+        if ($filter === 'anciens' && ($d['status'] ?? '') === 'active') {
+            continue;
+        }
         if ($filter === 'permanence' && !$isPerm) {
             continue;
         }
@@ -245,18 +288,19 @@ if ($pdo) {
     }
 
     // 4. Counts
+    $driverWhere = "(role = 'driver' OR (role = 'owner' AND (license_number IS NOT NULL OR driver_type IS NOT NULL)))";
     try {
-        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
-        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status != 'active'")->fetchColumn();
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status = 'active'")->fetchColumn();
+        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status != 'active'")->fetchColumn();
     } catch (\Throwable $e) {}
 
     $countPermanence = count($permanenceDriverIds);
 
     try {
-        $countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
-        $countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_2'")->fetchColumn();
-        $countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'trial_3'")->fetchColumn();
-        $countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND probation_stage = 'official'")->fetchColumn();
+        $countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
+        $countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'trial_2'")->fetchColumn();
+        $countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'trial_3'")->fetchColumn();
+        $countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'official'")->fetchColumn();
     } catch (\Throwable $e) {
         $countTrial1 = $countActifs;
     }
@@ -348,17 +392,17 @@ if ($pdo) {
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <a href="debts.php?filter=all" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-amber-400 hover:shadow-2xs transition group" title="الانتقال إلى سجل الديون والذمم المالية">
             <div>
-                <p class="text-[11px] font-semibold text-slate-500">سابقون (ذمم مالية)</p>
+                <p class="text-[11px] font-semibold text-slate-500 group-hover:text-amber-700 transition">سابقون (ذمم مالية)</p>
                 <p class="text-xl font-bold text-slate-700 font-num mt-0.5"><?= $countAnciens ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-amber-50 group-hover:text-amber-600 transition flex items-center justify-center text-slate-600">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6H2.25m0 0H3m0 0h18m0 0h.75a.75.75 0 01.75.75v.75m0 0H21m0 0v11.25c0 .754-.726 1.294-1.453 1.096a60.07 60.07 0 00-15.797-2.101" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-6 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
                 </svg>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- SECTION 1: Expiration Imminente (Clean Alert Area) -->
@@ -436,61 +480,53 @@ if ($pdo) {
         </form>
 
         <!-- Segmented Filter Tabs -->
-        <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+        <div class="flex items-center flex-wrap gap-1.5 w-full sm:w-auto">
             <a href="drivers.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
                 الكل
             </a>
 
             <a href="drivers.php?filter=actifs<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
-                <span>سائقون نشطون</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/80 dark:bg-slate-700 font-num font-bold text-slate-900 dark:text-slate-100"><?= $countActifs ?></span>
-            </a>
-
-            <a href="drivers.php?filter=trial_1<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_1' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 hover:bg-amber-100 dark:hover:bg-amber-500/20' ?>">
-                <span>تجريبية 1</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200/80 dark:bg-amber-500/30 font-num font-bold text-amber-950 dark:text-amber-200"><?= $countTrial1 ?></span>
-            </a>
-
-            <a href="drivers.php?filter=trial_2<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_2' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-50 dark:bg-blue-500/10 text-blue-900 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 hover:bg-blue-100 dark:hover:bg-blue-500/20' ?>">
-                <span>تجريبية 2</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-200/80 dark:bg-blue-500/30 font-num font-bold text-blue-950 dark:text-blue-200"><?= $countTrial2 ?></span>
-            </a>
-
-            <a href="drivers.php?filter=trial_3<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'trial_3' ? 'bg-indigo-600 text-white font-bold' : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-900 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-500/20' ?>">
-                <span>تجريبية 3</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-200/80 dark:bg-indigo-500/30 font-num font-bold text-indigo-950 dark:text-indigo-200"><?= $countTrial3 ?></span>
-            </a>
-
-            <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'official' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100 dark:hover:bg-emerald-500/20' ?>">
-                <span>سائق رسمي</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200/80 dark:bg-emerald-500/30 font-num font-bold text-emerald-950 dark:text-emerald-200"><?= $countOfficial ?></span>
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
+                <span>نشطون</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/90 font-num font-bold text-slate-900"><?= $countActifs ?></span>
             </a>
 
             <a href="drivers.php?filter=permanence<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'permanence' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'permanence' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
                 <span>المداومة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-700 text-white font-num"><?= $countPermanence ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/90 font-num font-bold text-slate-900"><?= $countPermanence ?></span>
             </a>
 
-            <?php if (is_admin()): ?>
-            <a href="debts.php?filter=all" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
-                <span>سابقون (ديون)</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 dark:bg-slate-700 font-num font-bold text-slate-800 dark:text-slate-200"><?= $countAnciens ?></span>
+            <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'official' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100' ?>">
+                <span>سائق رسمي</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200/80 font-num font-bold text-emerald-950"><?= $countOfficial ?></span>
             </a>
-            <?php else: ?>
-            <a href="drivers.php?filter=anciens<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1 <?= $filter === 'anciens' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
-                <span>سائقون سابقون</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-300 dark:bg-slate-700 font-num font-bold text-slate-800 dark:text-slate-200"><?= $countAnciens ?></span>
-            </a>
-            <?php endif; ?>
+
+            <!-- Grouped Probation Stages Dropdown -->
+            <div class="relative group">
+                <button type="button" 
+                        class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= in_array($filter, ['trial_1', 'trial_2', 'trial_3']) ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100' ?>">
+                    <span>المراحل التجريبية</span>
+                    <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-200/80 font-num font-bold text-blue-950"><?= ($countTrial1 + $countTrial2 + $countTrial3) ?></span>
+                    <svg class="w-3 h-3 text-current opacity-70 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="hidden group-hover:block absolute left-0 mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-200 p-1.5 z-30">
+                    <a href="drivers.php?filter=trial_1<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" class="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-50 text-amber-900 <?= $filter === 'trial_1' ? 'bg-amber-50 font-black' : '' ?>">
+                        <span>تجريبية 1</span>
+                        <span class="font-num text-[10px]"><?= $countTrial1 ?></span>
+                    </a>
+                    <a href="drivers.php?filter=trial_2<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" class="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-50 text-blue-900 <?= $filter === 'trial_2' ? 'bg-blue-50 font-black' : '' ?>">
+                        <span>تجريبية 2</span>
+                        <span class="font-num text-[10px]"><?= $countTrial2 ?></span>
+                    </a>
+                    <a href="drivers.php?filter=trial_3<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" class="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-50 text-indigo-900 <?= $filter === 'trial_3' ? 'bg-indigo-50 font-black' : '' ?>">
+                        <span>تجريبية 3</span>
+                        <span class="font-num text-[10px]"><?= $countTrial3 ?></span>
+                    </a>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -507,7 +543,7 @@ if ($pdo) {
                         <th class="p-3.5 whitespace-nowrap">الفحص الطبي الدوري</th>
                         <th class="p-3.5 whitespace-nowrap">المركبة الحالية</th>
                         <th class="p-3.5 whitespace-nowrap text-center">المداومة</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">البطاقة الفنية (Fiche)</th>
+                        <th class="p-3.5 whitespace-nowrap text-center">الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
@@ -517,11 +553,13 @@ if ($pdo) {
                                 
                                 <td class="p-3.5 whitespace-nowrap">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center shrink-0">
+                                        <div class="w-10 h-10 rounded-xl overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
                                             <?php if (!empty($d['avatar_url'])): ?>
                                                 <img src="<?= url($d['avatar_url']) ?>" alt="<?= htmlspecialchars($d['full_name']) ?>" class="w-full h-full object-cover">
                                             <?php else: ?>
-                                                <span class="font-black text-slate-600 text-xs"><?= mb_substr($d['full_name'], 0, 1) ?></span>
+                                                <svg class="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                                                </svg>
                                             <?php endif; ?>
                                         </div>
                                         <div>
@@ -617,15 +655,38 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- FICHE TECHNIQUE ACTION -->
+                                <!-- ACTIONS -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <a href="driver_fiche.php?id=<?= $d['id'] ?>" 
-                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition shadow-2xs">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                                        </svg>
-                                        <span>البطاقة الفنية</span>
-                                    </a>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <a href="driver_fiche.php?id=<?= $d['id'] ?>" 
+                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition shadow-2xs" title="معاينة البطاقة الفنية">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            <span>البطاقة</span>
+                                        </a>
+                                        <a href="users.php?search=<?= urlencode($d['full_name']) ?>" 
+                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition border border-slate-200 shadow-2xs" title="تعديل الحساب">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تعديل</span>
+                                        </a>
+                                        <?php if (is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا السائق وفك ارتباط مركبته نهائياً؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_driver">
+                                            <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] transition border border-rose-200/60 shadow-2xs" title="حذف السائق">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                                <span class="hidden sm:inline">حذف</span>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                             </tr>

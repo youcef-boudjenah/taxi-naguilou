@@ -139,6 +139,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Edit Debt
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_debt') {
+    require_csrf_token();
+    $debtId = intval($_POST['debt_id'] ?? 0);
+    $chauffeurName = trim($_POST['chauffeur_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $totalCredits = floatval($_POST['total_credits'] ?? 0);
+    $driverType = in_array($_POST['driver_type'] ?? '', ['actif', 'ancien']) ? $_POST['driver_type'] : 'actif';
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($debtId > 0 && !empty($chauffeurName) && $totalCredits >= 0) {
+        try {
+            $currDebt = $pdo->query("SELECT total_versements FROM driver_debts WHERE id = $debtId")->fetch();
+            $totalVersements = (float)($currDebt['total_versements'] ?? 0);
+            $newStatus = ($totalCredits - $totalVersements) <= 0 ? 'a_jour' : 'endette';
+
+            $stmtUpd = $pdo->prepare("
+                UPDATE driver_debts 
+                SET chauffeur_name = ?, phone = ?, total_credits = ?, driver_type = ?, status = ?, notes = ?
+                WHERE id = ?
+            ");
+            $stmtUpd->execute([$chauffeurName, $phone, $totalCredits, $driverType, $newStatus, $notes, $debtId]);
+            log_audit($pdo, 'debt_updated', 'driver_debts', $debtId, "تعديل بيانات القيد المالي للسائق $chauffeurName");
+            set_flash('success', "تم تعديل بيانات القيد المالي بنجاح");
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تعديل القيد المالي: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'يرجى إدخال بيانات صحيحة');
+    }
+    redirect('/dashboard/debts.php');
+}
+
+// Handle Delete Debt
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_debt') {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة مخولة بحذف قيود الديون.');
+        redirect('/dashboard/debts.php');
+    }
+    $debtId = intval($_POST['debt_id'] ?? 0);
+    if ($debtId > 0) {
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare("DELETE FROM versements WHERE debt_id = ?")->execute([$debtId]);
+            $pdo->prepare("DELETE FROM driver_debts WHERE id = ?")->execute([$debtId]);
+            $pdo->commit();
+            log_audit($pdo, 'debt_deleted', 'driver_debts', $debtId, "حذف القيد المالي رقم $debtId وسجل دفعاته");
+            set_flash('success', "تم حذف القيد المالي وسجل دفعاته نهائياً بنجاح");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء حذف القيد: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/debts.php');
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, endette, a_jour
@@ -429,13 +488,50 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <button onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)" 
-                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                        </svg>
-                                        <span>تسجيل دفعة</span>
-                                    </button>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)" 
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs" title="تسجيل دفعة">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                            </svg>
+                                            <span class="hidden sm:inline">دفعة</span>
+                                        </button>
+                                        <a href="debt_statement.php?id=<?= $d['id'] ?>" target="_blank"
+                                           class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition border border-slate-200 shadow-2xs" title="كشف الحساب المالي الرسمي">
+                                            <svg class="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            <span class="hidden sm:inline">كشف</span>
+                                        </a>
+                                        <button type="button"
+                                                onclick='openEditDebtModal(<?= json_encode([
+                                                    "id" => (int)$d["id"],
+                                                    "chauffeur_name" => $d["chauffeur_name"],
+                                                    "phone" => $d["phone"],
+                                                    "total_credits" => (float)$d["total_credits"],
+                                                    "driver_type" => $d["driver_type"],
+                                                    "notes" => $d["notes"] ?? ""
+                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل القيد">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                            </svg>
+                                            <span class="hidden sm:inline">تعديل</span>
+                                        </button>
+                                        <?php if (is_admin()): ?>
+                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا القيد المالي وجميع دفعاته نهائياً؟')" class="inline">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_debt">
+                                            <input type="hidden" name="debt_id" value="<?= $d['id'] ?>">
+                                            <button type="submit" 
+                                                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف القيد">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -638,6 +734,70 @@ if ($pdo) {
     </div>
 </div>
 
+<!-- Modal: Edit Debt -->
+<div id="editDebtModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 class="font-bold text-slate-900 text-lg">تعديل القيد المالي للسائق</h3>
+            <button onclick="closeEditDebtModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit_debt">
+            <input type="hidden" name="debt_id" id="editDebtId">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">اسم السائق <span class="text-rose-500">*</span></label>
+                    <input type="text" id="editDebtName" name="chauffeur_name" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">رقم الهاتف <span class="text-rose-500">*</span></label>
+                    <input type="text" id="editDebtPhone" name="phone" required dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">تصنيف السائق</label>
+                    <select name="driver_type" id="editDebtDriverType" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
+                        <option value="actif">سائق نشط (Chauffeur Actif)</option>
+                        <option value="ancien">سائق سابق / أرشيف (Ancien Chauffeur)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1.5">إجمالي مبلغ الدين / القرض (دج) <span class="text-rose-500">*</span></label>
+                    <input type="number" step="100" id="editDebtCredits" name="total_credits" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-num font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                </div>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">بيان الدين أو الملاحظات</label>
+                <input type="text" id="editDebtNotes" name="notes"
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeEditDebtModal()"
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-xs">
+                    حفظ التعديلات
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function onDriverSelectChange(sel) {
     const opt = sel.options[sel.selectedIndex];
@@ -657,6 +817,23 @@ function openVersementModal(id, name, reste) {
 function closeVersementModal() {
     document.getElementById('versementModal').classList.add('hidden');
     document.getElementById('versementModal').classList.remove('flex');
+}
+function openEditDebtModal(data) {
+    document.getElementById('editDebtId').value = data.id || '';
+    document.getElementById('editDebtName').value = data.chauffeur_name || '';
+    document.getElementById('editDebtPhone').value = data.phone || '';
+    document.getElementById('editDebtCredits').value = data.total_credits || 0;
+    document.getElementById('editDebtDriverType').value = data.driver_type || 'actif';
+    document.getElementById('editDebtNotes').value = data.notes || '';
+
+    const modal = document.getElementById('editDebtModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+function closeEditDebtModal() {
+    const modal = document.getElementById('editDebtModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 </script>
 

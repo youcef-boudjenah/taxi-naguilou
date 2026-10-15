@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>إنشاء حساب جديد | تاكسي نقيلو</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -67,8 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 extend: {
                     colors: { amber: { 500: '#f59e0b', 600: '#d97706' } },
                     fontFamily: { 
-                        sans: ['Alexandria', 'Cairo', 'Tajawal', 'sans-serif'], 
-                        num: ['Plus Jakarta Sans', 'Alexandria', 'Cairo', 'sans-serif'] 
+                        sans: ['Cairo', 'Tajawal', 'sans-serif'], 
+                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif'] 
                     }
                 }
             }
@@ -77,10 +77,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?= render_theme_head() ?>
     <style>
         html, body, input, button, select, textarea { 
-            font-family: 'Alexandria', 'Cairo', 'Tajawal', sans-serif; 
+            font-family: 'Cairo', 'Tajawal', sans-serif !important; 
+            font-weight: 400;
             text-rendering: optimizeLegibility; 
             -webkit-font-smoothing: antialiased; 
+            -moz-osx-font-smoothing: grayscale;
         }
+        .font-black { font-weight: 700 !important; }
+        .font-extrabold { font-weight: 650 !important; }
+        .font-bold { font-weight: 600 !important; }
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
