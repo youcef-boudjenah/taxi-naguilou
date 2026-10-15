@@ -639,8 +639,8 @@ if (isset($_GET['edit']) && $pdo) {
 </div>
 
 <!-- Modal: Add / Edit Vehicle -->
-<div id="addVehicleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm <?= $editVehicle ? 'flex' : 'hidden' ?> items-center justify-center p-4">
-    <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl max-h-[92vh] overflow-y-auto space-y-5 text-right">
+<div id="addVehicleModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm <?= $editVehicle ? 'flex' : 'hidden' ?> flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-2xl w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl max-h-[92vh] overflow-y-auto space-y-5 text-right m-auto">
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
@@ -1031,8 +1031,8 @@ if (isset($_GET['edit']) && $pdo) {
 <!-- ==============================================
      Quick Add Brand / Model Preset Modal (Parameters)
      ============================================== -->
-<div id="quickPresetModal" class="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center p-4">
-    <div class="bg-white max-w-md w-full rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4 text-right">
+<div id="quickPresetModal" class="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-md w-full rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
             <div class="flex items-center gap-2">
                 <span class="text-lg">⚙️</span>

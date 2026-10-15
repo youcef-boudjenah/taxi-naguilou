@@ -419,7 +419,7 @@ foreach ($rows as $r) {
 
 <!-- Modal: Renouveler / Souscrire Police d'assurance -->
 <div id="renewModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden space-y-4 p-6 sm:p-7 text-right">
+    <div class="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden space-y-4 p-6 sm:p-7 text-right m-auto">
         <div class="border-b border-slate-100 pb-3 flex items-center justify-between">
             <div>
                 <h3 class="text-base font-bold text-slate-900">تجديد أو تسجيل بوليصة تأمين (Gérer Assurance)</h3>

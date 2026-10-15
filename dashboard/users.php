@@ -322,7 +322,7 @@ $roleCounts = [
 
 <!-- Modal: New User -->
 <div id="newUserModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
             <h3 class="text-sm font-black text-slate-900">إضافة مستخدم جديد إلى المنصة</h3>
             <button onclick="document.getElementById('newUserModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>

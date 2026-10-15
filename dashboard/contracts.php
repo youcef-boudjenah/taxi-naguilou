@@ -142,7 +142,7 @@ if ($pdo) {
                 </svg>
                 <span>طباعة السجل</span>
             </button>
-            <button onclick="document.getElementById('newContractModal').classList.remove('hidden')"
+            <button onclick="document.getElementById('newContractModal').classList.remove('hidden'); document.getElementById('newContractModal').classList.add('flex');"
                     class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -349,15 +349,15 @@ if ($pdo) {
 </div>
 
 <!-- Modal: New Contract -->
-<div id="newContractModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right">
+<div id="newContractModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
                 <h3 class="font-bold text-slate-900 text-lg">إصدار عقد عمل وانتساب نظامي</h3>
                 <span class="text-xs text-slate-500">يتضمن المواد الـ 16 الإلزامية طبقاً لأحكام القانون 90-11 ومفتشية العمل</span>
             </div>
-            <button onclick="document.getElementById('newContractModal').classList.add('hidden')" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+            <button onclick="document.getElementById('newContractModal').classList.add('hidden'); document.getElementById('newContractModal').classList.remove('flex');" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -451,7 +451,7 @@ if ($pdo) {
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onclick="document.getElementById('newContractModal').classList.add('hidden')"
+                <button type="button" onclick="document.getElementById('newContractModal').classList.add('hidden'); document.getElementById('newContractModal').classList.remove('flex');"
                         class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
                     إلغاء
                 </button>

@@ -202,8 +202,8 @@ $activeReliefCount = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE replace
 </div>
 
 <!-- Modal: New Leave & Relief -->
-<div id="newLeaveModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right">
+<div id="newLeaveModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-4 text-right m-auto">
         
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
