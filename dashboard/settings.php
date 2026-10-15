@@ -8,6 +8,97 @@ $pdo = getDBConnection();
 $message = null;
 $messageType = null;
 
+// Handle Wipe All Operational Data (Danger Zone)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'wipe_all_data' && $pdo) {
+    require_csrf_token();
+    if (!is_admin()) {
+        set_flash('error', 'عذراً، فقط مدير المنصة مخول بتنفيذ عمليات حذف وتهيئة البيانات.');
+        redirect('/dashboard/settings.php');
+        exit;
+    }
+
+    $confirmText = trim($_POST['confirm_delete'] ?? '');
+    if ($confirmText !== 'تأكيد' && strtoupper($confirmText) !== 'DELETE') {
+        set_flash('error', 'كلمة التأكيد غير صحيحة. يرجى كتابة "تأكيد" أو "DELETE" لتأكيد حذف البيانات.');
+        redirect('/dashboard/settings.php#danger-zone');
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
+
+        $tablesToWipe = [
+            'traveler_passengers',
+            'traveler_reports',
+            'cnas_declarations',
+            'notifications',
+            'leads',
+            'driver_subscriptions',
+            'insurance_policies',
+            'driver_schedules',
+            'night_watch',
+            'versements',
+            'driver_debts',
+            'transmission_slips',
+            'billings',
+            'leaves',
+            'contracts',
+            'vehicles',
+            'audit_logs',
+        ];
+
+        foreach ($tablesToWipe as $table) {
+            try {
+                $pdo->exec("DELETE FROM `$table`");
+                $pdo->exec("ALTER TABLE `$table` AUTO_INCREMENT = 1");
+            } catch (\Throwable $e) {
+                // Ignore gracefully if table does not exist
+            }
+        }
+
+        // Clean non-admin users (preserve current admin and all super_admin / admin accounts)
+        $currentUserId = intval($_SESSION['user_id'] ?? 0);
+        $pdo->prepare("DELETE FROM users WHERE role NOT IN ('super_admin', 'admin') AND id != ?")->execute([$currentUserId]);
+
+        // Clean uploaded files if applicable
+        $uploadDirs = [
+            __DIR__ . '/../uploads/drivers',
+            __DIR__ . '/../uploads/slips',
+            __DIR__ . '/../uploads/scans',
+            __DIR__ . '/../uploads/cars',
+            __DIR__ . '/../uploads/contracts',
+        ];
+        foreach ($uploadDirs as $dir) {
+            if (is_dir($dir)) {
+                $files = glob($dir . '/*');
+                if (is_array($files)) {
+                    foreach ($files as $file) {
+                        if (is_file($file) && !str_contains($file, 'index.html')) {
+                            @unlink($file);
+                        }
+                    }
+                }
+            }
+        }
+
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
+        $pdo->commit();
+
+        log_audit($pdo, 'factory_reset', 'system', null, 'إعادة ضبط شاملة وحذف وتصفير جميع بيانات الأسطول والسائقين والعمليات');
+        set_flash('success', 'تم حذف وتصفير جميع بيانات النظام الميدانية والتشغيلية بنجاح، مع الحفاظ على حسابات الإدارة.');
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
+        set_flash('error', 'حدث خطأ أثناء حذف البيانات: ' . $e->getMessage());
+    }
+
+    redirect('/dashboard/settings.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     require_csrf_token();
     if (!is_admin()) {
@@ -57,6 +148,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
 }
 
 $settings = $pdo ? get_all_settings($pdo) : [];
+
+$wipeStats = [
+    'vehicles'  => 0,
+    'drivers'   => 0,
+    'contracts' => 0,
+    'slips'     => 0,
+    'reports'   => 0,
+    'debts'     => 0,
+];
+if ($pdo) {
+    try {
+        $wipeStats['vehicles']  = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+        $wipeStats['drivers']   = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver'")->fetchColumn();
+        $wipeStats['contracts'] = (int)$pdo->query("SELECT COUNT(*) FROM contracts")->fetchColumn();
+        $wipeStats['slips']     = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips")->fetchColumn();
+        $wipeStats['reports']   = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+        $wipeStats['debts']     = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts")->fetchColumn();
+    } catch (\Throwable $e) {}
+}
 
 // Vehicle presets
 $defaultPresets = [
@@ -423,6 +533,140 @@ if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
 
     </form>
 
+    <!-- ==============================================
+         SECTION 5: منطقة العمليات الحساسة • حذف وتصفير البيانات (Danger Zone)
+         ============================================== -->
+    <div id="danger-zone" class="bg-white rounded-2xl border-2 border-rose-200 dark:border-rose-900/60 shadow-xs overflow-hidden">
+        
+        <div class="p-5 sm:p-6 bg-gradient-to-l from-rose-50/70 to-white dark:from-rose-950/20 dark:to-slate-900 border-b border-rose-100 dark:border-rose-900/40">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-black text-rose-950 dark:text-rose-300 text-base">منطقة العمليات الحساسة • حذف وتصفير جميع البيانات</h3>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white font-mono">DANGER ZONE</span>
+                        </div>
+                        <p class="text-xs text-rose-700/80 dark:text-rose-400 mt-1 leading-relaxed">
+                            يتيح هذا الإجراء لمدير المنصة حذف وتصفير جميع سجلات الأسطول والسائقين، العقود 90-11، جداول الإرسال، محاضر المسافرين، والديون دفعة واحدة لتنظيف النظام أو بدء دورة جديدة. حسابات الإدارة تبقى محفوظة ولن تحذف.
+                        </p>
+                    </div>
+                </div>
+
+                <button type="button" onclick="openWipeModal()" 
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition shadow-sm shrink-0">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                    <span>حذف جميع البيانات الآن...</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Data Summary to be Purged -->
+        <div class="p-5 sm:p-6 bg-slate-50/50 dark:bg-slate-900/50">
+            <span class="text-[11px] font-bold text-slate-500 block mb-3">السجلات الميدانية الحالية التي سيتم حذفها وتصفيرها بالكامل:</span>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">سيارات الأسطول</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['vehicles'] ?></span>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">السائقون المسجلون</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['drivers'] ?></span>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">عقود العمل (90-11)</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['contracts'] ?></span>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">جداول الإرسال</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['slips'] ?></span>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">محاضر المسافرين</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['reports'] ?></span>
+                </div>
+                <div class="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span class="text-[11px] text-slate-400 block font-semibold">ذمم الديون</span>
+                    <span class="text-base font-black text-slate-900 dark:text-white font-num"><?= $wipeStats['debts'] ?></span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Modal: Wipe All Data Confirmation Dialog -->
+<div id="wipeAllDataModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-rose-200 dark:border-rose-900/60 shadow-2xl space-y-5 text-right m-auto animate-fadeIn">
+        
+        <div class="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div class="flex items-center gap-2.5">
+                <div class="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="font-black text-slate-900 dark:text-white text-base">تأكيد حذف وتصفير جميع البيانات</h3>
+                    <span class="text-xs text-rose-600 font-bold">تحذير أمني: هذا الإجراء نهائي ولا يمكن التراجع عنه</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeWipeModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 flex items-center justify-center transition">✕</button>
+        </div>
+
+        <div class="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+            <p class="leading-relaxed">
+                أنت على وشك تنفيذ <strong class="text-rose-600 font-black">حذف شامل وتصفير كامل</strong> لجميع سجلات المنصة التشغيلية، بما في ذلك:
+            </p>
+            <ul class="list-disc list-inside space-y-1 pr-2 text-[11px] text-slate-500">
+                <li>جميع سيارات الأجرة ووثائق التأمين والمراقبة التقنية</li>
+                <li>جميع بطاقات السائقين وسجلات الفحص الطبي</li>
+                <li>عقود العمل الرسمية (قانون 90-11) وتصريحات الضمان CNAS</li>
+                <li>جداول الإرسال ومحاضر المسافرين بين الولايات</li>
+                <li>حراسة الحظيرة الليلية، جداول المناوبات، والديون والمدفوعات</li>
+            </ul>
+            <div class="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl text-amber-900 dark:text-amber-300 text-[11px] font-semibold flex items-center gap-2">
+                <span>🛡️</span>
+                <span>ملاحظة: حسابات الإدارة والمشرفين (Admins) لن يتم حذفها لضمان استمرار قدرتك على الدخول.</span>
+            </div>
+        </div>
+
+        <form method="POST" action="" class="space-y-4">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="wipe_all_data">
+
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-200 text-xs mb-1.5">
+                    لتأكيد العملية، يرجى كتابة كلمة <span class="text-rose-600 font-black select-all">تأكيد</span> أو <span class="text-rose-600 font-black select-all">DELETE</span> أدناه:
+                </label>
+                <input type="text" id="confirmDeleteInput" name="confirm_delete" required 
+                       oninput="validateWipeConfirmation(this.value)"
+                       placeholder="اكتب تأكيد أو DELETE هنا..." 
+                       class="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-bold text-center focus:outline-none focus:border-rose-500 transition">
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onclick="closeWipeModal()" class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 transition">
+                    إلغاء وتراجع
+                </button>
+                <button type="submit" id="wipeSubmitBtn" disabled
+                        class="px-5 py-2.5 rounded-xl bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-rose-700 text-white font-black text-xs transition shadow-xs flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                    <span>نعم، احذف جميع البيانات نهائياً</span>
+                </button>
+            </div>
+        </form>
+
+    </div>
 </div>
 
 <script>
@@ -488,6 +732,38 @@ function removeBrandFromSettings(brand) {
         syncPresetsToHiddenInput();
         const card = document.querySelector(`.brand-card[data-brand="${brand}"]`);
         if (card) card.remove();
+    }
+}
+
+// Danger Zone: Wipe All Data Modal Helpers
+function openWipeModal() {
+    const modal = document.getElementById('wipeAllDataModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        const input = document.getElementById('confirmDeleteInput');
+        if (input) {
+            input.value = '';
+            setTimeout(() => input.focus(), 50);
+        }
+        const btn = document.getElementById('wipeSubmitBtn');
+        if (btn) btn.disabled = true;
+    }
+}
+
+function closeWipeModal() {
+    const modal = document.getElementById('wipeAllDataModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+function validateWipeConfirmation(val) {
+    const clean = val.trim();
+    const btn = document.getElementById('wipeSubmitBtn');
+    if (btn) {
+        btn.disabled = !(clean === 'تأكيد' || clean.toUpperCase() === 'DELETE');
     }
 }
 </script>
