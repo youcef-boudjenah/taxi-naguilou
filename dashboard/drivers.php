@@ -767,9 +767,10 @@ require_once __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                         </div>
 
-                        <!-- Documents status list -->
+                        <!-- Documents status list (Only show expired, expiring soon, or missing docs) -->
                         <div class="space-y-1.5 text-xs">
-                            <!-- License -->
+                            <!-- License: Only show if expired, expiring soon, or missing -->
+                            <?php if ($expD['lic_expired'] || $expD['lic_expiring_soon'] || $expD['lic_missing']): ?>
                             <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">رخصة السياقة:</span>
                                 <?php if ($expD['lic_expired']): ?>
@@ -778,12 +779,12 @@ require_once __DIR__ . '/../includes/header.php';
                                     <span class="font-num text-[11px] font-bold text-amber-700 dark:text-amber-400">تنتهي خلال <?= $expD['lic_days'] ?> يوماً</span>
                                 <?php elseif ($expD['lic_missing']): ?>
                                     <span class="text-[11px] font-bold text-rose-500 dark:text-rose-400">غير مسجلة</span>
-                                <?php else: ?>
-                                    <span class="font-num text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">سارية (<?= htmlspecialchars($expD['lic_date']) ?>)</span>
                                 <?php endif; ?>
                             </div>
+                            <?php endif; ?>
 
-                            <!-- Medical -->
+                            <!-- Medical: Only show if expired, expiring soon, or missing -->
+                            <?php if ($expD['med_expired'] || $expD['med_expiring_soon'] || $expD['med_missing']): ?>
                             <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">الفحص الطبي الدوري:</span>
                                 <?php if ($expD['med_expired']): ?>
@@ -792,12 +793,11 @@ require_once __DIR__ . '/../includes/header.php';
                                     <span class="font-num text-[11px] font-bold text-amber-700 dark:text-amber-400">ينتهي خلال <?= $expD['med_days'] ?> يوماً</span>
                                 <?php elseif ($expD['med_missing']): ?>
                                     <span class="text-[11px] font-bold text-rose-500 dark:text-rose-400">غير مسجل (مطلوب)</span>
-                                <?php else: ?>
-                                    <span class="font-num text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">ساري (<?= htmlspecialchars($expD['med_date']) ?>)</span>
                                 <?php endif; ?>
                             </div>
+                            <?php endif; ?>
 
-                            <!-- Taxi Contract if applicable -->
+                            <!-- Taxi Contract: Only show if expired or expiring soon -->
                             <?php if (!empty($expD['cont_date']) && ($expD['cont_expired'] || $expD['cont_expiring_soon'])): ?>
                             <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                 <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">عقد استغلال الأجرة:</span>
