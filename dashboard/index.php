@@ -21,6 +21,7 @@ $counts = [
     'audit_logs'       => 0,
     'settings'         => 0,
     'expiring_docs'    => $alertCount,
+    'expiring_contracts' => 0,
 ];
 
 if ($pdo) {
@@ -35,10 +36,11 @@ if ($pdo) {
             $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
             $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
         } else {
-            $counts['vehicles']         = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
-            $counts['drivers']          = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
-            $counts['contracts']        = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
-            $counts['cnas']             = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
+            $counts['vehicles']           = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+            $counts['drivers']            = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
+            $counts['contracts']          = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
+            $counts['expiring_contracts'] = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
+            $counts['cnas']               = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
             $counts['leaves']           = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE status = 'approved' AND end_date >= CURDATE()")->fetchColumn();
             $counts['slips']            = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE status = 'active'")->fetchColumn();
             $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
@@ -132,9 +134,15 @@ if ($pdo) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>
             </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 font-num">
-                <?= $counts['contracts'] ?> موثق
-            </span>
+            <?php if ($counts['expiring_contracts'] > 0): ?>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 font-num border border-amber-200 animate-pulse">
+                    <?= $counts['expiring_contracts'] ?> تنبيه تجديد ⚠️
+                </span>
+            <?php else: ?>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 font-num">
+                    <?= $counts['contracts'] ?> موثق
+                </span>
+            <?php endif; ?>
         </div>
         <div class="mt-4">
             <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-teal-600 transition">عقود العمل (قانون 90-11)</h3>

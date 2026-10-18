@@ -145,6 +145,9 @@ if ($filter === 'active') {
     $where[] = "c.end_date >= CURDATE()";
 } elseif ($filter === 'expired') {
     $where[] = "c.end_date < CURDATE()";
+} elseif ($filter === 'expiring_soon') {
+    // 30 days (1 month) early warning filter
+    $where[] = "c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
 }
 
 if (is_owner() && !is_admin()) {
@@ -169,6 +172,7 @@ $sql = "
 $contracts = [];
 $countTous = 0;
 $countActifs = 0;
+$countExpiringSoon = 0;
 $countExpires = 0;
 
 if ($pdo) {
@@ -200,6 +204,16 @@ if ($pdo) {
             $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
         }
     } catch (\Throwable $e) { $countActifs = 0; }
+
+    try {
+        if (is_owner() && !is_admin()) {
+            $stmtCs = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCs->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
+            $countExpiringSoon = (int)$stmtCs->fetchColumn();
+        } else {
+            $countExpiringSoon = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
+        }
+    } catch (\Throwable $e) { $countExpiringSoon = 0; }
 
     $countExpires = max(0, $countTous - $countActifs);
 }
@@ -237,9 +251,9 @@ if ($pdo) {
         </div>
     </div>
 
-    <!-- Quick Stats Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+    <!-- Quick Stats Cards (4 Columns with 1-Month Expiry Alert) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <a href="contracts.php?filter=all" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-slate-400 transition">
             <div>
                 <p class="text-[11px] font-semibold text-slate-500">إجمالي العقود المسجلة</p>
                 <p class="text-xl font-bold text-slate-900 font-num mt-0.5"><?= $countTous ?></p>
@@ -249,9 +263,9 @@ if ($pdo) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>
             </div>
-        </div>
+        </a>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <a href="contracts.php?filter=active" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-emerald-400 transition">
             <div>
                 <p class="text-[11px] font-semibold text-slate-500">عقود سارية المفعول</p>
                 <p class="text-xl font-bold text-emerald-600 font-num mt-0.5"><?= $countActifs ?></p>
@@ -261,9 +275,29 @@ if ($pdo) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </div>
-        </div>
+        </a>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <!-- 30-Day Expiry Early Alert Card -->
+        <a href="contracts.php?filter=expiring_soon" class="bg-white p-4 rounded-xl border <?= $countExpiringSoon > 0 ? 'border-amber-300 dark:border-amber-800 bg-amber-50/20' : 'border-slate-200/80' ?> shadow-xs flex items-center justify-between hover:border-amber-400 hover:shadow-2xs transition group" title="انقر لتصفية العقود التي تنتهي خلال أقل من شهر (30 يوماً)">
+            <div>
+                <p class="text-[11px] font-semibold text-slate-500 group-hover:text-amber-700 transition">تنتهي خلال شهر (30 يوماً)</p>
+                <div class="flex items-baseline gap-2 mt-0.5">
+                    <p class="text-xl font-bold <?= $countExpiringSoon > 0 ? 'text-amber-600' : 'text-slate-400' ?> font-num"><?= $countExpiringSoon ?></p>
+                    <?php if ($countExpiringSoon > 0): ?>
+                        <span class="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-200 font-num">
+                            تنبيه تجديد ⚠️
+                        </span>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="w-10 h-10 rounded-xl <?= $countExpiringSoon > 0 ? 'bg-amber-100 text-amber-700 group-hover:bg-amber-500 group-hover:text-slate-950' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+        </a>
+
+        <a href="contracts.php?filter=expired" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-rose-400 transition">
             <div>
                 <p class="text-[11px] font-semibold text-slate-500">عقود منتهية الصلاحية</p>
                 <p class="text-xl font-bold <?= $countExpires > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num mt-0.5"><?= $countExpires ?></p>
@@ -273,8 +307,35 @@ if ($pdo) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
             </div>
-        </div>
+        </a>
     </div>
+
+    <!-- Alert Banner: Contracts Expiring within 30 Days (تنبيه مسبق قبل شهر) -->
+    <?php if ($countExpiringSoon > 0): ?>
+        <div class="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-xs font-black">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h4 class="font-bold text-slate-900 dark:text-amber-200 text-xs sm:text-sm">تنبيه انتهاء صلاحية عقود العمل (تنبيه مسبق قبل شهر / 30 يوماً)</h4>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 text-amber-950 dark:bg-amber-900/80 dark:text-amber-100 font-num">
+                            <?= $countExpiringSoon ?> عقود وشيكة
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 mt-0.5">يوجد <strong class="text-amber-700 dark:text-amber-400 font-num"><?= $countExpiringSoon ?></strong> عقد عمل ستنتهي صلاحيتها خلال أقل من 30 يوماً. يرجى المبادرة بتجديد العقود القانونية لضمان استمرارية النشاط وفق القانون 90-11.</p>
+                </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+                <a href="contracts.php?filter=expiring_soon" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs whitespace-nowrap">
+                    عرض وتجديد العقود (<?= $countExpiringSoon ?>)
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- Filter & Search Toolbar -->
     <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
@@ -300,11 +361,16 @@ if ($pdo) {
             </a>
             <a href="contracts.php?filter=active<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'active' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
-                سارية المفعول
+                سارية المفعول (<?= $countActifs ?>)
+            </a>
+            <a href="contracts.php?filter=expiring_soon<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'expiring_soon' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100' ?>">
+                <span>تنتهي قريباً (خلال شهر)</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] <?= $filter === 'expiring_soon' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-200 dark:bg-amber-800 text-amber-950 dark:text-white' ?> font-num font-bold"><?= $countExpiringSoon ?></span>
             </a>
             <a href="contracts.php?filter=expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'expired' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
-                منتهية
+                منتهية (<?= $countExpires ?>)
             </a>
         </div>
     </div>
@@ -338,8 +404,17 @@ if ($pdo) {
                         <?php $rowNum = 1; foreach ($contracts as $c): 
                             $durYears = !empty($c['duration_years']) && $c['duration_years'] > 0 ? $c['duration_years'] : 1;
                             $daysRemaining = $c['days_remaining'] !== null ? intval($c['days_remaining']) : 365;
+                            $isExpired = $daysRemaining < 0;
+                            $isExpiringSoon = $daysRemaining >= 0 && $daysRemaining <= 30;
+
+                            $rowCls = '';
+                            if ($isExpired) {
+                                $rowCls = 'bg-rose-50/25 dark:bg-rose-950/20 border-r-4 border-r-rose-500';
+                            } elseif ($isExpiringSoon) {
+                                $rowCls = 'bg-amber-50/30 dark:bg-amber-950/25 border-r-4 border-r-amber-500';
+                            }
                         ?>
-                            <tr class="hover:bg-slate-50/60 transition">
+                            <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition <?= $rowCls ?>">
                                 <!-- N° -->
                                 <td class="p-3.5 text-center font-num font-bold text-slate-400">
                                     <?= $rowNum++ ?>
@@ -347,7 +422,7 @@ if ($pdo) {
 
                                 <!-- Contract Number -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold text-slate-900 text-sm font-mono tracking-wide">
+                                    <div class="font-num font-bold text-slate-900 dark:text-slate-100 text-sm font-mono tracking-wide">
                                         <span class="inline-block" dir="ltr"><?= htmlspecialchars($c['contract_number']) ?></span>
                                     </div>
                                     <span class="text-[10px] text-slate-400">Loi 90-11 • Conforme DTW</span>
@@ -355,7 +430,7 @@ if ($pdo) {
 
                                 <!-- Driver -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 text-[13px]"><?= htmlspecialchars($c['driver_name']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100 text-[13px]"><?= htmlspecialchars($c['driver_name']) ?></div>
                                     <div class="text-[11px] text-slate-400 font-num" dir="ltr">
                                         <?= htmlspecialchars($c['driver_phone']) ?>
                                     </div>
@@ -364,10 +439,10 @@ if ($pdo) {
                                 <!-- Vehicle -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <?php if (!empty($c['plate_number'])): ?>
-                                        <div class="font-semibold text-slate-900">
+                                        <div class="font-semibold text-slate-900 dark:text-slate-100">
                                             <?= htmlspecialchars($c['brand'] . ' ' . $c['model']) ?>
                                         </div>
-                                        <div class="font-num font-semibold text-slate-700 text-[11px]" dir="ltr">
+                                        <div class="font-num font-semibold text-slate-700 dark:text-slate-300 text-[11px]" dir="ltr">
                                             <?= htmlspecialchars($c['plate_number']) ?>
                                             <span class="text-slate-400 font-normal">(باب: <?= htmlspecialchars($c['door_number']) ?>)</span>
                                         </div>
@@ -378,33 +453,44 @@ if ($pdo) {
 
                                 <!-- Duration / Validity -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num text-slate-800 font-semibold" dir="ltr">
+                                    <div class="font-num text-slate-800 dark:text-slate-200 font-semibold" dir="ltr">
                                         <?= htmlspecialchars($c['start_date']) ?> → <?= htmlspecialchars($c['end_date']) ?>
                                     </div>
                                     <div class="flex items-center gap-1.5 mt-0.5">
-                                        <span class="px-2 py-0.2 rounded bg-slate-100 text-slate-700 font-semibold text-[10px]">
+                                        <span class="px-2 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
                                             <?= $durYears ?> <?= $durYears > 1 ? 'سنوات' : 'سنة' ?>
                                         </span>
-                                        <?php if ($daysRemaining > 0): ?>
-                                            <span class="text-[10px] text-emerald-600 font-bold font-num">باقي <?= $daysRemaining ?> يوم</span>
+                                        <?php if ($isExpired): ?>
+                                            <span class="text-[10px] text-rose-600 dark:text-rose-400 font-bold font-num bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900/50">
+                                                منتهي منذ <?= abs($daysRemaining) ?> يوم
+                                            </span>
+                                        <?php elseif ($isExpiringSoon): ?>
+                                            <span class="text-[10px] text-amber-800 dark:text-amber-300 font-bold font-num bg-amber-100 dark:bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-800/80 flex items-center gap-1">
+                                                <span>⚠️</span>
+                                                <span>ينتهي خلال <?= $daysRemaining ?> يوماً</span>
+                                            </span>
                                         <?php else: ?>
-                                            <span class="text-[10px] text-rose-600 font-bold font-num">منتهي الصلاحية</span>
+                                            <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold font-num">باقي <?= $daysRemaining ?> يوم</span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
 
                                 <!-- Status -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <?php if ($daysRemaining > 0): ?>
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                    <?php if ($isExpired): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60">
+                                            <span>منتهي الصلاحية</span>
+                                        </span>
+                                    <?php elseif ($isExpiringSoon): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 dark:border-amber-800 animate-pulse">
+                                            <span>⚠️ انتهاء وشيك (خلال شهر)</span>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
                                             <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
                                             </svg>
                                             <span>ساري ونظامي (90-11)</span>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
-                                            <span>منتهي الصلاحية</span>
                                         </span>
                                     <?php endif; ?>
                                 </td>
@@ -422,6 +508,27 @@ if ($pdo) {
                                         </button>
 
                                         <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <?php if ($isExpiringSoon || $isExpired): ?>
+                                            <button type="button"
+                                                    onclick='openEditContractModal(<?= json_encode([
+                                                        "id" => (int)$c["id"],
+                                                        "contract_number" => $c["contract_number"],
+                                                        "driver_id" => (int)$c["driver_id"],
+                                                        "vehicle_id" => (int)$c["vehicle_id"],
+                                                        "start_date" => date("Y-m-d"),
+                                                        "end_date" => date("Y-m-d", strtotime("+3 years -1 day")),
+                                                        "monthly_wage" => (float)$c["monthly_wage"],
+                                                        "status" => "signed",
+                                                        "notes" => ($c["notes"] ?? "") . " - تم التجديد بتاريخ " . date("Y-m-d")
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-black transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                                </svg>
+                                                <span>تجديد العقد (+3 سنوات)</span>
+                                            </button>
+                                            <?php endif; ?>
+
                                             <a href="contract_view.php?id=<?= $c['id'] ?>"
                                                class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition">
                                                 <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
