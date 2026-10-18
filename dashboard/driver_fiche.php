@@ -754,36 +754,6 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             <?php endif; ?>
         </div>
 
-        <!-- Section 5: الأرشفة الرقمية والتحقق الرسمي -->
-        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#1a2332]/60 space-y-4 no-print">
-            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
-                <div class="flex items-center gap-2">
-                    <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                    </svg>
-                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الأرشفة والتوثيق القانوني للدفتر المهني</h4>
-                </div>
-                <span class="text-xs text-emerald-700 dark:text-emerald-400 font-bold">✓ ملف رقمي مصادق عليه</span>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 text-xs">
-                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
-                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">وثيقة المقررة الأصلية</div>
-                    <div class="font-bold text-slate-900 dark:text-white">الصفحة 4 (الهوية والرخصة)</div>
-                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">مطابقة للمواصفات الرسمية</div>
-                </div>
-                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
-                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">وثيقة عقد الاستغلال</div>
-                    <div class="font-bold text-slate-900 dark:text-white">الصفحة 7 (المركبة والرخصة)</div>
-                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">سارية الصلاحية حتى 2027</div>
-                </div>
-                <div class="bg-white dark:bg-[#161d27] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
-                    <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">الشهادة الطبية</div>
-                    <div class="font-bold text-slate-900 dark:text-white">الفحص الدوري الساري</div>
-                    <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">معتمد من مفتشية النقل</div>
-                </div>
-            </div>
-        </div>
 
         <!-- Official Signatures & Seal Area (For Print & Authority Checks) -->
         <div class="pt-6 border-t-2 border-slate-900 dark:border-slate-700 grid grid-cols-3 gap-6 text-center text-xs">
