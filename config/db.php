@@ -88,6 +88,9 @@ function getDBConnection() {
     try {
         $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
         $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
+        try {
+            $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
+        } catch (\Throwable $ex) {}
 
         initAllTables($pdo);
         migrateDriverFicheFields($pdo);
@@ -105,6 +108,9 @@ function getDBConnection() {
 
             $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
             $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
+            try {
+                $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
+            } catch (\Throwable $ex) {}
 
             initAllTables($pdo);
             migrateDriverFicheFields($pdo);
@@ -585,6 +591,15 @@ function migrateDriverFicheFields(PDO $pdo): void {
                 $pdo->exec("ALTER TABLE `leaves` ADD COLUMN `replacement_driver_id` INT NULL AFTER `vehicle_id`");
             } catch (\Throwable $ex) {}
         }
+        // Auto-sync vehicles replacement_driver_id from active approved leaves
+        try {
+            $pdo->exec("
+                UPDATE vehicles v
+                JOIN leaves l ON v.id = l.vehicle_id
+                SET v.replacement_driver_id = l.replacement_driver_id
+                WHERE l.status = 'approved' AND l.end_date >= CURDATE() AND (v.replacement_driver_id IS NULL OR v.replacement_driver_id = 0)
+            ");
+        } catch (\Throwable $ex) {}
     } catch (\Throwable $e) {}
 
     // 4. Driver Schedules table columns

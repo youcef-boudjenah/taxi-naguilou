@@ -336,65 +336,81 @@ $roleCounts = [
                                     </span>
                                 </td>
                                 <td class="p-4 text-center whitespace-nowrap">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <!-- Edit User Button -->
+                                    <div class="relative inline-block text-right">
                                         <button type="button"
-                                                onclick='openEditUserModal(<?= json_encode([
-                                                    "id" => (int)$u["id"],
-                                                    "full_name" => $u["full_name"],
-                                                    "email" => $u["email"] ?? "",
-                                                    "phone" => $u["phone"] ?? "",
-                                                    "role" => $u["role"],
-                                                    "status" => $u["status"]
-                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
-                                                title="تعديل بيانات المستخدم" 
-                                                class="p-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition text-xs flex items-center justify-center">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                title="خيارات وإجراءات الحساب">
+                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
                                         </button>
 
-                                        <!-- Toggle Status Form -->
-                                        <form method="POST" action="" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="toggle_status">
-                                            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                            <?php if ($u['status'] === 'active'): ?>
-                                                <input type="hidden" name="new_status" value="suspended">
-                                                <button type="submit" title="تجميد الحساب" class="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition text-xs">
-                                                    ⛔
-                                                </button>
-                                            <?php else: ?>
-                                                <input type="hidden" name="new_status" value="active">
-                                                <button type="submit" title="تفعيل الحساب" class="p-1.5 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition text-xs">
-                                                    ✅
-                                                </button>
-                                            <?php endif; ?>
-                                        </form>
-
-                                        <!-- Reset Password Form -->
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين كلمة المرور إلى (password123)؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="reset_password">
-                                            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                            <button type="submit" title="إعادة تعيين كلمة المرور" class="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition text-xs">
-                                                🔑
-                                            </button>
-                                        </form>
-
-                                        <!-- Delete User Form -->
-                                        <?php if ((int)$u['id'] !== (int)$_SESSION['user_id']): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا المستخدم نهائياً؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="delete_user">
-                                            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                            <button type="submit" title="حذف المستخدم" class="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition text-xs">
-                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <!-- Edit User Button -->
+                                            <button type="button"
+                                                    onclick='openEditUserModal(<?= json_encode([
+                                                        "id" => (int)$u["id"],
+                                                        "full_name" => $u["full_name"],
+                                                        "email" => $u["email"] ?? "",
+                                                        "phone" => $u["phone"] ?? "",
+                                                        "role" => $u["role"],
+                                                        "status" => $u["status"]
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 font-bold transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                                                 </svg>
+                                                <span>تعديل بيانات المستخدم</span>
                                             </button>
-                                        </form>
-                                        <?php endif; ?>
+
+                                            <!-- Toggle Status Form -->
+                                            <form method="POST" action="" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="toggle_status">
+                                                <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                                <?php if ($u['status'] === 'active'): ?>
+                                                    <input type="hidden" name="new_status" value="suspended">
+                                                    <button type="submit" class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold transition text-right cursor-pointer">
+                                                        <span>⛔</span>
+                                                        <span>تجميد حساب المستخدم</span>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <input type="hidden" name="new_status" value="active">
+                                                    <button type="submit" class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold transition text-right cursor-pointer">
+                                                        <span>✅</span>
+                                                        <span>تفعيل وتنشيط الحساب</span>
+                                                    </button>
+                                                <?php endif; ?>
+                                            </form>
+
+                                            <!-- Reset Password Form -->
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين كلمة المرور إلى (password123)؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="reset_password">
+                                                <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                                <button type="submit" class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition text-right cursor-pointer">
+                                                    <span class="text-amber-500">🔑</span>
+                                                    <span>إعادة تعيين كلمة المرور</span>
+                                                </button>
+                                            </form>
+
+                                            <!-- Delete User Form -->
+                                            <?php if ((int)$u['id'] !== (int)$_SESSION['user_id']): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا المستخدم نهائياً؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_user">
+                                                <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                                <button type="submit" class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                    <span>حذف المستخدم</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

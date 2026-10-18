@@ -599,7 +599,7 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                         <th class="p-3.5 text-center font-num">cotis. المركبات</th>
                         <th class="p-3.5 text-center font-num">المبلغ المستحق</th>
                         <th class="p-3.5 text-center">الحالة</th>
-                        <th class="p-3.5 text-center">الإجراءات</th>
+                        <th class="p-3.5 text-center w-14">الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
@@ -720,54 +720,67 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
 
                                 <!-- 8. الإجراءات -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <button onclick="openDriverPayment(<?= (int)$r['driver_id'] ?>, '<?= htmlspecialchars($r['driver_name'], ENT_QUOTES) ?>', <?= $remaining > 0 ? $remaining : $tot ?>)" 
-                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs" title="تسجيل دفعة">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                    <div class="relative inline-block text-right">
+                                        <button type="button" 
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200/80 hover:bg-slate-100 hover:text-slate-900 text-slate-500 transition shadow-xs focus:outline-hidden"
+                                                title="خيارات الإجراءات">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                                             </svg>
-                                            <span class="hidden sm:inline">دفعة</span>
                                         </button>
-                                        <button type="button"
-                                                onclick='openEditSubModal(<?= json_encode([
-                                                    "subscription_id" => (int)($r["subscription_id"] ?? 0),
-                                                    "driver_id" => (int)$r["driver_id"],
-                                                    "driver_name" => $r["driver_name"],
-                                                    "space_fee" => (float)$sFee,
-                                                    "vehicle_fee" => (float)$vFee,
-                                                    "paid_amount" => (float)$paidAmount,
-                                                    "payment_status" => $status,
-                                                    "payment_method" => $r["payment_method"] ?? "baridimob",
-                                                    "notes" => $r["payment_notes"] ?? ""
-                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
-                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل الاشتراك والمبالغ">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
-                                            </svg>
-                                            <span class="hidden sm:inline">تعديل</span>
-                                        </button>
-                                        <?php if (!empty($r['subscription_id'])): ?>
-                                        <a href="/dashboard/invoice.php?type=subscription&id=<?= (int)$r['subscription_id'] ?>" target="_blank"
-                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs transition border border-emerald-200/60 shadow-2xs" title="طباعة الفاتورة / الوصل">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.07-.37-2.18-.37-3.329 0-4.418 3.582-8 8-8s8 3.582 8 8c0 1.15-.13 2.26-.37 3.329m-15.26 0A7.962 7.962 0 004 10.5C4 6.082 7.582 2.5 12 2.5s8 3.582 8 8c0 1.18-.255 2.3-.72 3.329m-14.56 0h14.56m-14.56 0A3.5 3.5 0 003.5 17h17a3.5 3.5 0 00-.72-3.171M6 17v4h12v-4" />
-                                            </svg>
-                                            <span class="hidden sm:inline">فاتورة</span>
-                                        </a>
-                                        <?php endif; ?>
-                                        <?php if (!empty($r['subscription_id']) && is_admin()): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف وتصفير اشتراك هذا السائق لهذا الشهر؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="delete_subscription">
-                                            <input type="hidden" name="subscription_id" value="<?= $r['subscription_id'] ?>">
-                                            <button type="submit" 
-                                                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف وتصفير الاشتراك">
-                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                        <div class="table-dropdown-menu hidden fixed bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/80 py-1.5 min-w-[200px] text-right z-50 transition-all">
+                                            <button type="button"
+                                                    onclick="openDriverPayment(<?= (int)$r['driver_id'] ?>, '<?= htmlspecialchars($r['driver_name'], ENT_QUOTES) ?>', <?= $remaining > 0 ? $remaining : $tot ?>)" 
+                                                    class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 transition text-right">
+                                                <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                                 </svg>
+                                                <span>تسجيل دفعة (Versement)</span>
                                             </button>
-                                        </form>
-                                        <?php endif; ?>
+                                            <button type="button"
+                                                    onclick='openEditSubModal(<?= json_encode([
+                                                        "subscription_id" => (int)($r["subscription_id"] ?? 0),
+                                                        "driver_id" => (int)$r["driver_id"],
+                                                        "driver_name" => $r["driver_name"],
+                                                        "space_fee" => (float)$sFee,
+                                                        "vehicle_fee" => (float)$vFee,
+                                                        "paid_amount" => (float)$paidAmount,
+                                                        "payment_status" => $status,
+                                                        "payment_method" => $r["payment_method"] ?? "baridimob",
+                                                        "notes" => $r["payment_notes"] ?? ""
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition text-right">
+                                                <svg class="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span>تعديل المبالغ والاشتراك</span>
+                                            </button>
+                                            <?php if (!empty($r['subscription_id'])): ?>
+                                            <a href="/dashboard/invoice.php?type=subscription&id=<?= (int)$r['subscription_id'] ?>" target="_blank"
+                                               class="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition">
+                                                <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.07-.37-2.18-.37-3.329 0-4.418 3.582-8 8-8s8 3.582 8 8c0 1.15-.13 2.26-.37 3.329m-15.26 0A7.962 7.962 0 004 10.5C4 6.082 7.582 2.5 12 2.5s8 3.582 8 8c0 1.18-.255 2.3-.72 3.329m-14.56 0h14.56m-14.56 0A3.5 3.5 0 003.5 17h17a3.5 3.5 0 00-.72-3.171M6 17v4h12v-4" />
+                                                </svg>
+                                                <span>طباعة الفاتورة / الوصل</span>
+                                            </a>
+                                            <?php endif; ?>
+                                            <?php if (!empty($r['subscription_id']) && is_admin()): ?>
+                                            <div class="h-px bg-slate-100 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف وتصفير اشتراك هذا السائق لهذا الشهر؟')" class="block">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_subscription">
+                                                <input type="hidden" name="subscription_id" value="<?= $r['subscription_id'] ?>">
+                                                <button type="submit" 
+                                                        class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition text-right">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                    <span>حذف وتصفير الاشتراك</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
 

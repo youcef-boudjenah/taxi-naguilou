@@ -80,7 +80,6 @@ $erpNavCategories = [
         'name' => 'الأسطول والمركبات',
         'color' => 'blue',
         'pages' => [
-            'fleet' => ['title' => 'تتبع الأسطول الميداني', 'url' => '/dashboard/fleet.php', 'badge' => 'ميداني'],
             'vehicles' => ['title' => 'سجل المركبات والوثائق', 'url' => '/dashboard/vehicles.php', 'badge' => 'وثائق'],
             'insurance' => ['title' => 'التأمين والمراقبة التقنية', 'url' => '/dashboard/insurance.php', 'badge' => 'SAA/GPL'],
         ]
@@ -304,12 +303,6 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                 <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
                             <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
-                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                                <a href="<?= url('/dashboard/fleet.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition">
-                                    <span>تتبع الأسطول الميداني</span>
-                                    <span class="text-[10px] text-slate-400 font-num">GPS</span>
-                                </a>
-                                <?php endif; ?>
                                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition">
                                     <span>سجل المركبات والوثائق</span>
                                     <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
@@ -578,9 +571,6 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <!-- Mobile Navigation Drawer / Dropdown -->
         <div id="mobileNavDrawer" class="hidden xl:hidden bg-white border-b border-slate-200/90 px-4 py-3 shadow-lg z-40 space-y-3">
             <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                <a href="<?= url('/dashboard/fleet.php') ?>" class="p-2 rounded-lg bg-blue-50 text-blue-700">📍 تتبع الأسطول</a>
-                <?php endif; ?>
                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/drivers.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-700">👤 سجل السائقين</a>

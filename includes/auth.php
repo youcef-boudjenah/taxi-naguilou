@@ -250,3 +250,98 @@ function render_theme_toggle_btn(string $extraClasses = ''): string {
     </button>';
 }
 
+/**
+ * حساب المرحلة والوضعية المهنية للسائق وفق دورة الـ 3 أشهر لكل مرحلة تجريبية:
+ * - المرحلة 1: 3 أشهر فقط
+ * - المرحلة 2: 3 أشهر
+ * - المرحلة 3: 3 أشهر
+ * - بعد 9 أشهر: يتوقف التدرج التلقائي عند المرحلة الثالثة ويكون جاهزاً للتثبيت، ولا يتم تحويله لسائق رسمي إلا يدوياً.
+ * - إذا تم تعيينه كـ official يدوياً: يبقى سائقاً رسمياً دائماً.
+ */
+if (!function_exists('resolve_driver_probation_info')) {
+    function resolve_driver_probation_info($d): array {
+        $manualStage = $d['probation_stage'] ?? 'trial_1';
+
+        // 1. إذا كان مثبتاً يدوياً كسائق رسمي
+        if ($manualStage === 'official') {
+            return [
+                'stage' => 'official',
+                'label' => 'سائق رسمي',
+                'sub_label' => 'تثبيت دائم (Titulaire)',
+                'cls' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                'badge_bg' => 'bg-emerald-500',
+                'is_official' => true,
+                'is_ready_for_promotion' => false,
+                'elapsed_months' => null
+            ];
+        }
+
+        // 2. حساب الأشهر المنقضية من تاريخ بداية النشاط
+        $startDateStr = $d['activity_start_date'] ?? null;
+        $elapsedMonths = 0;
+        if (!empty($startDateStr)) {
+            try {
+                $startDate = new DateTime($startDateStr);
+                $now = new DateTime();
+                if ($now >= $startDate) {
+                    $diff = $startDate->diff($now);
+                    $elapsedMonths = ($diff->y * 12) + $diff->m;
+                }
+            } catch (\Throwable $e) {
+                $elapsedMonths = 0;
+            }
+        }
+
+        // 3. قاعدة التدرج: 3 أشهر لكل مرحلة، وبعد 9 أشهر يتوقف للتثبيت اليدوي
+        if ($elapsedMonths < 3) {
+            $stage = 'trial_1';
+            $mInStage = $elapsedMonths + 1;
+            $label = 'فترة تجريبية الأولى';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-amber-50 text-amber-900 border-amber-200';
+            $badgeBg = 'bg-amber-500';
+            $isReady = false;
+        } elseif ($elapsedMonths < 6) {
+            $stage = 'trial_2';
+            $mInStage = $elapsedMonths - 2;
+            $label = 'تجريبية الثانية';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-blue-50 text-blue-900 border-blue-200';
+            $badgeBg = 'bg-blue-500';
+            $isReady = false;
+        } elseif ($elapsedMonths < 9) {
+            $stage = 'trial_3';
+            $mInStage = $elapsedMonths - 5;
+            $label = 'تجريبية الثالثة';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-indigo-50 text-indigo-900 border-indigo-200';
+            $badgeBg = 'bg-indigo-500';
+            $isReady = false;
+        } else {
+            // >= 9 أشهر: يتوقف التدرج التلقائي، لا ينتقل لسائق رسمي إلا يدوياً
+            $stage = 'trial_3';
+            $label = 'تجريبية 3 (اكتملت 9 أشهر)';
+            $subLabel = 'جاهز للتثبيت كسائق رسمي ⭐️';
+            $cls = 'bg-purple-50 text-purple-900 border-purple-300 font-extrabold ring-1 ring-purple-300/80';
+            $badgeBg = 'bg-purple-600';
+            $isReady = true;
+        }
+
+        if (empty($startDateStr) && in_array($manualStage, ['trial_1', 'trial_2', 'trial_3'])) {
+            $stage = $manualStage;
+        }
+
+        return [
+            'stage' => $stage,
+            'label' => $label,
+            'sub_label' => $subLabel,
+            'cls' => $cls,
+            'badge_bg' => $badgeBg,
+            'is_official' => false,
+            'is_ready_for_promotion' => $isReady,
+            'elapsed_months' => $elapsedMonths
+        ];
+    }
+}
+
+

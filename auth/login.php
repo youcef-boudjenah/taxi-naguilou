@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="email" class="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
                     <input type="email" id="email" name="email" required dir="ltr"
                            class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-left font-mono"
-                           placeholder="naguiloutaxi@gmail.com" value="naguiloutaxi@gmail.com">
+                           placeholder="" value="">
                 </div>
 
                 <div>
@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="relative">
                         <input type="password" id="password" name="password" required dir="ltr"
                                class="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-left font-mono"
-                               placeholder="moh2026">
+                               placeholder="">
                     </div>
                 </div>
 
@@ -123,29 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
 
             <!-- Quick 1-Click Demo & Admin Accounts -->
-            <div class="pt-4 border-t border-slate-100 space-y-2.5">
-                <div class="text-[11px] font-bold text-slate-400 text-center uppercase tracking-wider">
-                    ⚡ تعبئة سريعة بنقرة واحدة:
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <button type="button" onclick="fillLogin('naguiloutaxi@gmail.com', 'moh2026')" 
-                            class="px-2 py-2 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-xs font-black text-amber-950 transition text-center shadow-2xs">
-                        👑 محمد نقيلو (Super Admin)
-                    </button>
-                    <button type="button" onclick="fillLogin('admin@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
-                        🛡️ مدير تجريبي
-                    </button>
-                    <button type="button" onclick="fillLogin('owner@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
-                        🚕 مالك أسطول
-                    </button>
-                    <button type="button" onclick="fillLogin('driver1@taxinaguilou.dz', 'password123')" 
-                            class="px-2 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition text-center">
-                        👤 سائق تاكسي
-                    </button>
-                </div>
-            </div>
+            
 
         </div>
 

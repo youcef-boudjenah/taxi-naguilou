@@ -5,7 +5,6 @@ require_once __DIR__ . '/../includes/header.php';
 
 // Initialize KPIs and Live Counts
 $counts = [
-    'fleet_tracking'   => 0,
     'vehicles'         => 0,
     'insurance'        => 0,
     'drivers'          => 0,
@@ -37,7 +36,6 @@ if ($pdo) {
             $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
         } else {
             $counts['vehicles']         = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
-            $counts['fleet_tracking']   = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'active'")->fetchColumn();
             $counts['drivers']          = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
             $counts['contracts']        = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
             $counts['cnas']             = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
@@ -167,27 +165,7 @@ if ($pdo) {
     <?php endif; ?>
 
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- 5. تتبع الأسطول الميداني -->
-    <a href="<?= url('/dashboard/fleet.php') ?>" data-category="fleet" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 font-num">
-                <?= $counts['fleet_tracking'] ?> نشطة
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-blue-600 transition">تتبع الأسطول الميداني</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">خريطة ومواقع المركبات في الخدمة</p>
-        </div>
-    </a>
-
-    <!-- 6. إدارة التأمين والمراقبة التقنية -->
+    <!-- 5. إدارة التأمين والمراقبة التقنية -->
     <a href="<?= url('/dashboard/insurance.php') ?>" data-category="fleet" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">

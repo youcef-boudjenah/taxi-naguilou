@@ -21,10 +21,12 @@ $drivers = $pdo->query("
     ORDER BY u.full_name ASC
 ")->fetchAll() ?: [];
 
+$preselectedDriverId = intval($_GET['driver_id'] ?? 0);
+
 // Handle Create Contract
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_contract') {
     require_csrf_token();
-    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $vehicleId = !empty($_POST['vehicle_id']) ? intval($_POST['vehicle_id']) : null;
     $driverId = intval($_POST['driver_id'] ?? 0);
     $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
     $years = max(1, intval($_POST['duration_years'] ?? 5));
@@ -32,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $monthlyWage = floatval($_POST['monthly_wage'] ?? 45000.00);
     $notes = trim($_POST['notes'] ?? 'Contrat de travail pour chauffeur de taxi régi par la loi 90-11.');
 
-    if ($vehicleId > 0 && $driverId > 0) {
+    if ($driverId > 0) {
         try {
             $pdo->beginTransaction();
             $maxId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
@@ -45,12 +47,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmt->execute([$contractNum, $driverId, $vehicleId, $user['id'], $startDate, $endDate, $monthlyWage, $notes]);
             $cId = (int)$pdo->lastInsertId();
             
-            // Assign driver to vehicle
-            $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
+            // Assign driver to vehicle if selected
+            if ($vehicleId) {
+                $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
+            }
 
             $pdo->commit();
             log_audit($pdo, 'contract_created', 'contracts', $cId, "إنشاء وتوثيق عقد عمل نظامي رقم $contractNum للسائق رقم $driverId");
-            set_flash('success', "تم إنشاء وتوثيق العقد رقم $contractNum بنجاح وفقاً لأحكام القانون 90-11");
+            set_flash('success', "تم إنشاء وتوثيق العقد رقم $contractNum بنجاح للسائق المحدد وفقاً لأحكام القانون 90-11");
             redirect("/dashboard/contract_view.php?id=$cId");
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -59,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             set_flash('error', 'حدث خطأ أثناء إنشاء العقد: ' . $e->getMessage());
         }
     } else {
-        set_flash('error', 'يرجى تحديد المركبة والسائق');
+        set_flash('error', 'يرجى تحديد السائق المكلف بالعقد');
     }
 }
 
@@ -67,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_contract') {
     require_csrf_token();
     $contractId = intval($_POST['contract_id'] ?? 0);
-    $vehicleId = intval($_POST['vehicle_id'] ?? 0);
+    $vehicleId = !empty($_POST['vehicle_id']) ? intval($_POST['vehicle_id']) : null;
     $driverId = intval($_POST['driver_id'] ?? 0);
     $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
     $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : date('Y-m-d');
@@ -75,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $status = in_array($_POST['status'] ?? '', ['signed', 'draft', 'terminated']) ? $_POST['status'] : 'signed';
     $notes = trim($_POST['notes'] ?? '');
 
-    if ($contractId > 0 && $vehicleId > 0 && $driverId > 0) {
+    if ($contractId > 0 && $driverId > 0) {
         try {
             $stmt = $pdo->prepare("
                 UPDATE contracts 
@@ -84,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmt->execute([$driverId, $vehicleId, $startDate, $endDate, $monthlyWage, $status, $notes, $contractId]);
             
-            if ($status === 'signed') {
+            if ($status === 'signed' && $vehicleId) {
                 $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
             }
 
@@ -94,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             set_flash('error', 'حدث خطأ أثناء تعديل العقد: ' . $e->getMessage());
         }
     } else {
-        set_flash('error', 'يرجى ملء جميع الحقول المطلوبة');
+        set_flash('error', 'يرجى تحديد السائق المكلف بالعقد');
     }
     redirect('/dashboard/contracts.php');
 }
@@ -156,7 +160,7 @@ $sql = "
            TIMESTAMPDIFF(YEAR, c.start_date, c.end_date) as duration_years,
            DATEDIFF(c.end_date, CURDATE()) as days_remaining
     FROM contracts c
-    JOIN vehicles v ON c.vehicle_id = v.id
+    LEFT JOIN vehicles v ON c.vehicle_id = v.id
     JOIN users u ON c.driver_id = u.id
     WHERE " . implode(' AND ', $where) . "
     ORDER BY c.id DESC
@@ -359,13 +363,17 @@ if ($pdo) {
 
                                 <!-- Vehicle -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-semibold text-slate-900">
-                                        <?= htmlspecialchars($c['brand'] . ' ' . $c['model']) ?>
-                                    </div>
-                                    <div class="font-num font-semibold text-slate-700 text-[11px]" dir="ltr">
-                                        <?= htmlspecialchars($c['plate_number']) ?>
-                                        <span class="text-slate-400 font-normal">(باب: <?= htmlspecialchars($c['door_number']) ?>)</span>
-                                    </div>
+                                    <?php if (!empty($c['plate_number'])): ?>
+                                        <div class="font-semibold text-slate-900">
+                                            <?= htmlspecialchars($c['brand'] . ' ' . $c['model']) ?>
+                                        </div>
+                                        <div class="font-num font-semibold text-slate-700 text-[11px]" dir="ltr">
+                                            <?= htmlspecialchars($c['plate_number']) ?>
+                                            <span class="text-slate-400 font-normal">(باب: <?= htmlspecialchars($c['door_number']) ?>)</span>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="text-slate-400 text-xs italic">سائق بدون تعيين مركبة</span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Duration / Validity -->
@@ -401,48 +409,63 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Actions -->
+                                <!-- Actions (3-Dots Dropdown Menu) -->
                                 <td class="p-3.5 whitespace-nowrap text-center print:hidden">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <a href="contract_view.php?id=<?= $c['id'] ?>" 
-                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs transition border border-amber-200/60 shadow-2xs" title="معاينة وطباعة">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    <div class="relative inline-block text-right">
+                                        <button type="button"
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                title="خيارات وإجراءات العقد">
+                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
-                                            <span class="hidden sm:inline">معاينة</span>
-                                        </a>
-                                        <button type="button" 
-                                                onclick='openEditContractModal(<?= json_encode([
-                                                    "id" => (int)$c["id"],
-                                                    "contract_number" => $c["contract_number"],
-                                                    "driver_id" => (int)$c["driver_id"],
-                                                    "vehicle_id" => (int)$c["vehicle_id"],
-                                                    "start_date" => $c["start_date"],
-                                                    "end_date" => $c["end_date"],
-                                                    "monthly_wage" => (float)$c["monthly_wage"],
-                                                    "status" => $c["status"],
-                                                    "notes" => $c["notes"] ?? ""
-                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
-                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل العقد">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                                            </svg>
-                                            <span class="hidden sm:inline">تعديل</span>
                                         </button>
-                                        <?php if (is_admin()): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا العقد نهائياً من السجل؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="delete_contract">
-                                            <input type="hidden" name="contract_id" value="<?= $c['id'] ?>">
-                                            <button type="submit" 
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف العقد">
-                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+
+                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <a href="contract_view.php?id=<?= $c['id'] ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition">
+                                                <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                 </svg>
+                                                <span>معاينة وطباعة العقد</span>
+                                            </a>
+
+                                            <button type="button"
+                                                    onclick='openEditContractModal(<?= json_encode([
+                                                        "id" => (int)$c["id"],
+                                                        "contract_number" => $c["contract_number"],
+                                                        "driver_id" => (int)$c["driver_id"],
+                                                        "vehicle_id" => (int)$c["vehicle_id"],
+                                                        "start_date" => $c["start_date"],
+                                                        "end_date" => $c["end_date"],
+                                                        "monthly_wage" => (float)$c["monthly_wage"],
+                                                        "status" => $c["status"],
+                                                        "notes" => $c["notes"] ?? ""
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 font-bold transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span>تعديل بنود العقد</span>
                                             </button>
-                                        </form>
-                                        <?php endif; ?>
+
+                                            <?php if (is_admin()): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا العقد نهائياً من السجل؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_contract">
+                                                <input type="hidden" name="contract_id" value="<?= $c['id'] ?>">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                    <span>حذف العقد</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
 
@@ -495,6 +518,7 @@ if ($pdo) {
                     <option value="">-- حدد السائق المكلف --</option>
                     <?php foreach ($drivers as $d): ?>
                         <option value="<?= $d['id'] ?>" 
+                                <?= $preselectedDriverId === (int)$d['id'] ? 'selected' : '' ?>
                                 data-start="<?= htmlspecialchars($d['taxi_contract_start'] ?? '') ?>"
                                 data-end="<?= htmlspecialchars($d['taxi_contract_end'] ?? '') ?>"
                                 data-vehicle="<?= htmlspecialchars($d['assigned_vehicle_id'] ?? '') ?>">
@@ -506,12 +530,13 @@ if ($pdo) {
 
             <!-- 2. Vehicle Second -->
             <div>
-                <label class="block font-bold text-slate-700 mb-1.5">
-                    اختر سيارة الأجرة من الأسطول (Véhicule) <span class="text-rose-500">*</span>
+                <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>سيارة الأجرة (اختياري)</span>
+                    <span class="text-[10px] text-slate-400 font-normal">يمكن ربطها لاحقاً</span>
                 </label>
-                <select name="vehicle_id" id="contractVehicleSelect" required 
+                <select name="vehicle_id" id="contractVehicleSelect" 
                         class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 bg-white font-semibold transition">
-                    <option value="">-- حدد السيارة من الأسطول --</option>
+                    <option value="">-- بدون ربط بمركبة (عقد سائق مستقل) --</option>
                     <?php foreach ($vehicles as $v): ?>
                         <option value="<?= $v['id'] ?>">
                             <?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (لوحة: <?= htmlspecialchars($v['plate_number']) ?> - باب: <?= htmlspecialchars($v['door_number']) ?>)
@@ -684,8 +709,12 @@ function recalculateContractEndDate() {
             </div>
 
             <div>
-                <label class="block font-bold text-slate-700 mb-1.5">المركبة <span class="text-rose-500">*</span></label>
-                <select name="vehicle_id" id="editContractVehicle" required class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                <label class="block font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>المركبة (اختياري)</span>
+                    <span class="text-[10px] text-slate-400 font-normal">يمكن تركها فارغة</span>
+                </label>
+                <select name="vehicle_id" id="editContractVehicle" class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <option value="">-- بدون ربط بمركبة --</option>
                     <?php foreach ($vehicles as $v): ?>
                         <option value="<?= $v['id'] ?>"><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> - <?= htmlspecialchars($v['plate_number']) ?></option>
                     <?php endforeach; ?>
@@ -753,6 +782,20 @@ function closeEditContractModal() {
     modal.classList.add('hidden');
     modal.classList.remove('flex');
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    <?php if ($preselectedDriverId > 0 || ($_GET['action'] ?? '') === 'new'): ?>
+    const newModal = document.getElementById('newContractModal');
+    if (newModal) {
+        newModal.classList.remove('hidden');
+        newModal.classList.add('flex');
+        const driverSelect = document.getElementById('contractDriverSelect');
+        if (driverSelect && driverSelect.value) {
+            onDriverSelectedForContract(driverSelect);
+        }
+    }
+    <?php endif; ?>
+});
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

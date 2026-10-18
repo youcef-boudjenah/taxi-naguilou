@@ -488,49 +488,69 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <button onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)" 
-                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-2xs" title="تسجيل دفعة">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                            </svg>
-                                            <span class="hidden sm:inline">دفعة</span>
-                                        </button>
-                                        <a href="debt_statement.php?id=<?= $d['id'] ?>" target="_blank"
-                                           class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition border border-slate-200 shadow-2xs" title="كشف الحساب المالي الرسمي">
-                                            <svg class="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                                            </svg>
-                                            <span class="hidden sm:inline">كشف</span>
-                                        </a>
+                                    <div class="relative inline-block text-right">
                                         <button type="button"
-                                                onclick='openEditDebtModal(<?= json_encode([
-                                                    "id" => (int)$d["id"],
-                                                    "chauffeur_name" => $d["chauffeur_name"],
-                                                    "phone" => $d["phone"],
-                                                    "total_credits" => (float)$d["total_credits"],
-                                                    "driver_type" => $d["driver_type"],
-                                                    "notes" => $d["notes"] ?? ""
-                                                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
-                                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition border border-blue-200/60 shadow-2xs" title="تعديل القيد">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                title="خيارات وإجراءات الحساب المالي">
+                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
-                                            <span class="hidden sm:inline">تعديل</span>
                                         </button>
-                                        <?php if (is_admin()): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا القيد المالي وجميع دفعاته نهائياً؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="delete_debt">
-                                            <input type="hidden" name="debt_id" value="<?= $d['id'] ?>">
-                                            <button type="submit" 
-                                                    class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-2xs" title="حذف القيد">
-                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+
+                                        <div class="table-dropdown-menu hidden w-52 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <!-- Add Versement Button -->
+                                            <button type="button"
+                                                    onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)"
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                                 </svg>
+                                                <span>تسجيل دفعة جديدة (Versement)</span>
                                             </button>
-                                        </form>
-                                        <?php endif; ?>
+
+                                            <!-- Statement PDF Link -->
+                                            <a href="debt_statement.php?id=<?= $d['id'] ?>" target="_blank"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">
+                                                <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                </svg>
+                                                <span>كشف الحساب المالي (PDF)</span>
+                                            </a>
+
+                                            <!-- Edit Debt Modal -->
+                                            <button type="button"
+                                                    onclick='openEditDebtModal(<?= json_encode([
+                                                        "id" => (int)$d["id"],
+                                                        "chauffeur_name" => $d["chauffeur_name"],
+                                                        "phone" => $d["phone"],
+                                                        "total_credits" => (float)$d["total_credits"],
+                                                        "driver_type" => $d["driver_type"],
+                                                        "notes" => $d["notes"] ?? ""
+                                                    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 font-bold transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span>تعديل الرصيد والملاحظات</span>
+                                            </button>
+
+                                            <?php if (is_admin()): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا القيد المالي وجميع دفعاته نهائياً؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_debt">
+                                                <input type="hidden" name="debt_id" value="<?= $d['id'] ?>">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                    <span>حذف القيد المالي</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

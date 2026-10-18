@@ -1,8 +1,9 @@
 <?php
-// dashboard/drivers.php - Liste Chauffeurs, Expiration Imminente & CHAUFFEURS PERMANENCE
-$pageTitle = 'Liste Chauffeurs | سجل السائقين والمداومة';
-require_once __DIR__ . '/../includes/header.php';
+// dashboard/drivers.php - Liste Chauffeurs, Gestion des alertes & Documents
+require_once __DIR__ . '/../includes/auth.php';
+require_login();
 require_role(['super_admin', 'admin', 'owner']);
+$user = current_user();
 
 $pdo = getDBConnection();
 
@@ -30,8 +31,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $licenseExpiry = !empty($_POST['license_expiry']) ? $_POST['license_expiry'] : null;
     
     $driverType = trim($_POST['driver_type'] ?? 'ajir');
-    $probationStage = trim($_POST['probation_stage'] ?? 'trial_1');
+    $activityPeriod = trim($_POST['activity_start_period'] ?? $_POST['probation_stage'] ?? '');
     $activityStartDate = !empty($_POST['activity_start_date']) ? $_POST['activity_start_date'] : null;
+
+    if (!empty($activityPeriod)) {
+        if (preg_match('/^(\d{1,2})\/(\d{4})$/', $activityPeriod, $m)) {
+            $month = str_pad($m[1], 2, '0', STR_PAD_LEFT);
+            $year = $m[2];
+            $activityStartDate = "$year-$month-01";
+        } elseif (preg_match('/^(\d{4})-(\d{1,2})/', $activityPeriod, $m)) {
+            $year = $m[1];
+            $month = str_pad($m[2], 2, '0', STR_PAD_LEFT);
+            $activityStartDate = "$year-$month-01";
+        }
+    }
+
+    // Determine Probation Stage: 3 months each stage, stops after 9 months, manual official promotion
+    $isManualOfficial = !empty($_POST['is_manual_official']) || ($_POST['probation_stage'] ?? '') === 'official';
+    if ($isManualOfficial) {
+        $probationStage = 'official';
+    } else {
+        $probationStage = 'trial_1';
+        if (!empty($activityStartDate)) {
+            try {
+                $startObj = new DateTime($activityStartDate);
+                $nowObj = new DateTime();
+                if ($nowObj >= $startObj) {
+                    $diffM = ($startObj->diff($nowObj)->y * 12) + $startObj->diff($nowObj)->m;
+                    if ($diffM < 3) {
+                        $probationStage = 'trial_1'; // المرحلة الأولى: 3 أشهر
+                    } elseif ($diffM < 6) {
+                        $probationStage = 'trial_2'; // المرحلة الثانية: 3 أشهر
+                    } else {
+                        // >= 6 أشهر (وتتوقف عند 9 أشهر ولا تنتقل لسائق رسمي إلا يدوياً)
+                        $probationStage = 'trial_3';
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+    }
     $dtwVisaDate = !empty($_POST['dtw_visa_date']) ? $_POST['dtw_visa_date'] : null;
     $cardNumber = trim($_POST['card_number'] ?? '');
     
@@ -99,25 +137,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if ($assignedVehicleId && $assignedVehicleId > 0) {
                 $stmtVeh = $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?");
                 $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
-            }
 
-            // Auto-issue official labor contract from taxi contract dates when vehicle is assigned
-            if (!empty($taxiContractStart) && !empty($taxiContractEnd) && $assignedVehicleId && $assignedVehicleId > 0) {
+                // Auto-issue official labor contract when vehicle is assigned
+                if (empty($taxiContractStart)) {
+                    $taxiContractStart = date('Y-m-d');
+                }
+                if (empty($taxiContractEnd)) {
+                    $taxiContractEnd = date('Y-m-d', strtotime('+3 years -1 day'));
+                }
+                $pdo->prepare("UPDATE users SET taxi_contract_start = ?, taxi_contract_end = ? WHERE id = ?")
+                    ->execute([$taxiContractStart, $taxiContractEnd, $newDriverId]);
+
                 $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
                 $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
                 $stmtContract = $pdo->prepare("
                     INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11')
+                    VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11 والمرسوم 12-230')
                 ");
-                $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'], $taxiContractStart, $taxiContractEnd]);
+                $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'] ?? 1, $taxiContractStart, $taxiContractEnd]);
             }
 
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
-            set_flash('success', 'تم تسجيل السائق بنجاح وتوليد عقد العمل والبطاقة الفنية الرسمية');
+            set_flash('success', 'تم تسجيل السائق بنجاح وتوليد البطاقة الفنية الرسمية');
             redirect('/dashboard/driver_fiche.php?id=' . $newDriverId);
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء التسجيل: ' . $e->getMessage());
+            redirect('/dashboard/drivers.php');
         }
+    } else {
+        set_flash('error', 'يرجى إدخال البيانات الأساسية: اللقب، الاسم، ورقم الهاتف لإتمام تسجيل السائق.');
+        redirect('/dashboard/drivers.php');
     }
 }
 
@@ -134,6 +183,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         redirect('/dashboard/drivers.php');
     }
 }
+
+// Handle Update Driver Documents & Renewals (إدارة وتجديد وثائق السائق)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_docs') {
+    require_csrf_token();
+    if (!is_admin() && !is_owner()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة ومالك الأسطول مخولان بتحديث وثائق وتراخيص السائقين.');
+        redirect('/dashboard/drivers.php');
+    }
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    if ($driverId > 0) {
+        $licNum = trim($_POST['license_number'] ?? '');
+        $licIssue = !empty($_POST['license_issue_date']) ? $_POST['license_issue_date'] : null;
+        $licPlace = trim($_POST['license_issue_place'] ?? '');
+        $licExp = !empty($_POST['license_expiry']) ? $_POST['license_expiry'] : null;
+
+        $medStart = !empty($_POST['medical_exam_start']) ? $_POST['medical_exam_start'] : null;
+        $medExp = !empty($_POST['medical_cert_expiry']) ? $_POST['medical_cert_expiry'] : null;
+        $medEnd = !empty($_POST['medical_exam_end']) ? $_POST['medical_exam_end'] : $medExp;
+        if (empty($medExp) && !empty($medEnd)) $medExp = $medEnd;
+        if (empty($medEnd) && !empty($medExp)) $medEnd = $medExp;
+        $medVisa = !empty($_POST['medical_visa_date']) ? $_POST['medical_visa_date'] : null;
+        $nextMedStart = !empty($_POST['next_medical_start']) ? $_POST['next_medical_start'] : null;
+        $nextMedEnd = !empty($_POST['next_medical_end']) ? $_POST['next_medical_end'] : null;
+
+        $cardNum = trim($_POST['card_number'] ?? '');
+        $taxiStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
+        $taxiEnd = !empty($_POST['taxi_contract_end']) ? $_POST['taxi_contract_end'] : null;
+
+        try {
+            $stmtUp = $pdo->prepare("
+                UPDATE users SET 
+                    license_number = ?, license_issue_date = ?, license_issue_place = ?, license_expiry = ?,
+                    medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?, medical_visa_date = ?,
+                    next_medical_start = ?, next_medical_end = ?,
+                    card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?
+                WHERE id = ? AND (role = 'driver' OR role = 'owner')
+            ");
+            $stmtUp->execute([
+                $licNum, $licIssue, $licPlace, $licExp,
+                $medStart, $medExp, $medEnd, $medVisa,
+                $nextMedStart, $nextMedEnd,
+                $cardNum, $taxiStart, $taxiEnd,
+                $driverId
+            ]);
+
+            // Sync with signed labor contract if dates exist
+            if (!empty($taxiStart) && !empty($taxiEnd)) {
+                try {
+                    $pdo->prepare("UPDATE contracts SET start_date = ?, end_date = ? WHERE driver_id = ? AND status = 'signed' ORDER BY id DESC LIMIT 1")
+                        ->execute([$taxiStart, $taxiEnd, $driverId]);
+                } catch (\Throwable $e) {}
+            }
+
+            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث وتجديد الوثائق الرسمية والرخص للسائق رقم $driverId");
+            set_flash('success', 'تم تحديث وتجديد وثائق ورخص السائق بنجاح');
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء تحديث الوثائق: ' . $e->getMessage());
+        }
+    }
+    $retFilter = trim($_POST['return_filter'] ?? '');
+    redirect('/dashboard/drivers.php' . (!empty($retFilter) ? '?filter=' . urlencode($retFilter) : ''));
+}
+
 
 // Handle Delete Driver
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_driver') {
@@ -172,21 +284,181 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     redirect('/dashboard/drivers.php');
 }
 
+/**
+ * حساب المرحلة والوضعية المهنية للسائق وفق قاعدة التدرج (3 أشهر لكل مرحلة تجريبية ثم التوقف للتثبيت اليدوي):
+ * - المرحلة 1: 3 أشهر فقط
+ * - المرحلة 2: 3 أشهر
+ * - المرحلة 3: 3 أشهر
+ * - بعد 9 أشهر: يتوقف التدرج التلقائي عند المرحلة الثالثة ويكون جاهزاً للتثبيت، ولا يتم تحويله لسائق رسمي إلا يدوياً.
+ * - إذا تم تعيينه كـ official يدوياً: يبقى سائقاً رسمياً دائماً.
+ */
+if (!function_exists('resolve_driver_probation_info')) {
+    function resolve_driver_probation_info($d): array {
+        $manualStage = $d['probation_stage'] ?? 'trial_1';
+
+        // 1. إذا كان مثبتاً يدوياً كسائق رسمي
+        if ($manualStage === 'official') {
+            return [
+                'stage' => 'official',
+                'label' => 'سائق رسمي',
+                'sub_label' => 'تثبيت دائم (Titulaire)',
+                'cls' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                'badge_bg' => 'bg-emerald-500',
+                'is_official' => true,
+                'is_ready_for_promotion' => false,
+                'elapsed_months' => null
+            ];
+        }
+
+        // 2. حساب الأشهر المنقضية من تاريخ بداية النشاط
+        $startDateStr = $d['activity_start_date'] ?? null;
+        $elapsedMonths = 0;
+        if (!empty($startDateStr)) {
+            try {
+                $startDate = new DateTime($startDateStr);
+                $now = new DateTime();
+                if ($now >= $startDate) {
+                    $diff = $startDate->diff($now);
+                    $elapsedMonths = ($diff->y * 12) + $diff->m;
+                }
+            } catch (\Throwable $e) {
+                $elapsedMonths = 0;
+            }
+        }
+
+        // 3. قاعدة التدرج: 3 أشهر لكل مرحلة، وبعد 9 أشهر يتوقف للتثبيت اليدوي
+        if ($elapsedMonths < 3) {
+            $stage = 'trial_1';
+            $mInStage = $elapsedMonths + 1;
+            $label = 'فترة تجريبية الأولى';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-amber-50 text-amber-900 border-amber-200';
+            $badgeBg = 'bg-amber-500';
+            $isReady = false;
+        } elseif ($elapsedMonths < 6) {
+            $stage = 'trial_2';
+            $mInStage = $elapsedMonths - 2;
+            $label = 'تجريبية الثانية';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-blue-50 text-blue-900 border-blue-200';
+            $badgeBg = 'bg-blue-500';
+            $isReady = false;
+        } elseif ($elapsedMonths < 9) {
+            $stage = 'trial_3';
+            $mInStage = $elapsedMonths - 5;
+            $label = 'تجريبية الثالثة';
+            $subLabel = "شهر {$mInStage} من 3 أشهر";
+            $cls = 'bg-indigo-50 text-indigo-900 border-indigo-200';
+            $badgeBg = 'bg-indigo-500';
+            $isReady = false;
+        } else {
+            // >= 9 أشهر: يتوقف التدرج التلقائي، لا ينتقل لسائق رسمي إلا يدوياً
+            $stage = 'trial_3';
+            $label = 'تجريبية 3 (اكتملت 9 أشهر)';
+            $subLabel = 'جاهز للتثبيت كسائق رسمي ⭐️';
+            $cls = 'bg-purple-50 text-purple-900 border-purple-300 font-extrabold ring-1 ring-purple-300/80';
+            $badgeBg = 'bg-purple-600';
+            $isReady = true;
+        }
+
+        if (empty($startDateStr) && in_array($manualStage, ['trial_1', 'trial_2', 'trial_3'])) {
+            $stage = $manualStage;
+        }
+
+        return [
+            'stage' => $stage,
+            'label' => $label,
+            'sub_label' => $subLabel,
+            'cls' => $cls,
+            'badge_bg' => $badgeBg,
+            'is_official' => false,
+            'is_ready_for_promotion' => $isReady,
+            'elapsed_months' => $elapsedMonths
+        ];
+    }
+}
+
+// Helper: Calculate Accurate Document Status & Alerts for a Driver
+function getDriverDocAlerts($d) {
+    $today = strtotime(date('Y-m-d'));
+    
+    // 1. License Expiry
+    $lic = !empty($d['license_expiry']) && $d['license_expiry'] !== '0000-00-00' ? $d['license_expiry'] : null;
+    $licDays = $lic ? (int)round((strtotime($lic) - $today) / 86400) : null;
+    $licExpired = ($licDays !== null && $licDays < 0);
+    $licExpiringSoon = ($licDays !== null && $licDays >= 0 && $licDays <= 30);
+    $licMissing = empty($lic);
+
+    // 2. Medical Examination
+    $med = !empty($d['medical_cert_expiry']) && $d['medical_cert_expiry'] !== '0000-00-00' 
+        ? $d['medical_cert_expiry'] 
+        : (!empty($d['medical_exam_end']) && $d['medical_exam_end'] !== '0000-00-00' ? $d['medical_exam_end'] : null);
+    $medDays = $med ? (int)round((strtotime($med) - $today) / 86400) : null;
+    $medExpired = ($medDays !== null && $medDays < 0);
+    $medExpiringSoon = ($medDays !== null && $medDays >= 0 && $medDays <= 30);
+    $medMissing = empty($med);
+
+    // 3. Taxi Exploitation Contract (Livret / المقررة)
+    $cont = !empty($d['taxi_contract_end']) && $d['taxi_contract_end'] !== '0000-00-00' ? $d['taxi_contract_end'] : null;
+    $contDays = $cont ? (int)round((strtotime($cont) - $today) / 86400) : null;
+    $contExpired = ($contDays !== null && $contDays < 0);
+    $contExpiringSoon = ($contDays !== null && $contDays >= 0 && $contDays <= 30);
+
+    $isActive = ($d['status'] ?? 'active') === 'active';
+    $hasExpired = $licExpired || $medExpired || $contExpired;
+    $hasExpiringSoon = $licExpiringSoon || $medExpiringSoon || $contExpiringSoon;
+    $hasMissing = ($licMissing || $medMissing) && $isActive;
+    $hasAlert = $hasExpired || $hasExpiringSoon || $hasMissing;
+
+    $minDays = 9999;
+    if ($licDays !== null) $minDays = min($minDays, $licDays);
+    if ($medDays !== null) $minDays = min($minDays, $medDays);
+    if ($contDays !== null) $minDays = min($minDays, $contDays);
+
+    return [
+        'lic_date' => $lic,
+        'lic_days' => $licDays,
+        'lic_expired' => $licExpired,
+        'lic_expiring_soon' => $licExpiringSoon,
+        'lic_missing' => $licMissing,
+
+        'med_date' => $med,
+        'med_days' => $medDays,
+        'med_expired' => $medExpired,
+        'med_expiring_soon' => $medExpiringSoon,
+        'med_missing' => $medMissing,
+
+        'cont_date' => $cont,
+        'cont_days' => $contDays,
+        'cont_expired' => $contExpired,
+        'cont_expiring_soon' => $contExpiringSoon,
+
+        'has_expired' => $hasExpired,
+        'has_expiring_soon' => $hasExpiringSoon,
+        'has_missing' => $hasMissing,
+        'has_alert' => $hasAlert,
+        'min_days' => $minDays,
+    ];
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
-$filter = $_GET['filter'] ?? 'all'; // all, actifs, permanence, anciens, trial_1, trial_2, trial_3, official
+$filter = $_GET['filter'] ?? 'all'; // all, actifs, anciens, alerts, expired, soon, missing, trial_1, trial_2, trial_3, official
+$alertSubFilter = $_GET['alert_tab'] ?? 'all'; // all, expired, soon, missing
 
-$imminentDrivers = [];
-$permanenceDriverIds = [];
+$alertDrivers = [];
 $allDrivers = [];
 $drivers = [];
 $countActifs = 0;
 $countAnciens = 0;
-$countPermanence = 0;
 $countTrial1 = 0;
 $countTrial2 = 0;
 $countTrial3 = 0;
 $countOfficial = 0;
+$countAlerts = 0;
+$countExpired = 0;
+$countExpiringSoon = 0;
+$countMissingDocs = 0;
 $activeVehicles = [];
 
 if ($pdo) {
@@ -199,50 +471,16 @@ if ($pdo) {
         }
     } catch (\Throwable $e) {}
 
-    // 1. Fetch Expiration Imminente Drivers (< 30 days or expired)
-    try {
-        $stmtExpiring = $pdo->query("
-            SELECT u.*, v.plate_number, v.door_number,
-                   DATEDIFF(u.license_expiry, CURDATE()) as license_days,
-                   DATEDIFF(u.medical_cert_expiry, CURDATE()) as med_days
-            FROM users u
-            LEFT JOIN vehicles v ON $joinVehOn
-            WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
-              AND (
-                  (u.license_expiry IS NOT NULL AND u.license_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
-                  OR
-                  (u.medical_cert_expiry IS NOT NULL AND u.medical_cert_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
-              )
-            ORDER BY LEAST(
-                COALESCE(u.license_expiry, '2099-12-31'),
-                COALESCE(u.medical_cert_expiry, '2099-12-31')
-            ) ASC
-        ");
-        $imminentDrivers = $stmtExpiring ? $stmtExpiring->fetchAll() : [];
-    } catch (\Throwable $e) {
-        error_log("drivers.php - Expiring query notice: " . $e->getMessage());
-        $imminentDrivers = [];
-    }
-
-    // 2. Fetch Permanence Drivers IDs from driver_schedules
-    try {
-        $stmtPerm = $pdo->query("
-            SELECT DISTINCT driver_id 
-            FROM driver_schedules 
-            WHERE is_permanence = 1 AND shift_date >= CURDATE()
-        ");
-        if ($stmtPerm) {
-            $permanenceDriverIds = $stmtPerm->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        }
-    } catch (\Throwable $e) {
-        error_log("drivers.php - Permanence query notice: " . $e->getMessage());
-        $permanenceDriverIds = [];
-    }
-
-    // 3. Fetch Main Drivers List
+    // 1. Fetch Main Drivers List with assigned vehicle info
     try {
         $sql = "
-            SELECT u.*, v.plate_number, v.brand, v.model, v.door_number
+            SELECT u.*, 
+                   MAX(v.plate_number) as plate_number, 
+                   MAX(v.brand) as brand, 
+                   MAX(v.model) as model, 
+                   MAX(v.door_number) as door_number,
+                   MAX(v.technical_control_expiry) as veh_tc_expiry, 
+                   MAX(v.insurance_expiry) as veh_ins_expiry
             FROM users u
             LEFT JOIN vehicles v ON $joinVehOn
             WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
@@ -256,7 +494,7 @@ if ($pdo) {
             $params[] = "%$search%";
         }
 
-        $sql .= " ORDER BY u.id DESC";
+        $sql .= " GROUP BY u.id ORDER BY u.id DESC";
         $stmtD = $pdo->prepare($sql);
         $stmtD->execute($params);
         $allDrivers = $stmtD->fetchAll() ?: [];
@@ -265,18 +503,55 @@ if ($pdo) {
         $allDrivers = [];
     }
 
-    // Filter and assign permanence flags
-    foreach ($allDrivers as $d) {
-        $isPerm = in_array($d['id'], $permanenceDriverIds);
-        $d['is_permanence'] = $isPerm;
+    // 2. Process Alerts, Flags & Probation Stage for every driver
+    foreach ($allDrivers as &$d) {
+        $docInfo = getDriverDocAlerts($d);
+        $d = array_merge($d, $docInfo);
 
+        $probInfo = resolve_driver_probation_info($d);
+        $d['probation_info'] = $probInfo;
+        $d['probation_stage'] = $probInfo['stage'];
+
+        // Active drivers with alerts
+        if ($d['has_alert'] && ($d['status'] ?? 'active') === 'active') {
+            $alertDrivers[] = $d;
+        }
+    }
+    unset($d);
+
+    // Sort alert drivers: Expired first (most overdue first), then expiring soonest, then missing
+    usort($alertDrivers, function($a, $b) {
+        if ($a['has_expired'] && !$b['has_expired']) return -1;
+        if (!$a['has_expired'] && $b['has_expired']) return 1;
+        if ($a['has_expiring_soon'] && !$b['has_expiring_soon']) return -1;
+        if (!$a['has_expiring_soon'] && $b['has_expiring_soon']) return 1;
+        return $a['min_days'] <=> $b['min_days'];
+    });
+
+    $countExpired = count(array_filter($alertDrivers, fn($x) => !empty($x['has_expired'])));
+    $countExpiringSoon = count(array_filter($alertDrivers, fn($x) => empty($x['has_expired']) && !empty($x['has_expiring_soon'])));
+    $countMissingDocs = count(array_filter($alertDrivers, fn($x) => empty($x['has_expired']) && empty($x['has_expiring_soon']) && !empty($x['has_missing'])));
+    $countAlerts = count($alertDrivers);
+    $imminentDrivers = $alertDrivers; // for backwards compatibility
+
+    // 3. Filter drivers list for the table
+    foreach ($allDrivers as $d) {
         if ($filter === 'actifs' && ($d['status'] ?? '') !== 'active') {
             continue;
         }
         if ($filter === 'anciens' && ($d['status'] ?? '') === 'active') {
             continue;
         }
-        if ($filter === 'permanence' && !$isPerm) {
+        if ($filter === 'alerts' && empty($d['has_alert'])) {
+            continue;
+        }
+        if ($filter === 'expired' && empty($d['has_expired'])) {
+            continue;
+        }
+        if ($filter === 'soon' && empty($d['has_expiring_soon'])) {
+            continue;
+        }
+        if ($filter === 'missing' && empty($d['has_missing'])) {
             continue;
         }
         if (in_array($filter, ['trial_1', 'trial_2', 'trial_3', 'official'])) {
@@ -294,18 +569,13 @@ if ($pdo) {
         $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status != 'active'")->fetchColumn();
     } catch (\Throwable $e) {}
 
-    $countPermanence = count($permanenceDriverIds);
+    // Dynamic Counts for Probation Stages (3 months per stage, stops after 9 months)
+    $countTrial1 = count(array_filter($allDrivers, fn($x) => ($x['probation_stage'] ?? '') === 'trial_1'));
+    $countTrial2 = count(array_filter($allDrivers, fn($x) => ($x['probation_stage'] ?? '') === 'trial_2'));
+    $countTrial3 = count(array_filter($allDrivers, fn($x) => ($x['probation_stage'] ?? '') === 'trial_3'));
+    $countOfficial = count(array_filter($allDrivers, fn($x) => ($x['probation_stage'] ?? '') === 'official'));
 
-    try {
-        $countTrial1 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND (probation_stage = 'trial_1' OR probation_stage IS NULL)")->fetchColumn();
-        $countTrial2 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'trial_2'")->fetchColumn();
-        $countTrial3 = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'trial_3'")->fetchColumn();
-        $countOfficial = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND probation_stage = 'official'")->fetchColumn();
-    } catch (\Throwable $e) {
-        $countTrial1 = $countActifs;
-    }
-
-    // 5. Fetch Active Vehicles for assignment modal
+    // 6. Fetch Active Vehicles for assignment modal
     try {
         $stmtV = $pdo->query("
             SELECT v.id, v.plate_number, v.brand, v.model, v.door_number, v.current_driver_id,
@@ -320,6 +590,9 @@ if ($pdo) {
         $activeVehicles = [];
     }
 }
+
+$pageTitle = 'Liste Chauffeurs | سجل وإدارة السائقين';
+require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="space-y-6">
@@ -330,10 +603,10 @@ if ($pdo) {
             <div class="flex items-center gap-2.5">
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">Liste Chauffeurs</h1>
                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-800 border border-amber-500/20">
-                    سجل السائقين والمداومة
+                    سجل السائقين
                 </span>
             </div>
-            <p class="text-xs text-slate-500 mt-1">إدارة الكفاءة المهنية، رخص السياقة، الفحوصات الطبية الدورية، وتعيين سائقي المداومة الرسمية</p>
+            <p class="text-xs text-slate-500 mt-1">إدارة الكفاءة المهنية، رخص السياقة، الفحوصات الطبية الدورية، ومتابعة وثائق وملفات السائقين</p>
         </div>
         
         <div class="flex items-center gap-2">
@@ -368,29 +641,36 @@ if ($pdo) {
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <a href="drivers.php?filter=official" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-emerald-400 hover:shadow-2xs transition group" title="السائقون المثبتون رسمياً">
             <div>
-                <p class="text-[11px] font-semibold text-slate-500">سائقو المداومة (Permanence)</p>
-                <p class="text-xl font-bold text-amber-600 font-num mt-0.5"><?= $countPermanence ?></p>
+                <p class="text-[11px] font-semibold text-slate-500 group-hover:text-emerald-700 transition">سائقون رسميون (مُثبتون)</p>
+                <p class="text-xl font-bold text-emerald-600 font-num mt-0.5"><?= $countOfficial ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white transition flex items-center justify-center text-emerald-600">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
                 </svg>
             </div>
-        </div>
+        </a>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <a href="drivers.php?filter=alerts" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-rose-400 hover:shadow-2xs transition group cursor-pointer" title="انقر لتصفية وإدارة جميع تنبيهات وثائق السائقين">
             <div>
-                <p class="text-[11px] font-semibold text-slate-500">تنبيهات الانتهاء الوشيكة</p>
-                <p class="text-xl font-bold <?= count($imminentDrivers) > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num mt-0.5"><?= count($imminentDrivers) ?></p>
+                <p class="text-[11px] font-semibold text-slate-500 group-hover:text-rose-700 transition">تنبيهات الوثائق والرخص</p>
+                <div class="flex items-baseline gap-2 mt-0.5">
+                    <p class="text-xl font-bold <?= $countAlerts > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num"><?= $countAlerts ?></p>
+                    <?php if ($countAlerts > 0): ?>
+                        <span class="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 font-num">
+                            <?= $countExpired ?> منتهية • <?= $countExpiringSoon ?> وشيكة
+                        </span>
+                    <?php endif; ?>
+                </div>
             </div>
-            <div class="w-10 h-10 rounded-xl <?= count($imminentDrivers) > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center">
+            <div class="w-10 h-10 rounded-xl <?= $countAlerts > 0 ? 'bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center transition">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
             </div>
-        </div>
+        </a>
 
         <a href="debts.php?filter=all" class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between hover:border-amber-400 hover:shadow-2xs transition group" title="الانتقال إلى سجل الديون والذمم المالية">
             <div>
@@ -405,54 +685,138 @@ if ($pdo) {
         </a>
     </div>
 
-    <!-- SECTION 1: Expiration Imminente (Clean Alert Area) -->
-    <?php if (!empty($imminentDrivers)): ?>
-        <div class="bg-white rounded-2xl border border-rose-200/80 shadow-xs p-5 space-y-4">
-            <div class="flex items-center justify-between border-b border-rose-100 pb-3">
+    <!-- SECTION 1: Alert Management Area (مركز إدارة التنبيهات وتجديد الوثائق) -->
+    <?php if (!empty($alertDrivers)): ?>
+        <div class="bg-white rounded-2xl border border-rose-200 shadow-xs p-5 space-y-4" id="alertsManagementSection">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-rose-100 pb-3">
                 <div class="flex items-center gap-2.5">
-                    <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                    <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                         </svg>
                     </div>
                     <div>
-                        <h3 class="font-bold text-slate-900 text-sm">تنبيهات انتهاء الصلاحية الوشيكة (Expiration Imminente)</h3>
-                        <p class="text-xs text-slate-500">رخص السياقة والفحوصات الطبية الدورية التي تنتهي صلاحيتها خلال أقل من 30 يوماً</p>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-bold text-slate-900 text-sm">مركز إدارة تنبيهات الوثائق والرخص (Contrôle & Alertes)</h3>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 font-num">
+                                <?= $countAlerts ?> تنبيهات
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-0.5">انقر على زر "إدارة وتجديد الوثائق" لأي سائق لتحديث رخصة السياقة، الفحص الطبي، وعقد الاستغلال فورياً</p>
                     </div>
                 </div>
-                <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 font-num">
-                    <?= count($imminentDrivers) ?> تنبيهات
-                </span>
+
+                <!-- Alert Filter Tabs -->
+                <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold shrink-0">
+                    <button type="button" onclick="filterAlertCards('all')" id="btnAlertTab-all" class="alert-tab-btn px-2.5 py-1 rounded-lg bg-white text-slate-900 shadow-2xs transition">
+                        الكل (<?= $countAlerts ?>)
+                    </button>
+                    <?php if ($countExpired > 0): ?>
+                    <button type="button" onclick="filterAlertCards('expired')" id="btnAlertTab-expired" class="alert-tab-btn px-2.5 py-1 rounded-lg text-rose-700 hover:bg-white/60 transition">
+                        منتهية (<?= $countExpired ?>)
+                    </button>
+                    <?php endif; ?>
+                    <?php if ($countExpiringSoon > 0): ?>
+                    <button type="button" onclick="filterAlertCards('soon')" id="btnAlertTab-soon" class="alert-tab-btn px-2.5 py-1 rounded-lg text-amber-700 hover:bg-white/60 transition">
+                        وشيكة (<?= $countExpiringSoon ?>)
+                    </button>
+                    <?php endif; ?>
+                    <?php if ($countMissingDocs > 0): ?>
+                    <button type="button" onclick="filterAlertCards('missing')" id="btnAlertTab-missing" class="alert-tab-btn px-2.5 py-1 rounded-lg text-slate-600 hover:bg-white/60 transition">
+                        ناقصة (<?= $countMissingDocs ?>)
+                    </button>
+                    <?php endif; ?>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                <?php foreach ($imminentDrivers as $expD): ?>
-                    <div class="p-3.5 rounded-xl bg-rose-50/30 border border-rose-200/70 space-y-2.5">
-                        <div class="flex items-center justify-between">
-                            <span class="font-bold text-slate-900 text-xs"><?= htmlspecialchars($expD['full_name']) ?></span>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">مستعجل</span>
-                        </div>
-                        <div class="space-y-1.5 text-xs text-slate-700">
-                            <div class="flex justify-between">
-                                <span class="text-slate-500">الهاتف:</span>
-                                <span class="font-num font-semibold" dir="ltr"><?= htmlspecialchars($expD['phone']) ?></span>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5" id="alertCardsContainer">
+                <?php foreach ($alertDrivers as $expD): 
+                    $cardType = $expD['has_expired'] ? 'expired' : ($expD['has_expiring_soon'] ? 'soon' : 'missing');
+                    $borderCls = $expD['has_expired'] ? 'border-rose-200 bg-rose-50/30' : ($expD['has_expiring_soon'] ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-slate-50/50');
+                ?>
+                    <div class="alert-card p-4 rounded-2xl border <?= $borderCls ?> space-y-3 transition-all hover:shadow-sm" data-alert-type="<?= $cardType ?>">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <div class="w-9 h-9 rounded-xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
+                                    <?php if (!empty($expD['avatar_url'])): ?>
+                                        <img src="<?= url($expD['avatar_url']) ?>" alt="<?= htmlspecialchars($expD['full_name']) ?>" class="w-full h-full object-cover">
+                                    <?php else: ?>
+                                        <span class="text-xs font-bold text-slate-600"><?= mb_substr($expD['full_name'], 0, 1) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="min-w-0">
+                                    <a href="driver_fiche.php?id=<?= $expD['id'] ?>" class="font-bold text-slate-900 text-xs hover:text-amber-600 transition truncate block">
+                                        <?= htmlspecialchars($expD['full_name']) ?>
+                                    </a>
+                                    <div class="text-[11px] text-slate-500 font-num" dir="ltr"><?= htmlspecialchars($expD['phone']) ?></div>
+                                </div>
                             </div>
-                            <?php if ($expD['license_days'] !== null && $expD['license_days'] <= 30): ?>
-                                <div class="flex justify-between items-center text-rose-700 font-medium bg-white px-2 py-1 rounded border border-rose-100">
-                                    <span>رخصة السياقة:</span>
-                                    <span class="font-num text-[11px] font-bold">
-                                        <?= $expD['license_days'] < 0 ? 'منتهية منذ ' . abs($expD['license_days']) . ' يوم' : 'باقي ' . $expD['license_days'] . ' يوم' ?>
-                                    </span>
-                                </div>
+                            <?php if ($expD['has_expired']): ?>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">منتهية</span>
+                            <?php elseif ($expD['has_expiring_soon']): ?>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">وشيكة</span>
+                            <?php else: ?>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 text-slate-800 border border-slate-300 shrink-0">ناقصة</span>
                             <?php endif; ?>
-                            <?php if ($expD['med_days'] !== null && $expD['med_days'] <= 30): ?>
-                                <div class="flex justify-between items-center text-amber-700 font-medium bg-white px-2 py-1 rounded border border-amber-100">
-                                    <span>الفحص الطبي:</span>
-                                    <span class="font-num text-[11px] font-bold">
-                                        <?= $expD['med_days'] < 0 ? 'منتهي الصلاحية' : 'باقي ' . $expD['med_days'] . ' يوم' ?>
-                                    </span>
-                                </div>
+                        </div>
+
+                        <!-- Documents status list -->
+                        <div class="space-y-1.5 text-xs">
+                            <!-- License -->
+                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
+                                <span class="text-slate-600 text-[11px] font-semibold">رخصة السياقة:</span>
+                                <?php if ($expD['lic_expired']): ?>
+                                    <span class="font-num text-[11px] font-bold text-rose-700">منتهية منذ <?= abs($expD['lic_days']) ?> يوماً</span>
+                                <?php elseif ($expD['lic_expiring_soon']): ?>
+                                    <span class="font-num text-[11px] font-bold text-amber-700">تنتهي خلال <?= $expD['lic_days'] ?> يوماً</span>
+                                <?php elseif ($expD['lic_missing']): ?>
+                                    <span class="text-[11px] font-bold text-rose-500">غير مسجلة</span>
+                                <?php else: ?>
+                                    <span class="font-num text-[11px] font-semibold text-emerald-700">سارية (<?= htmlspecialchars($expD['lic_date']) ?>)</span>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Medical -->
+                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
+                                <span class="text-slate-600 text-[11px] font-semibold">الفحص الطبي الدوري:</span>
+                                <?php if ($expD['med_expired']): ?>
+                                    <span class="font-num text-[11px] font-bold text-rose-700">منتهي منذ <?= abs($expD['med_days']) ?> يوماً</span>
+                                <?php elseif ($expD['med_expiring_soon']): ?>
+                                    <span class="font-num text-[11px] font-bold text-amber-700">ينتهي خلال <?= $expD['med_days'] ?> يوماً</span>
+                                <?php elseif ($expD['med_missing']): ?>
+                                    <span class="text-[11px] font-bold text-rose-500">غير مسجل (مطلوب)</span>
+                                <?php else: ?>
+                                    <span class="font-num text-[11px] font-semibold text-emerald-700">ساري (<?= htmlspecialchars($expD['med_date']) ?>)</span>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Taxi Contract if applicable -->
+                            <?php if (!empty($expD['cont_date']) && ($expD['cont_expired'] || $expD['cont_expiring_soon'])): ?>
+                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
+                                <span class="text-slate-600 text-[11px] font-semibold">عقد استغلال الأجرة:</span>
+                                <span class="font-num text-[11px] font-bold <?= $expD['cont_expired'] ? 'text-rose-700' : 'text-amber-700' ?>">
+                                    <?= $expD['cont_expired'] ? 'منتهي منذ ' . abs($expD['cont_days']) . ' يوم' : 'ينتهي خلال ' . $expD['cont_days'] . ' يوم' ?>
+                                </span>
+                            </div>
                             <?php endif; ?>
+                        </div>
+
+                        <!-- Action Button (Manage & Renew) -->
+                        <div class="pt-1 flex items-center gap-2">
+                            <button type="button" 
+                                    onclick='openManageDocsModal(<?= htmlspecialchars(json_encode($expD, JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8") ?>)'
+                                    class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs cursor-pointer">
+                                <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
+                                </svg>
+                                <span>إدارة وتجديد الوثائق</span>
+                            </button>
+                            <a href="driver_fiche.php?id=<?= $expD['id'] ?>" target="_blank"
+                               class="p-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition shadow-2xs" title="معاينة البطاقة الفنية">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                </svg>
+                            </a>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -486,16 +850,17 @@ if ($pdo) {
                 الكل
             </a>
 
+            <!-- Alerts Filter Tab -->
+            <a href="drivers.php?filter=alerts<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= in_array($filter, ['alerts', 'expired', 'soon', 'missing']) ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100' ?>" title="عرض السائقين الذين لديهم تنبيهات وثائق">
+                <span>تنبيهات الوثائق</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] <?= in_array($filter, ['alerts', 'expired', 'soon', 'missing']) ? 'bg-white text-rose-800' : 'bg-rose-200/90 text-rose-950' ?> font-num font-black"><?= $countAlerts ?></span>
+            </a>
+
             <a href="drivers.php?filter=actifs<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
                 <span>نشطون</span>
                 <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/90 font-num font-bold text-slate-900"><?= $countActifs ?></span>
-            </a>
-
-            <a href="drivers.php?filter=permanence<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'permanence' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
-                <span>المداومة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/90 font-num font-bold text-slate-900"><?= $countPermanence ?></span>
             </a>
 
             <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
@@ -542,14 +907,20 @@ if ($pdo) {
                         <th class="p-3.5 whitespace-nowrap">صلاحية الرخصة</th>
                         <th class="p-3.5 whitespace-nowrap">الفحص الطبي الدوري</th>
                         <th class="p-3.5 whitespace-nowrap">المركبة الحالية</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">المداومة</th>
                         <th class="p-3.5 whitespace-nowrap text-center">الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
                     <?php if (!empty($drivers)): ?>
-                        <?php foreach ($drivers as $d): ?>
-                            <tr class="hover:bg-slate-50/60 transition <?= $d['is_permanence'] ? 'bg-amber-50/15' : '' ?>">
+                        <?php foreach ($drivers as $d): 
+                            $rowAlertCls = '';
+                            if (!empty($d['has_expired'])) {
+                                $rowAlertCls = 'bg-rose-50/25';
+                            } elseif (!empty($d['has_expiring_soon'])) {
+                                $rowAlertCls = 'bg-amber-50/20';
+                            }
+                        ?>
+                            <tr class="hover:bg-slate-50/80 transition <?= $rowAlertCls ?>">
                                 
                                 <td class="p-3.5 whitespace-nowrap">
                                     <div class="flex items-center gap-3">
@@ -563,48 +934,71 @@ if ($pdo) {
                                             <?php endif; ?>
                                         </div>
                                         <div>
-                                            <div class="flex items-center gap-1.5">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
                                                 <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 text-[13px] hover:text-amber-600 transition">
                                                     <?= htmlspecialchars($d['full_name']) ?>
                                                 </a>
+
+                                                <?php if (!empty($d['has_expired'])): ?>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">وثائق منتهية</span>
+                                                <?php elseif (!empty($d['has_expiring_soon'])): ?>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">انتهاء وشيك</span>
+                                                <?php elseif (!empty($d['has_missing'])): ?>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-slate-200 text-slate-800 border border-slate-300">وثائق ناقصة</span>
+                                                <?php endif; ?>
+
                                                 <?php 
-                                                $stage = $d['probation_stage'] ?? 'trial_1';
-                                                $stageBadges = [
-                                                    'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-50 text-amber-800 border-amber-200'],
-                                                    'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-50 text-blue-800 border-blue-200'],
-                                                    'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-50 text-indigo-800 border-indigo-200'],
-                                                    'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-50 text-emerald-800 border-emerald-200'],
-                                                ];
-                                                $curB = $stageBadges[$stage] ?? $stageBadges['trial_1'];
+                                                $pInfo = $d['probation_info'] ?? resolve_driver_probation_info($d);
+                                                $stage = $pInfo['stage'] ?? ($d['probation_stage'] ?? 'trial_1');
                                                 ?>
-                                                <div class="inline-block relative group">
-                                                    <button type="button" class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 <?= $curB['cls'] ?> hover:shadow-2xs transition" title="انقر لتعديل مرحلة السائق">
-                                                        <span><?= $curB['label'] ?></span>
-                                                        <svg class="w-2.5 h-2.5 opacity-60 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
-                                                    </button>
-                                                    <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-48 bg-white dark:bg-[#161d27] rounded-xl shadow-xl border border-slate-200 dark:border-slate-700/80 p-1.5 text-right">
-                                                        <form method="POST" action="">
+                                                <div class="inline-flex items-center gap-1.5 flex-wrap">
+                                                    <div class="inline-block relative group">
+                                                        <button type="button" class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 <?= $pInfo['cls'] ?> hover:shadow-2xs transition cursor-pointer" title="انقر لتعديل مرحلة السائق يدوياً">
+                                                            <span><?= $pInfo['label'] ?></span>
+                                                            <?php if (!empty($pInfo['sub_label']) && empty($pInfo['is_ready_for_promotion'])): ?>
+                                                                <span class="opacity-75 text-[9px] font-normal font-num">(<?= $pInfo['sub_label'] ?>)</span>
+                                                            <?php endif; ?>
+                                                            <svg class="w-2.5 h-2.5 opacity-60 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                                                        </button>
+                                                        <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-52 bg-white dark:bg-[#161d27] rounded-xl shadow-xl border border-slate-200 dark:border-slate-700/80 p-1.5 text-right">
+                                                            <form method="POST" action="">
+                                                                <?= csrf_field() ?>
+                                                                <input type="hidden" name="action" value="update_driver_stage">
+                                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                                <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 dark:hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 transition flex items-center justify-between">
+                                                                    <span>فترة تجريبية 1 (3 أشهر الأولى)</span>
+                                                                    <?= $stage === 'trial_1' ? '<span class="text-amber-500 font-bold">✓</span>' : '' ?>
+                                                                </button>
+                                                                <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 dark:hover:bg-blue-500/20 text-blue-900 dark:text-blue-300 transition flex items-center justify-between">
+                                                                    <span>تجريبية 2 (3 أشهر الثانية)</span>
+                                                                    <?= $stage === 'trial_2' ? '<span class="text-blue-500 font-bold">✓</span>' : '' ?>
+                                                                </button>
+                                                                <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 transition flex items-center justify-between">
+                                                                    <span>تجريبية 3 (3 أشهر الأخيرة)</span>
+                                                                    <?= $stage === 'trial_3' ? '<span class="text-indigo-500 font-bold">✓</span>' : '' ?>
+                                                                </button>
+                                                                <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 transition flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 mt-1 pt-1">
+                                                                    <span class="flex items-center gap-1 font-black text-emerald-700 dark:text-emerald-300">
+                                                                        <svg class="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                                                                        سائق رسمي (تثبيت دائم يدوي)
+                                                                    </span>
+                                                                    <?= $stage === 'official' ? '<span class="text-emerald-500 font-bold">✓</span>' : '' ?>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+
+                                                    <?php if (!empty($pInfo['is_ready_for_promotion'])): ?>
+                                                        <form method="POST" action="" class="inline m-0">
                                                             <?= csrf_field() ?>
                                                             <input type="hidden" name="action" value="update_driver_stage">
                                                             <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
-                                                            <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 dark:hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 transition flex items-center justify-between">
-                                                                <span>فترة تجريبية الأولى</span>
-                                                                <?= $stage === 'trial_1' ? '<span class="text-amber-500 font-bold">✓</span>' : '' ?>
-                                                            </button>
-                                                            <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 dark:hover:bg-blue-500/20 text-blue-900 dark:text-blue-300 transition flex items-center justify-between">
-                                                                <span>تجريبية الثانية</span>
-                                                                <?= $stage === 'trial_2' ? '<span class="text-blue-500 font-bold">✓</span>' : '' ?>
-                                                            </button>
-                                                            <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 transition flex items-center justify-between">
-                                                                <span>تجريبية الثالثة</span>
-                                                                <?= $stage === 'trial_3' ? '<span class="text-indigo-500 font-bold">✓</span>' : '' ?>
-                                                            </button>
-                                                            <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 transition flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 mt-1 pt-1">
-                                                                <span>سائق رسمي</span>
-                                                                <?= $stage === 'official' ? '<span class="text-emerald-500 font-bold">✓</span>' : '' ?>
+                                                            <input type="hidden" name="probation_stage" value="official">
+                                                            <button type="submit" class="px-2 py-0.5 rounded text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-xs flex items-center gap-1 transition cursor-pointer" title="اكتملت 9 أشهر (3 مراحل تجريبية) - انقر هنا للتثبيت كسائق رسمي فوراً">
+                                                                <span>⭐ تثبيت رسمي</span>
                                                             </button>
                                                         </form>
-                                                    </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                             <div class="text-[11px] text-slate-400 mt-0.5" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
@@ -620,18 +1014,49 @@ if ($pdo) {
                                     <?= htmlspecialchars($d['license_number'] ?? '—') ?>
                                 </td>
 
+                                <!-- LICENSE EXPIRY -->
                                 <td class="p-3.5 whitespace-nowrap font-num">
-                                    <?php if (!empty($d['license_expiry'])): ?>
-                                        <span class="font-semibold text-slate-800" dir="ltr"><?= htmlspecialchars($d['license_expiry']) ?></span>
+                                    <?php if (!empty($d['lic_expired'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300" title="منتهية منذ <?= abs($d['lic_days']) ?> يوماً">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                                            <span dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
+                                            <span class="text-[10px]">(منتهية)</span>
+                                        </span>
+                                    <?php elseif (!empty($d['lic_expiring_soon'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300" title="تنتهي خلال <?= $d['lic_days'] ?> يوماً">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                            <span dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
+                                            <span class="text-[10px]">(باقي <?= $d['lic_days'] ?>ج)</span>
+                                        </span>
+                                    <?php elseif (!empty($d['lic_date'])): ?>
+                                        <span class="font-semibold text-slate-800" dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
                                     <?php else: ?>
-                                        <span class="text-slate-400">—</span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">غير مسجلة</span>
                                     <?php endif; ?>
                                 </td>
 
+                                <!-- MEDICAL EXAM -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num" dir="ltr">
-                                        <?= htmlspecialchars($d['medical_cert_expiry'] ?? $d['medical_exam_end'] ?? 'صالح ومفحوص') ?>
-                                    </span>
+                                    <?php if (!empty($d['med_expired'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 font-num" title="الفحص الطبي منتهي الصلاحية منذ <?= abs($d['med_days']) ?> يوماً">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                                            <span dir="ltr"><?= htmlspecialchars($d['med_date']) ?></span>
+                                            <span class="text-[10px] font-bold">(منتهي)</span>
+                                        </span>
+                                    <?php elseif (!empty($d['med_expiring_soon'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 font-num" title="ينتهي الفحص الطبي خلال <?= $d['med_days'] ?> يوماً">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                            <span dir="ltr"><?= htmlspecialchars($d['med_date']) ?></span>
+                                            <span class="text-[10px] font-bold">(باقي <?= $d['med_days'] ?>ج)</span>
+                                        </span>
+                                    <?php elseif (!empty($d['med_date'])): ?>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num" dir="ltr">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                            <span><?= htmlspecialchars($d['med_date']) ?></span>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">غير مسجل</span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap">
@@ -643,51 +1068,101 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- CHAUFFEURS PERMANENCE BADGE -->
+                                <!-- ACTIONS (3-Dots Dropdown Menu) -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <?php if ($d['is_permanence']): ?>
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] shadow-xs">
-                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                                            <span>PERMANENCE</span>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="text-slate-400 text-[11px]">خدمة عادية</span>
-                                    <?php endif; ?>
-                                </td>
+                                    <div class="relative inline-block text-right">
+                                        <button type="button"
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                title="خيارات وإجراءات السائق">
+                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                            </svg>
+                                        </button>
 
-                                <!-- ACTIONS -->
-                                <td class="p-3.5 whitespace-nowrap text-center">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <a href="driver_fiche.php?id=<?= $d['id'] ?>" 
-                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition shadow-2xs" title="معاينة البطاقة الفنية">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                                            </svg>
-                                            <span>البطاقة</span>
-                                        </a>
-                                        <a href="users.php?search=<?= urlencode($d['full_name']) ?>" 
-                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition border border-slate-200 shadow-2xs" title="تعديل الحساب">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
-                                            </svg>
-                                            <span class="hidden sm:inline">تعديل</span>
-                                        </a>
-                                        <?php if (is_admin()): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا السائق وفك ارتباط مركبته نهائياً؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action" value="delete_driver">
-                                            <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
-                                            <button type="submit" 
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] transition border border-rose-200/60 shadow-2xs" title="حذف السائق">
-                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                        <div class="table-dropdown-menu hidden w-52 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <?php if (!empty($pInfo['is_ready_for_promotion'])): ?>
+                                            <!-- Quick Official Promotion Button (completed 9 months) -->
+                                            <form method="POST" action="" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="update_driver_stage">
+                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                <input type="hidden" name="probation_stage" value="official">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 font-black transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                                    </svg>
+                                                    <span>تثبيت رسمي ⭐ (اكتملت 9 أشهر)</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                            <!-- Quick Manage Docs Button -->
+                                            <button type="button"
+                                                    onclick='openManageDocsModal(<?= htmlspecialchars(json_encode($d, JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8") ?>)'
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 font-bold transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                                                 </svg>
-                                                <span class="hidden sm:inline">حذف</span>
+                                                <span>إدارة وتجديد الوثائق</span>
                                             </button>
-                                        </form>
-                                        <?php endif; ?>
+
+                                            <!-- Fiche Technique Link -->
+                                            <a href="driver_fiche.php?id=<?= $d['id'] ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition">
+                                                <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                                <span>معاينة البطاقة الفنية</span>
+                                            </a>
+
+                                            <!-- Contract 90-11 for Driver -->
+                                            <a href="contracts.php?action=new&driver_id=<?= $d['id'] ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-teal-50 dark:hover:bg-teal-900/30 hover:text-teal-700 dark:hover:text-teal-300 font-bold transition">
+                                                <svg class="w-4 h-4 text-teal-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                </svg>
+                                                <span>إصدار عقد عمل (90-11)</span>
+                                            </a>
+
+                                            <!-- Solde / Debt Statement -->
+                                            <a href="debt_statement.php?user_id=<?= $d['id'] ?>" target="_blank"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold transition">
+                                                <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span>كشف الحساب (Solde)</span>
+                                            </a>
+
+                                            <!-- Edit User Profile -->
+                                            <a href="users.php?search=<?= urlencode($d['full_name']) ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">
+                                                <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                </svg>
+                                                <span>تعديل بيانات الحساب</span>
+                                            </a>
+
+                                            <?php if (is_admin()): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا السائق وفك ارتباط مركبته نهائياً؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_driver">
+                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                                    </svg>
+                                                    <span>حذف السائق</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
+
 
                             </tr>
                         <?php endforeach; ?>
@@ -765,7 +1240,7 @@ if ($pdo) {
         </div>
 
         <!-- Form Body (Scrollable container) -->
-        <form id="addDriverForm" method="POST" action="" enctype="multipart/form-data" class="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6 text-xs">
+        <form id="addDriverForm" method="POST" action="" enctype="multipart/form-data" novalidate class="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6 text-xs">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="create_driver">
 
@@ -822,13 +1297,13 @@ if ($pdo) {
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">اللقب (Nom de famille) <span class="text-rose-500">*</span></label>
-                                <input type="text" name="last_name" id="inputLastName" required placeholder="مثال: حمو صالح"
+                                <input type="text" name="last_name" id="inputLastName" placeholder="مثال: حمو صالح" value="حمو صالح"
                                        oninput="updateDriverPreviewName()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">الاسم (Prénom) <span class="text-rose-500">*</span></label>
-                                <input type="text" name="first_name" id="inputFirstName" required placeholder="مثال: يوسف"
+                                <input type="text" name="first_name" id="inputFirstName" placeholder="مثال: يوسف" value="يوسف"
                                        oninput="updateDriverPreviewName()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
@@ -862,26 +1337,23 @@ if ($pdo) {
                             </div>
                         </div>
 
-                        <!-- Contact & Location -->
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                        <!-- Contact & Address -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">رقم الهاتف <span class="text-rose-500">*</span></label>
                                 <div class="relative">
-                                    <input type="tel" name="phone" id="inputPhone" required placeholder="0661234567" dir="ltr" value="0661234567"
+                                    <input type="tel" name="phone" id="inputPhone" placeholder="0661234567" dir="ltr" value="0661234567"
                                            oninput="updateDriverPreviewPhone()"
                                            class="w-full pl-12 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-slate-50/60 focus:bg-white text-right transition shadow-2xs">
                                     <span class="absolute left-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[10px] font-num font-bold bg-slate-200 text-slate-700">🇩🇿 +213</span>
                                 </div>
                             </div>
                             <div>
-                                <label class="block font-bold text-slate-700 mb-1.5">ولاية الإقامة</label>
-                                <input type="text" name="wilaya" value="01 - أدرار"
+                                <label class="block font-bold text-slate-700 mb-1.5">العنوان</label>
+                                <input type="text" name="address" id="inputAddress" placeholder="حي الحطابة أدرار" value="حي الحطابة أدرار"
+                                       oninput="updateDriverPreviewAddress()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
-                            </div>
-                            <div>
-                                <label class="block font-bold text-slate-700 mb-1.5">العنوان السكني</label>
-                                <input type="text" name="address" placeholder="حي الحطابة أدرار" value="حي الحطابة أدرار"
-                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
+                                <input type="hidden" name="wilaya" value="01 - أدرار">
                             </div>
                         </div>
 
@@ -942,59 +1414,101 @@ if ($pdo) {
                 <!-- Driver Status Type (Default to 'ajir' as requested) -->
                 <input type="hidden" name="driver_type" value="ajir">
 
-                <!-- Activity Start Date -->
-                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2">
-                    <label class="block font-black text-slate-800 text-xs">تاريخ بداية ممارسة النشاط (Début d'activité)</label>
-                    <input type="date" name="activity_start_date" value="2024-09-03"
-                           class="w-full sm:w-1/2 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                    <p class="text-[11px] text-slate-400">تاريخ أول انطلاق لممارسة مهنة سائق سيارة أجرة المعتمد في السجلات الرسمية.</p>
-                </div>
-
-                <!-- Professional Status & Probation Period Selection (فترات التجربة والتثبيت) -->
+                <!-- المرحلة والوضعية المهنية للسائق (دفتر المقررة) -->
                 <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
                     <div class="flex items-center justify-between">
-                        <div>
-                            <label class="block font-black text-slate-900 text-xs">
-                                <span>المرحلة والوضعية المهنية للسائق (دفتر المقررة)</span>
-                                <span class="text-rose-500">*</span>
-                            </label>
-                            <p class="text-[11px] text-slate-500 mt-0.5">حدد مرحلة التجربة أو التثبيت كـ «سائق رسمي» وفق أحكام قانون العمل 90-11:</p>
-                        </div>
-                        <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-2.5 py-0.5 rounded-md">
-                            المادة 07 (قانون 90-11)
+                        <label class="block font-black text-slate-900 text-xs">
+                            <span>المرحلة والوضعية المهنية للسائق (دفتر المقررة)</span>
+                            <span class="text-rose-500">*</span>
+                        </label>
+                        <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md font-num">
+                            3 أشهر لكل مرحلة
                         </span>
                     </div>
 
-                    <!-- 4 Visual Selection Cards for Probation Stages -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5" id="probationStageCardsContainer">
-                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-amber-400 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/80 has-[:checked]:shadow-xs">
-                            <input type="radio" name="probation_stage" value="trial_1" checked onchange="updateDriverPreviewStage(this.value)" class="sr-only">
-                            <span class="w-3 h-3 rounded-full bg-amber-500 mb-1.5"></span>
-                            <span class="font-black text-slate-900 text-xs">فترة تجريبية الأولى</span>
-                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">1ère Période (06 أشهر)</span>
-                        </label>
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div class="relative w-full sm:w-64">
+                            <!-- Direct visible input showing MM/YYYY -->
+                            <input type="text" 
+                                   name="activity_start_period" 
+                                   id="inputActivityPeriod" 
+                                   value="07/2005" 
+                                   placeholder="07/2005" 
+                                   dir="ltr" 
+                                   maxlength="7"
+                                   oninput="formatMonthYearInput(this)"
+                                   class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                            
+                            <!-- Native Month Picker Trigger Button & Hidden Native Input -->
+                            <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center">
+                                <label for="nativeMonthPicker" class="cursor-pointer text-slate-400 hover:text-amber-600 transition p-1" title="اختيار الشهر والسنة من الروزنامة">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
+                                    </svg>
+                                </label>
+                                <input type="month" 
+                                       id="nativeMonthPicker" 
+                                       value="2005-07" 
+                                       class="sr-only" 
+                                       onchange="syncNativeMonthToInput(this)">
+                            </div>
+                        </div>
 
-                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-blue-400 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/80 has-[:checked]:shadow-xs">
-                            <input type="radio" name="probation_stage" value="trial_2" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
-                            <span class="w-3 h-3 rounded-full bg-blue-500 mb-1.5"></span>
-                            <span class="font-black text-slate-900 text-xs">تجريبية الثانية</span>
-                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">2ème Période d'essai</span>
-                        </label>
-
-                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-indigo-400 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50/80 has-[:checked]:shadow-xs">
-                            <input type="radio" name="probation_stage" value="trial_3" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
-                            <span class="w-3 h-3 rounded-full bg-indigo-500 mb-1.5"></span>
-                            <span class="font-black text-slate-900 text-xs">تجريبية الثالثة</span>
-                            <span class="text-[10px] text-slate-500 mt-0.5 font-medium">3ème Période d'essai</span>
-                        </label>
-
-                        <label class="cursor-pointer relative flex flex-col items-center justify-center p-3.5 rounded-xl border-2 transition text-center select-none bg-white hover:border-emerald-400 has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/90 has-[:checked]:shadow-xs">
-                            <input type="radio" name="probation_stage" value="official" onchange="updateDriverPreviewStage(this.value)" class="sr-only">
-                            <span class="w-3 h-3 rounded-full bg-emerald-600 mb-1.5"></span>
-                            <span class="font-black text-emerald-950 text-xs">سائق رسمي</span>
-                            <span class="text-[10px] text-emerald-700 mt-0.5 font-bold">تثبيت دائم (Titulaire)</span>
-                        </label>
+                        <span class="text-[11px] text-slate-500 font-medium">الشهر والسنة فقط (مثال: 07/2005)</span>
                     </div>
+
+                    <!-- Probation Cycle Rule Indicator (3 months per stage) -->
+                    <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5">
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span class="font-bold text-slate-700 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                <span>دورة التدرج (3 أشهر للأولى ➔ 3 أشهر للثانية ➔ 3 أشهر للثالثة ➔ توقف):</span>
+                            </span>
+                            <span id="calculatedStageBadge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                المرحلة 1: تجريبية الأولى
+                            </span>
+                        </div>
+
+                        <!-- 4 Step progression cards -->
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[10px] font-bold">
+                            <div id="stepBox_1" class="p-2 rounded-lg border bg-amber-50 border-amber-300 text-amber-900 transition">
+                                <span>فترة تجريبية 1</span>
+                                <div class="text-[9px] font-semibold text-amber-700 font-num">3 أشهر الأولى</div>
+                            </div>
+                            <div id="stepBox_2" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
+                                <span>تجريبية 2</span>
+                                <div class="text-[9px] font-normal text-slate-500 font-num">3 أشهر الثانية</div>
+                            </div>
+                            <div id="stepBox_3" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
+                                <span>تجريبية 3</span>
+                                <div class="text-[9px] font-normal text-slate-500 font-num">3 أشهر الأخيرة</div>
+                            </div>
+                            <div id="stepBox_official" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
+                                <span>سائق رسمي</span>
+                                <div class="text-[9px] font-normal text-slate-500">تثبيت يدوي ✍️</div>
+                            </div>
+                        </div>
+
+                        <p id="stageCalculationNotice" class="text-[11px] text-slate-500">
+                            يبدأ السائق بالفترة التجريبية الأولى (3 أشهر)، ثم ينتقل للثانية فالثالثة، ويتوقف التدرج عند 9 أشهر بانتظار التثبيت يدوياً.
+                        </p>
+
+                        <!-- Manual Official Promotion Override -->
+                        <div class="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <label class="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" name="is_manual_official" id="checkManualOfficial" value="1" onchange="toggleManualOfficial(this)"
+                                       class="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
+                                <span class="text-xs font-bold text-slate-800">تعيين وتثبيت السائق كـ «سائق رسمي» يدوياً فوراً</span>
+                            </label>
+                            <span class="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/80">
+                                تجاوز فترات التجربة (رسمي دائم)
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Hidden inputs to seamlessly populate existing PHP and DB handlers -->
+                    <input type="hidden" name="activity_start_date" id="inputActivityStartDate" value="2005-07-01">
+                    <input type="hidden" name="probation_stage" id="inputProbationStage" value="trial_1">
                 </div>
 
             </div>
@@ -1031,38 +1545,46 @@ if ($pdo) {
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
                     </div>
-
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1.5">تاريخ إجراء الفحص الطبي (Date Examen)</label>
-                        <input type="date" value="2024-09-01"
-                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                    </div>
                 </div>
 
-                <!-- Next Checkup Reminder -->
-                <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3">
-                    <h4 class="font-black text-amber-900 text-xs flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                        <span>موعد الفحص الطبي الدوري القادم (Visite Médicale Prochaine)</span>
-                    </h4>
-                    
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ الفحص القادم: من</label>
-                            <input type="date" name="next_medical_start" value="2026-09-01"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
-                        <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">تاريخ الفحص القادم: إلى</label>
-                            <input type="date" name="next_medical_end" value="2028-08-31"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                        </div>
+                <!-- Next Checkup Notification Window Selection (10 أيام / 15 يوم / شهر) -->
+                <div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="block font-black text-amber-950 text-xs flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                            <span>التنبيه المسبق لموعد الفحص الطبي القادم</span>
+                        </label>
+                        <span id="selectedAlertDaysBadge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-200/80 text-amber-900 border border-amber-300 font-num">
+                            تنبيه قبل: شهر (30 يوماً)
+                        </span>
                     </div>
 
-                    <p class="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
-                        <span>💡</span>
-                        <span>يقوم رادار الصلاحية في لوحة التحكم بتنبيهك تلقائياً قبل 30 يوماً من حلول هذا الموعد.</span>
-                    </p>
+                    <!-- 3 Quick Buttons: 10 أيام / 15 يوم / شهر -->
+                    <div class="grid grid-cols-3 gap-2.5 text-center text-xs font-bold">
+                        <button type="button" 
+                                onclick="selectMedicalAlertDays(10, this)"
+                                class="med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5">
+                            <span class="font-extrabold text-sm font-num">10 أيام</span>
+                            <span class="text-[10px] text-slate-400 font-medium">إشعار عاجل</span>
+                        </button>
+                        <button type="button" 
+                                onclick="selectMedicalAlertDays(15, this)"
+                                class="med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5">
+                            <span class="font-extrabold text-sm font-num">15 يوماً</span>
+                            <span class="text-[10px] text-slate-400 font-medium">إشعار متوسط</span>
+                        </button>
+                        <button type="button" 
+                                onclick="selectMedicalAlertDays(30, this)"
+                                class="med-alert-btn py-2.5 px-3 rounded-xl border-2 border-amber-500 bg-amber-100/90 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20 cursor-pointer flex flex-col items-center justify-center gap-0.5">
+                            <span class="font-extrabold text-sm">شهر</span>
+                            <span class="text-[10px] text-amber-800 font-semibold font-num">30 يوماً مسبقاً</span>
+                        </button>
+                    </div>
+
+                    <!-- Hidden inputs automatically computed without manual date entry -->
+                    <input type="hidden" name="medical_alert_days" id="medicalAlertDaysInput" value="30">
+                    <input type="hidden" name="next_medical_start" id="nextMedStartHidden" value="2026-09-01">
+                    <input type="hidden" name="next_medical_end" id="nextMedEndHidden" value="2028-08-31">
                 </div>
 
             </div>
@@ -1074,10 +1596,10 @@ if ($pdo) {
                 
                 <div class="p-3 bg-purple-50/60 rounded-xl border border-purple-200/80 flex items-center gap-2 text-purple-900 font-bold text-xs">
                     <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25"/></svg>
-                    <span>ربط السائق بمركبة من الأسطول وصلاحية عقد استغلال رخصة الأجرة</span>
+                    <span>ربط السائق بمركبة من الأسطول ومعاينة البطاقة الفنية الرسمية</span>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="space-y-4">
                     
                     <!-- Vehicle Assignment Selection -->
                     <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
@@ -1095,44 +1617,12 @@ if ($pdo) {
                             <?php endforeach; ?>
                         </select>
 
-                        <p class="text-[11px] text-slate-400">يمكنك ربط السائق بسيارة الأجرة مباشرة لتظهر في تتبع الأسطول الميداني ومخطط المناوبات.</p>
+                        <p class="text-[11px] text-slate-400">يمكنك ربط السائق بسيارة الأجرة مباشرة لتظهر في سجل المركبات ومخطط المناوبات.</p>
                     </div>
 
-                    <!-- Contract Validity Period -->
-                    <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                        <div class="flex items-center justify-between">
-                            <label class="block font-black text-slate-800 text-xs">صلاحية عقد العمل ورخصة الأجرة</label>
-                            <div class="flex items-center gap-1.5">
-                                <button type="button" onclick="autoCalculateTaxiContractDates(3)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-slate-950 hover:bg-amber-600 transition shadow-2xs font-num">
-                                    3 سنوات (قياسي)
-                                </button>
-                                <button type="button" onclick="autoCalculateTaxiContractDates(5)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition font-num">
-                                    5 سنوات
-                                </button>
-                                <button type="button" onclick="autoCalculateTaxiContractDates(1)" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition font-num">
-                                    سنة واحدة
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-2.5">
-                            <div>
-                                <label class="block font-bold text-slate-600 text-[11px] mb-1">من (Début)</label>
-                                <input type="date" name="taxi_contract_start" id="taxiContractStart" value="2024-09-01"
-                                       onchange="autoCalculateTaxiContractDates(3)"
-                                       class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                            </div>
-                            <div>
-                                <label class="block font-bold text-slate-600 text-[11px] mb-1">
-                                    <span>إلى (Fin)</span>
-                                    <span class="text-[10px] text-emerald-600 font-normal mr-1">(محسوب تلقائياً)</span>
-                                </label>
-                                <input type="date" name="taxi_contract_end" id="taxiContractEnd" value="2027-08-31"
-                                       class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
-                            </div>
-                        </div>
-                        <p class="text-[11px] text-slate-400">عقد استغلال رخصة الأجرة وفق المرسوم التنفيذي 12-230. يحسب تاريخ الانتهاء تلقائياً بمجرد إدخال تاريخ البداية.</p>
-                    </div>
+                    <!-- Hidden inputs for contract dates -->
+                    <input type="hidden" name="taxi_contract_start" id="taxiContractStart" value="">
+                    <input type="hidden" name="taxi_contract_end" id="taxiContractEnd" value="">
 
                 </div>
 
@@ -1164,7 +1654,7 @@ if ($pdo) {
                             <div class="text-[11px] text-slate-300 flex items-center gap-2 font-num">
                                 <span id="livePreviewPhone">0661234567</span>
                                 <span>•</span>
-                                <span>01 - أدرار</span>
+                                <span id="livePreviewAddress">حي الحطابة أدرار</span>
                             </div>
                             <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2">
                                 <span>المركبة: <strong id="livePreviewVehicle" class="text-white font-num font-bold">لم تعين بعد</strong></span>
@@ -1177,6 +1667,8 @@ if ($pdo) {
 
             </div>
 
+            <!-- Native hidden submit button to guarantee browser-standard form submission -->
+            <button type="submit" id="nativeSubmitDriverBtn" class="hidden"></button>
         </form>
 
         <!-- Sticky Bottom Actions Footer -->
@@ -1202,13 +1694,190 @@ if ($pdo) {
                     <span>➔</span>
                 </button>
 
-                <button type="button" id="submitDriverBtn" onclick="submitAddDriverForm()" 
+                <button type="button" id="submitDriverBtn" form="addDriverForm" onclick="submitAddDriverForm()" 
                         class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-slate-950 font-black transition text-xs hidden items-center gap-2 shadow-md cursor-pointer">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                     <span>حفظ وتسجيل البطاقة الفنية الرسمية</span>
                 </button>
             </div>
         </div>
+
+    </div>
+</div>
+
+<!-- Modal: Manage Driver Documents & Renewals (إدارة وتجديد وثائق السائق) -->
+<div id="manageDocsModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md hidden items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div class="bg-white max-w-3xl w-full rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto transition-all animate-fadeIn text-right">
+        
+        <!-- Modal Top Bar -->
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-black flex items-center justify-center shadow-xs shrink-0">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 class="font-black text-slate-900 text-base sm:text-lg">إدارة وتجديد وثائق ورخص السائق</h3>
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 font-num">
+                            تجديد فوري
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">تحديث صلاحية رخصة السياقة، الفحص الطبي الدوري، وعقد استغلال رخصة الأجرة</p>
+                </div>
+            </div>
+            
+            <button type="button" onclick="closeManageDocsModal()" 
+                    class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition cursor-pointer" 
+                    title="إغلاق (Esc)">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Driver Info Hero Bar -->
+        <div class="px-6 py-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between flex-wrap gap-3 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-bold text-amber-400 text-sm overflow-hidden" id="docDriverAvatarBox">
+                    <span id="docDriverInitials">?</span>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm text-white" id="docDriverName">اسم السائق</h4>
+                    <div class="flex items-center gap-2 text-xs text-slate-300 font-num mt-0.5">
+                        <span id="docDriverPhone" dir="ltr">0661000000</span>
+                        <span>•</span>
+                        <span id="docDriverVehicle" class="text-amber-400">بدون مركبة</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <a href="#" id="docFicheLink" target="_blank" class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                    <span>معاينة البطاقة الفنية الرسمية</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Modal Form Body -->
+        <form method="POST" action="" id="manageDocsForm" class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="update_driver_docs">
+            <input type="hidden" name="driver_id" id="docDriverId" value="">
+            <input type="hidden" name="return_filter" value="<?= htmlspecialchars($filter) ?>">
+
+            <!-- 1. رخصة السياقة -->
+            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3.5">
+                <div class="flex items-center justify-between border-b border-slate-200/70 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <h4 class="font-black text-slate-900 text-xs">بيانات رخصة السياقة (Permis de Conduire)</h4>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="renewLicense(5)" class="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition shadow-2xs cursor-pointer">
+                            +5 سنوات
+                        </button>
+                        <button type="button" onclick="renewLicense(10)" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] transition shadow-2xs cursor-pointer">
+                            +10 سنوات (تجديد قياسي)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم رخصة السياقة</label>
+                        <input type="text" name="license_number" id="docLicenseNumber" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition" dir="ltr">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء صلاحية الرخصة</label>
+                        <input type="date" name="license_expiry" id="docLicenseExpiry" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ إصدار الرخصة</label>
+                        <input type="date" name="license_issue_date" id="docLicenseIssueDate" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">دائرة / بلدية الإصدار</label>
+                        <input type="text" name="license_issue_place" id="docLicenseIssuePlace" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. الفحص الطبي الدوري -->
+            <div class="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 space-y-3.5">
+                <div class="flex items-center justify-between border-b border-emerald-200/70 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <h4 class="font-black text-slate-900 text-xs">الفحوصات الطبية الدورية (Visites Médicales)</h4>
+                    </div>
+                    <button type="button" onclick="renewMedicalExam()" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-2xs flex items-center gap-1 cursor-pointer">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                        <span>تجديد الفحص الدوري (+سنتين رسمي)</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ بداية الفحص الطبي الساري</label>
+                        <input type="date" name="medical_exam_start" id="docMedStart" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء صلاحية الفحص (سنتان)</label>
+                        <input type="date" name="medical_cert_expiry" id="docMedExpiry" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ تأشيرة المراقبة الطبية (DTW)</label>
+                        <input type="date" name="medical_visa_date" id="docMedVisa" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الفحص المجدول القادم (نهاية الصلاحية)</label>
+                        <input type="date" name="next_medical_end" id="docNextMedEnd" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
+                        <input type="hidden" name="next_medical_start" id="docNextMedStart" value="">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. رخصة سيارة الأجرة والعقد -->
+            <div class="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-200/80 space-y-3.5">
+                <div class="flex items-center justify-between border-b border-indigo-200/70 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                        <h4 class="font-black text-slate-900 text-xs">رخصة استغلال الأجرة ودفتر المقررة (Livret de Bord)</h4>
+                    </div>
+                    <button type="button" onclick="renewTaxiContract(3)" class="px-2.5 py-1 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-900 font-bold text-[11px] transition shadow-2xs cursor-pointer">
+                        +3 سنوات (تجديد رخصة الاستغلال)
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم الدفتر / المقررة</label>
+                        <input type="text" name="card_number" id="docCardNumber" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" dir="ltr">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">بداية سريان العقد / الرخصة</label>
+                        <input type="date" name="taxi_contract_start" id="docContractStart" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">نهاية سريان العقد / الرخصة</label>
+                        <input type="date" name="taxi_contract_end" id="docContractEnd" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sticky Bottom Actions Inside Form -->
+            <div class="pt-2 flex items-center justify-between gap-3 border-t border-slate-200">
+                <button type="button" onclick="closeManageDocsModal()" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition text-xs cursor-pointer">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black transition text-xs flex items-center gap-2 shadow-md cursor-pointer">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    <span>حفظ التحديث وتثبيت تجديد الوثائق</span>
+                </button>
+            </div>
+        </form>
 
     </div>
 </div>
@@ -1224,6 +1893,8 @@ if ($pdo) {
         modal.classList.add('flex');
         document.body.classList.add('overflow-hidden');
         goToWizardStep(1);
+        const initialVal = document.getElementById('inputActivityPeriod')?.value || '07/2005';
+        syncMonthPeriodValues(initialVal);
         updateDriverPreviewName();
         updateDriverPreviewPhone();
         updateDriverPreviewVehicle();
@@ -1236,6 +1907,159 @@ if ($pdo) {
         document.body.classList.remove('overflow-hidden');
     }
 
+    // Format Month/Year Input (MM/YYYY) e.g. 07/2005
+    function formatMonthYearInput(input) {
+        let v = input.value.replace(/[^\d]/g, '');
+        if (v.length > 2) {
+            let m = parseInt(v.substring(0, 2), 10);
+            if (m > 12) m = 12;
+            if (m === 0) m = 1;
+            const mStr = m < 10 ? '0' + m : '' + m;
+            v = mStr + '/' + v.substring(2, 6);
+        }
+        input.value = v;
+        syncMonthPeriodValues(input.value);
+    }
+
+    // Synchronize native month picker (YYYY-MM) with visible input (MM/YYYY)
+    function syncNativeMonthToInput(nativePicker) {
+        if (!nativePicker.value) return;
+        const parts = nativePicker.value.split('-');
+        if (parts.length === 2) {
+            const year = parts[0];
+            const month = parts[1];
+            const formatted = month + '/' + year;
+            const inputPeriod = document.getElementById('inputActivityPeriod');
+            if (inputPeriod) inputPeriod.value = formatted;
+            syncMonthPeriodValues(formatted);
+        }
+    }
+
+    // Calculate elapsed months between given MM/YYYY and current date
+    function calculateElapsedMonths(val) {
+        if (!val) return 0;
+        const parts = val.split('/');
+        if (parts.length !== 2) return 0;
+        const month = parseInt(parts[0], 10);
+        const year = parseInt(parts[1], 10);
+        if (isNaN(month) || isNaN(year)) return 0;
+
+        const today = new Date();
+        const curYear = today.getFullYear();
+        const curMonth = today.getMonth() + 1; // 1-12
+
+        let diff = (curYear - year) * 12 + (curMonth - month);
+        return diff < 0 ? 0 : diff;
+    }
+
+    // Dynamic UI update for 3-month probation cycles
+    function updateProbationProgressionUI(val) {
+        const isManualOfficial = document.getElementById('checkManualOfficial')?.checked;
+        const hiddenStage = document.getElementById('inputProbationStage');
+        const badge = document.getElementById('calculatedStageBadge');
+        const notice = document.getElementById('stageCalculationNotice');
+
+        const box1 = document.getElementById('stepBox_1');
+        const box2 = document.getElementById('stepBox_2');
+        const box3 = document.getElementById('stepBox_3');
+        const boxOff = document.getElementById('stepBox_official');
+
+        const resetBox = (b) => {
+            if (b) b.className = 'p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition';
+        };
+        resetBox(box1);
+        resetBox(box2);
+        resetBox(box3);
+        resetBox(boxOff);
+
+        if (isManualOfficial) {
+            if (hiddenStage) hiddenStage.value = 'official';
+            if (badge) {
+                badge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300';
+                badge.textContent = 'الوضعية: سائق رسمي (يدوياً ✍️)';
+            }
+            if (notice) {
+                notice.textContent = 'تم تعيين وتثبيت السائق كـ «سائق رسمي» بصفة دائمة وتجاوز كافة الفترات التجريبية.';
+            }
+            if (boxOff) {
+                boxOff.className = 'p-2 rounded-lg border-2 bg-emerald-50 border-emerald-500 text-emerald-950 font-black shadow-xs ring-2 ring-emerald-500/20';
+            }
+            updateDriverPreviewStage('official');
+            return;
+        }
+
+        const elapsed = calculateElapsedMonths(val);
+        let stageKey = 'trial_1';
+        let badgeText = '';
+        let badgeCls = '';
+        let noticeText = '';
+
+        if (elapsed < 3) {
+            stageKey = 'trial_1';
+            badgeText = 'المرحلة 1: تجريبية الأولى (الشهر ' + (elapsed + 1) + ' من 3)';
+            badgeCls = 'bg-amber-100 text-amber-900 border-amber-300';
+            noticeText = 'السائق في الفترة التجريبية الأولى (3 أشهر). عند اكتمالها ينتقل تلقائياً للمرحلة الثانية.';
+            if (box1) box1.className = 'p-2 rounded-lg border-2 bg-amber-50 border-amber-500 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20';
+        } else if (elapsed < 6) {
+            stageKey = 'trial_2';
+            badgeText = 'المرحلة 2: تجريبية الثانية (الشهر ' + (elapsed - 2) + ' من 3)';
+            badgeCls = 'bg-blue-100 text-blue-900 border-blue-300';
+            noticeText = 'اكتملت الفترة الأولى (3 أشهر). السائق حالياً في الفترة التجريبية الثانية (3 أشهر).';
+            if (box2) box2.className = 'p-2 rounded-lg border-2 bg-blue-50 border-blue-500 text-blue-950 font-black shadow-xs ring-2 ring-blue-500/20';
+        } else if (elapsed < 9) {
+            stageKey = 'trial_3';
+            badgeText = 'المرحلة 3: تجريبية الثالثة (الشهر ' + (elapsed - 5) + ' من 3)';
+            badgeCls = 'bg-indigo-100 text-indigo-900 border-indigo-300';
+            noticeText = 'السائق في الفترة التجريبية الثالثة (3 أشهر). بعد اكتمالها يتوقف التدرج التلقائي ولا يرقى لسائق رسمي إلا يدوياً.';
+            if (box3) box3.className = 'p-2 rounded-lg border-2 bg-indigo-50 border-indigo-500 text-indigo-950 font-black shadow-xs ring-2 ring-indigo-500/20';
+        } else {
+            // >= 9 months: stops automatically at trial_3 until manually promoted
+            stageKey = 'trial_3';
+            badgeText = 'تجريبية 3 (اكتملت 9 أشهر - بانتظار التثبيت)';
+            badgeCls = 'bg-purple-100 text-purple-900 border-purple-300 font-extrabold';
+            noticeText = 'اكتملت الفترات التجريبية الثلاث (9 أشهر). توقف التدرج التلقائي وبانتظار تثبيته يدوياً كسائق رسمي من طرف الإدارة.';
+            if (box3) box3.className = 'p-2 rounded-lg border-2 bg-purple-50 border-purple-500 text-purple-950 font-black shadow-xs ring-2 ring-purple-500/20';
+        }
+
+        if (hiddenStage) hiddenStage.value = stageKey;
+        if (badge) {
+            badge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold ' + badgeCls;
+            badge.textContent = badgeText;
+        }
+        if (notice) notice.textContent = noticeText;
+        updateDriverPreviewStage(stageKey);
+    }
+
+    function toggleManualOfficial(checkbox) {
+        const val = document.getElementById('inputActivityPeriod')?.value || '07/2005';
+        updateProbationProgressionUI(val);
+    }
+
+    // Sync values across hidden inputs and Step 4 live preview
+    function syncMonthPeriodValues(val) {
+        const hiddenDate = document.getElementById('inputActivityStartDate');
+        const nativePicker = document.getElementById('nativeMonthPicker');
+
+        const parts = (val || '').split('/');
+        if (parts.length === 2 && parts[0].length === 2 && parts[1].length === 4) {
+            const month = parts[0];
+            const year = parts[1];
+            if (hiddenDate) hiddenDate.value = year + '-' + month + '-01';
+            if (nativePicker) nativePicker.value = year + '-' + month;
+        }
+        updateProbationProgressionUI(val);
+    }
+
+    // Backward compatibility wrapper
+    function selectProbationStage(stage) {
+        if (stage === 'official') {
+            const chk = document.getElementById('checkManualOfficial');
+            if (chk) chk.checked = true;
+        }
+        const val = document.getElementById('inputActivityPeriod')?.value || '07/2005';
+        updateProbationProgressionUI(val);
+    }
+
     function goToWizardStep(step) {
         if (step < 1 || step > totalWizardSteps) return;
 
@@ -1244,11 +2068,19 @@ if ($pdo) {
             const lastName = document.getElementById('inputLastName');
             const firstName = document.getElementById('inputFirstName');
             const phone = document.getElementById('inputPhone');
-            if (!lastName.value.trim() || !firstName.value.trim() || !phone.value.trim()) {
-                alert('يرجى ملء الاسم، اللقب، ورقم الهاتف لمتابعة التسجيل.');
-                if (!lastName.value.trim()) lastName.focus();
-                else if (!firstName.value.trim()) firstName.focus();
-                else phone.focus();
+            if (!lastName || !lastName.value.trim()) {
+                alert('يرجى إدخال لقب السائق (Nom de famille) للمتابعة.');
+                lastName.focus();
+                return;
+            }
+            if (!firstName || !firstName.value.trim()) {
+                alert('يرجى إدخال اسم السائق (Prénom) للمتابعة.');
+                firstName.focus();
+                return;
+            }
+            if (!phone || !phone.value.trim()) {
+                alert('يرجى إدخال رقم هاتف السائق للمتابعة.');
+                phone.focus();
                 return;
             }
         }
@@ -1327,12 +2159,33 @@ if ($pdo) {
         const firstName = document.getElementById('inputFirstName');
         const phone = document.getElementById('inputPhone');
 
-        if (!lastName.value.trim() || !firstName.value.trim() || !phone.value.trim()) {
+        if (!lastName || !lastName.value.trim()) {
             goToWizardStep(1);
-            alert('يرجى استيفاء الحقول الإجبارية (الاسم، اللقب، الهاتف) قبل الحفظ.');
+            alert('يرجى إدخال لقب السائق (Nom de famille) قبل الحفظ.');
+            if (lastName) lastName.focus();
             return;
         }
-        form.submit();
+        if (!firstName || !firstName.value.trim()) {
+            goToWizardStep(1);
+            alert('يرجى إدخال اسم السائق (Prénom) قبل الحفظ.');
+            if (firstName) firstName.focus();
+            return;
+        }
+        if (!phone || !phone.value.trim()) {
+            goToWizardStep(1);
+            alert('يرجى إدخال رقم هاتف السائق قبل الحفظ.');
+            if (phone) phone.focus();
+            return;
+        }
+
+        const nativeBtn = document.getElementById('nativeSubmitDriverBtn');
+        if (nativeBtn) {
+            nativeBtn.click();
+        } else if (form.requestSubmit) {
+            form.requestSubmit();
+        } else {
+            form.submit();
+        }
     }
 
     // Live avatar preview
@@ -1383,6 +2236,12 @@ if ($pdo) {
         if (previewPhone) previewPhone.textContent = phone;
     }
 
+    function updateDriverPreviewAddress() {
+        const addr = document.getElementById('inputAddress')?.value.trim() || 'العنوان';
+        const previewAddr = document.getElementById('livePreviewAddress');
+        if (previewAddr) previewAddr.textContent = addr;
+    }
+
     // Live preview vehicle
     function updateDriverPreviewVehicle() {
         const select = document.getElementById('assignedVehicleSelect');
@@ -1407,17 +2266,25 @@ if ($pdo) {
             'trial_1': { text: 'فترة تجريبية الأولى', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
             'trial_2': { text: 'تجريبية الثانية', cls: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
             'trial_3': { text: 'تجريبية الثالثة', cls: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
-            'official': { text: 'سائق رسمي', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' }
+            'official': { text: 'سائق رسمي', cls: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' }
         };
-        const s = stageMap[stage] || stageMap['trial_1'];
-        badge.textContent = s.text;
-        badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border ' + s.cls;
+        if (stage && stageMap[stage]) {
+            const s = stageMap[stage];
+            badge.textContent = s.text;
+            badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border ' + s.cls;
+        } else {
+            const display = stage ? 'الوضعية: ' + stage : 'الوضعية: 07/2005';
+            badge.textContent = display;
+            badge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border bg-amber-500/20 text-amber-300 border-amber-500/30 font-num';
+        }
     }
 
     // Auto-calculate medical dates (+2 years)
     function autoCalculateMedicalDates() {
         const startInput = document.getElementById('medStartInput');
         const endInput = document.getElementById('medEndInput');
+        const nextStart = document.getElementById('nextMedStartHidden');
+        const nextEnd = document.getElementById('nextMedEndHidden');
         if (startInput && startInput.value && endInput) {
             const startDate = new Date(startInput.value);
             if (!isNaN(startDate.getTime())) {
@@ -1425,7 +2292,33 @@ if ($pdo) {
                 endDate.setFullYear(endDate.getFullYear() + 2);
                 endDate.setDate(endDate.getDate() - 1);
                 endInput.value = endDate.toISOString().split('T')[0];
+
+                if (nextStart && nextEnd) {
+                    const nStart = new Date(endDate);
+                    nStart.setDate(nStart.getDate() + 1);
+                    const nEnd = new Date(nStart);
+                    nEnd.setFullYear(nEnd.getFullYear() + 2);
+                    nEnd.setDate(nEnd.getDate() - 1);
+                    nextStart.value = nStart.toISOString().split('T')[0];
+                    nextEnd.value = nEnd.toISOString().split('T')[0];
+                }
             }
+        }
+    }
+
+    function selectMedicalAlertDays(days, btn) {
+        const input = document.getElementById('medicalAlertDaysInput');
+        if (input) input.value = days;
+        const badge = document.getElementById('selectedAlertDaysBadge');
+        if (badge) {
+            const label = days === 30 ? 'شهر (30 يوماً)' : (days + ' يوماً');
+            badge.textContent = 'تنبيه قبل: ' + label;
+        }
+        document.querySelectorAll('.med-alert-btn').forEach(b => {
+            b.className = 'med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5';
+        });
+        if (btn) {
+            btn.className = 'med-alert-btn py-2.5 px-3 rounded-xl border-2 border-amber-500 bg-amber-100/90 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20 cursor-pointer flex flex-col items-center justify-center gap-0.5';
         }
     }
 
@@ -1444,12 +2337,166 @@ if ($pdo) {
         }
     }
 
+    // ==========================================
+    // Manage Driver Documents & Renewals Modal
+    // ==========================================
+    function openManageDocsModal(driver) {
+        if (!driver) return;
+        if (typeof driver === 'string') {
+            try { driver = JSON.parse(driver); } catch (e) { return; }
+        }
+
+        document.getElementById('docDriverId').value = driver.id || '';
+        document.getElementById('docDriverName').textContent = driver.full_name || 'سائق';
+        document.getElementById('docDriverPhone').textContent = driver.phone || '—';
+
+        // Avatar
+        const avatarBox = document.getElementById('docDriverAvatarBox');
+        if (avatarBox) {
+            if (driver.avatar_url) {
+                avatarBox.innerHTML = '<img src="' + driver.avatar_url + '" class="w-full h-full object-cover">';
+            } else {
+                avatarBox.innerHTML = '<span class="text-sm font-bold text-amber-400">' + (driver.full_name ? driver.full_name.charAt(0) : '?') + '</span>';
+            }
+        }
+
+        // Vehicle
+        const vehElem = document.getElementById('docDriverVehicle');
+        if (vehElem) {
+            if (driver.plate_number) {
+                vehElem.textContent = driver.plate_number + (driver.door_number ? ' (باب: ' + driver.door_number + ')' : '');
+            } else {
+                vehElem.textContent = 'بدون مركبة حالياً (احتياطي)';
+            }
+        }
+
+        // Fiche link
+        const ficheLink = document.getElementById('docFicheLink');
+        if (ficheLink && driver.id) {
+            ficheLink.href = 'driver_fiche.php?id=' + driver.id;
+        }
+
+        // License fields
+        document.getElementById('docLicenseNumber').value = driver.license_number || '';
+        document.getElementById('docLicenseIssueDate').value = driver.license_issue_date || '';
+        document.getElementById('docLicenseIssuePlace').value = driver.license_issue_place || '';
+        document.getElementById('docLicenseExpiry').value = driver.license_expiry || '';
+
+        // Medical fields
+        document.getElementById('docMedStart').value = driver.medical_exam_start || '';
+        document.getElementById('docMedExpiry').value = driver.medical_cert_expiry || driver.medical_exam_end || '';
+        document.getElementById('docMedVisa').value = driver.medical_visa_date || '';
+        document.getElementById('docNextMedStart').value = driver.next_medical_start || '';
+        document.getElementById('docNextMedEnd').value = driver.next_medical_end || '';
+
+        // Taxi contract fields
+        document.getElementById('docCardNumber').value = driver.card_number || '';
+        document.getElementById('docContractStart').value = driver.taxi_contract_start || '';
+        document.getElementById('docContractEnd').value = driver.taxi_contract_end || '';
+
+        // Show Modal
+        const modal = document.getElementById('manageDocsModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.body.classList.add('overflow-hidden');
+    }
+
+    function closeManageDocsModal() {
+        const modal = document.getElementById('manageDocsModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+        document.body.classList.remove('overflow-hidden');
+    }
+
+    function renewLicense(years) {
+        const input = document.getElementById('docLicenseExpiry');
+        if (!input) return;
+        let baseDate = new Date();
+        if (input.value) {
+            const parsed = new Date(input.value);
+            if (!isNaN(parsed.getTime()) && parsed > baseDate) {
+                baseDate = parsed;
+            }
+        }
+        baseDate.setFullYear(baseDate.getFullYear() + parseInt(years));
+        input.value = baseDate.toISOString().split('T')[0];
+    }
+
+    function renewMedicalExam() {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+
+        const end2 = new Date(today);
+        end2.setFullYear(end2.getFullYear() + 2);
+        end2.setDate(end2.getDate() - 1);
+        const end2Str = end2.toISOString().split('T')[0];
+
+        const nextEnd = new Date(end2);
+        nextEnd.setFullYear(nextEnd.getFullYear() + 2);
+        const nextEndStr = nextEnd.toISOString().split('T')[0];
+
+        document.getElementById('docMedStart').value = todayStr;
+        document.getElementById('docMedExpiry').value = end2Str;
+        document.getElementById('docMedVisa').value = todayStr;
+        document.getElementById('docNextMedStart').value = end2Str;
+        document.getElementById('docNextMedEnd').value = nextEndStr;
+    }
+
+    function renewTaxiContract(years) {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+
+        const end = new Date(today);
+        end.setFullYear(end.getFullYear() + parseInt(years));
+        end.setDate(end.getDate() - 1);
+        const endStr = end.toISOString().split('T')[0];
+
+        document.getElementById('docContractStart').value = todayStr;
+        document.getElementById('docContractEnd').value = endStr;
+    }
+
+    // Filter Alert Cards Tabs in Alert Area
+    function filterAlertCards(tab) {
+        const buttons = document.querySelectorAll('.alert-tab-btn');
+        buttons.forEach(btn => {
+            btn.classList.remove('bg-white', 'text-slate-900', 'shadow-2xs');
+            btn.classList.add('text-slate-600');
+        });
+        const activeBtn = document.getElementById('btnAlertTab-' + tab);
+        if (activeBtn) {
+            activeBtn.classList.add('bg-white', 'text-slate-900', 'shadow-2xs');
+            activeBtn.classList.remove('text-slate-600');
+        }
+
+        const cards = document.querySelectorAll('.alert-card');
+        cards.forEach(card => {
+            const type = card.getAttribute('data-alert-type');
+            if (tab === 'all') {
+                card.classList.remove('hidden');
+            } else if (tab === 'expired' && type === 'expired') {
+                card.classList.remove('hidden');
+            } else if (tab === 'soon' && type === 'soon') {
+                card.classList.remove('hidden');
+            } else if (tab === 'missing' && type === 'missing') {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        });
+    }
+
     // Keyboard support: Escape closes modal
     window.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             const modal = document.getElementById('addDriverModal');
             if (modal && !modal.classList.contains('hidden')) {
                 closeAddDriverModal();
+            }
+            const docModal = document.getElementById('manageDocsModal');
+            if (docModal && !docModal.classList.contains('hidden')) {
+                closeManageDocsModal();
             }
         }
     });
@@ -1460,6 +2507,55 @@ if ($pdo) {
             closeAddDriverModal();
         }
     });
+    document.getElementById('manageDocsModal')?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeManageDocsModal();
+        }
+    });
+
+    // Enter key handler in Add Driver wizard
+    document.getElementById('addDriverForm')?.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            if (currentWizardStep < totalWizardSteps) {
+                nextWizardStep();
+            } else {
+                submitAddDriverForm();
+            }
+        }
+    });
+
+    // Initial probation stage / period selection
+    window.addEventListener('DOMContentLoaded', function() {
+        const initialVal = document.getElementById('inputActivityPeriod')?.value || '07/2005';
+        syncMonthPeriodValues(initialVal);
+    });
+
+    <?php if (!empty($_GET['open_docs_id'])): 
+        $reqDocId = intval($_GET['open_docs_id']);
+        $autoDocDriver = null;
+        foreach ($allDrivers as $cand) {
+            if ((int)$cand['id'] === $reqDocId) {
+                $autoDocDriver = $cand;
+                break;
+            }
+        }
+        if (!$autoDocDriver && $pdo) {
+            try {
+                $stmtSingleD = $pdo->prepare("SELECT u.*, v.plate_number, v.door_number, v.brand, v.model FROM users u LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id) WHERE u.id = ?");
+                $stmtSingleD->execute([$reqDocId]);
+                $autoDocDriver = $stmtSingleD->fetch(PDO::FETCH_ASSOC);
+            } catch (\Throwable $e) {}
+        }
+        if ($autoDocDriver):
+    ?>
+    // Automatically trigger Manage Documents modal for target driver
+    window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            openManageDocsModal(<?= json_encode($autoDocDriver, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>);
+        }, 150);
+    });
+    <?php endif; endif; ?>
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

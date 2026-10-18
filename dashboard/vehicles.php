@@ -228,6 +228,7 @@ require_once __DIR__ . '/../includes/header.php';
 // Stats for Quick KPI Strip
 $totalVehiclesCount = 0;
 $assignedVehiclesCount = 0;
+$reliefVehiclesCount = 0;
 $expiringDocsCount = 0;
 $conformityCount = 0;
 $vehicles = [];
@@ -239,6 +240,14 @@ if ($pdo) {
 
     try {
         $assignedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE current_driver_id IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    try {
+        $reliefVehiclesCount = (int)$pdo->query("
+            SELECT COUNT(DISTINCT v.id) FROM vehicles v
+            LEFT JOIN leaves l ON (l.vehicle_id = v.id AND l.status = 'approved' AND l.end_date >= CURDATE())
+            WHERE v.replacement_driver_id IS NOT NULL OR l.replacement_driver_id IS NOT NULL
+        ")->fetchColumn();
     } catch (\Throwable $e) {}
 
     try {
@@ -261,8 +270,27 @@ if ($pdo) {
         $hasReplacementCol = true;
     } catch (\Throwable $e) {}
 
-    $joinRepl = $hasReplacementCol ? "LEFT JOIN users r ON v.replacement_driver_id = r.id" : "";
-    $selectRepl = $hasReplacementCol ? "r.full_name as replacement_driver_name, r.phone as replacement_driver_phone," : "NULL as replacement_driver_name, NULL as replacement_driver_phone,";
+    $joinRepl = "
+        LEFT JOIN users r ON v.replacement_driver_id = r.id
+        LEFT JOIN (
+            SELECT l.* FROM leaves l
+            INNER JOIN (
+                SELECT vehicle_id, MAX(id) as max_id
+                FROM leaves
+                WHERE status = 'approved' AND end_date >= CURDATE() AND vehicle_id IS NOT NULL
+                GROUP BY vehicle_id
+            ) latest_l ON l.id = latest_l.max_id
+        ) act_l ON act_l.vehicle_id = v.id
+        LEFT JOIN users r_leave ON act_l.replacement_driver_id = r_leave.id
+    ";
+
+    $selectRepl = "
+        COALESCE(r.full_name, r_leave.full_name) as replacement_driver_name,
+        COALESCE(r.phone, r_leave.phone) as replacement_driver_phone,
+        COALESCE(v.replacement_driver_id, act_l.replacement_driver_id) as effective_replacement_driver_id,
+        act_l.start_date as leave_start_date,
+        act_l.end_date as leave_end_date,
+    ";
 
     $query = "SELECT v.*, u.full_name as driver_name, u.phone as driver_phone, $selectRepl v.id FROM vehicles v LEFT JOIN users u ON v.current_driver_id = u.id $joinRepl WHERE 1=1";
     $params = [];
@@ -275,7 +303,9 @@ if ($pdo) {
         } catch (\Throwable $e) {}
 
         $doorCondition = $hasDoorCol ? " OR v.door_number LIKE ?" : "";
-        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ?$doorCondition)";
+        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR r.full_name LIKE ? OR r_leave.full_name LIKE ?$doorCondition)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
         $params[] = "%$search%";
         $params[] = "%$search%";
         $params[] = "%$search%";
@@ -289,18 +319,16 @@ if ($pdo) {
         $query .= " AND ((v.technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.technical_control_expiry IS NOT NULL) OR (v.insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND v.insurance_expiry IS NOT NULL))";
     } elseif ($filter === 'unassigned') {
         $query .= " AND v.current_driver_id IS NULL";
+    } elseif ($filter === 'relief') {
+        $query .= " AND (v.replacement_driver_id IS NOT NULL OR act_l.replacement_driver_id IS NOT NULL)";
     }
 
     if (is_driver()) {
         $dId = intval($_SESSION['user_id']);
-        if ($hasReplacementCol) {
-            $query .= " AND (v.current_driver_id = ? OR v.replacement_driver_id = ?)";
-            $params[] = $dId;
-            $params[] = $dId;
-        } else {
-            $query .= " AND v.current_driver_id = ?";
-            $params[] = $dId;
-        }
+        $query .= " AND (v.current_driver_id = ? OR v.replacement_driver_id = ? OR act_l.replacement_driver_id = ?)";
+        $params[] = $dId;
+        $params[] = $dId;
+        $params[] = $dId;
     } elseif (is_owner() && !is_admin()) {
         $oId = intval($_SESSION['user_id']);
         $query .= " AND (v.owner_id = ? OR v.owner_id IS NULL)";
@@ -331,6 +359,16 @@ if (isset($_GET['edit']) && $pdo) {
         $stmtE->execute([$eId]);
         $editVehicle = $stmtE->fetch() ?: null;
         if ($editVehicle) {
+            if (empty($editVehicle['replacement_driver_id'])) {
+                try {
+                    $stmtL = $pdo->prepare("SELECT replacement_driver_id FROM leaves WHERE vehicle_id = ? AND status = 'approved' AND end_date >= CURDATE() ORDER BY id DESC LIMIT 1");
+                    $stmtL->execute([$eId]);
+                    $rIdL = $stmtL->fetchColumn();
+                    if ($rIdL) {
+                        $editVehicle['replacement_driver_id'] = (int)$rIdL;
+                    }
+                } catch (\Throwable $e) {}
+            }
             if (!empty($editVehicle['current_driver_id'])) {
                 foreach ($drivers as $d) {
                     if ($d['id'] == $editVehicle['current_driver_id']) {
@@ -382,7 +420,7 @@ if (isset($_GET['edit']) && $pdo) {
     </div>
 
     <!-- Quick Stats Cards (Clean & Simple) -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
         <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
                 <p class="text-[11px] font-semibold text-slate-500">إجمالي الأسطول</p>
@@ -403,6 +441,18 @@ if (isset($_GET['edit']) && $pdo) {
             <div class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+            </div>
+        </div>
+
+        <div class="bg-white p-4 rounded-xl border border-amber-200/80 bg-amber-50/20 shadow-xs flex items-center justify-between">
+            <div>
+                <p class="text-[11px] font-semibold text-amber-900">مركبات بسائق بديل</p>
+                <p class="text-xl font-bold text-amber-600 font-num mt-0.5"><?= $reliefVehiclesCount ?></p>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
             </div>
         </div>
@@ -437,7 +487,7 @@ if (isset($_GET['edit']) && $pdo) {
         <form method="GET" class="flex-1 w-full flex items-center gap-2">
             <div class="relative flex-1 sm:max-w-md">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
-                       placeholder="ابحث برقم اللوحة، الماركة، رقم الباب، أو اسم السائق..."
+                       placeholder="ابحث برقم اللوحة، الماركة، رقم الباب، أو اسم السائق الأساسي / البديل..."
                        class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -453,6 +503,11 @@ if (isset($_GET['edit']) && $pdo) {
             <a href="vehicles.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 الكل (<?= $totalVehiclesCount ?>)
+            </a>
+            <a href="vehicles.php?filter=relief<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'relief' ? 'bg-amber-500 text-white shadow-xs' : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/80' ?>">
+                <span>سائق بديل</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'relief' ? 'bg-white text-amber-700' : 'bg-amber-200 text-amber-900' ?>"><?= $reliefVehiclesCount ?></span>
             </a>
             <a href="vehicles.php?filter=expiring<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'expiring' ? 'bg-rose-500 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/60' ?>">
@@ -474,7 +529,7 @@ if (isset($_GET['edit']) && $pdo) {
                     <tr>
                         <th class="p-3.5 whitespace-nowrap">المركبة ولوحة الترقيم</th>
                         <th class="p-3.5 whitespace-nowrap">رقم الباب واللون</th>
-                        <th class="p-3.5 whitespace-nowrap">السائق المكلف</th>
+                        <th class="p-3.5 whitespace-nowrap">السائق المكلف والبديل</th>
                         <th class="p-3.5 whitespace-nowrap">المراقبة التقنية</th>
                         <th class="p-3.5 whitespace-nowrap">التأمين الشامل</th>
                         <th class="p-3.5 whitespace-nowrap">فحص سيرغاز GPL</th>
@@ -503,22 +558,35 @@ if (isset($_GET['edit']) && $pdo) {
                                     <div class="text-[11px] text-slate-400"><?= htmlspecialchars($v['color']) ?></div>
                                 </td>
 
-                                <!-- Driver -->
+                                <!-- Driver & Replacement Driver -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <?php if (!empty($v['driver_name'])): ?>
-                                        <div class="font-bold text-slate-800"><?= htmlspecialchars($v['driver_name']) ?></div>
-                                        <div class="text-[11px] text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($v['driver_phone']) ?></div>
+                                        <div class="font-bold text-slate-900 flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="سائق أساسي"></span>
+                                            <span><?= htmlspecialchars($v['driver_name']) ?></span>
+                                        </div>
+                                        <div class="text-[11px] text-slate-400 font-num pr-3.5" dir="ltr"><?= htmlspecialchars($v['driver_phone']) ?></div>
                                     <?php else: ?>
                                         <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
-                                            شاغر (بدون سائق)
+                                            شاغر (بدون سائق أساسي)
                                         </span>
                                     <?php endif; ?>
+
                                     <?php if (!empty($v['replacement_driver_name'])): ?>
-                                        <div class="mt-1">
-                                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60">
-                                                <span>بديل:</span>
-                                                <span><?= htmlspecialchars($v['replacement_driver_name']) ?></span>
-                                            </span>
+                                        <div class="mt-2 p-2 rounded-xl bg-amber-50/90 border border-amber-200/90 shadow-2xs">
+                                            <div class="flex items-center gap-1.5 font-bold text-amber-950 text-xs">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse"></span>
+                                                <span class="text-[9px] bg-amber-200/80 text-amber-900 px-1.5 py-0.2 rounded font-black">سائق بديل</span>
+                                                <span class="font-bold"><?= htmlspecialchars($v['replacement_driver_name']) ?></span>
+                                            </div>
+                                            <div class="text-[10px] text-amber-800 font-num mt-1 flex items-center justify-between gap-2 border-t border-amber-200/50 pt-1">
+                                                <span dir="ltr"><?= htmlspecialchars($v['replacement_driver_phone'] ?? '—') ?></span>
+                                                <?php if (!empty($v['leave_end_date'])): ?>
+                                                    <span class="text-[9px] text-amber-800 bg-white/90 px-1.5 py-0.5 rounded border border-amber-200/60 font-medium">عطلة إلى <?= htmlspecialchars($v['leave_end_date']) ?></span>
+                                                <?php else: ?>
+                                                    <span class="text-[9px] text-slate-500">بديل دائم</span>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                     <?php endif; ?>
                                 </td>
@@ -584,37 +652,53 @@ if (isset($_GET['edit']) && $pdo) {
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Actions -->
+                                <!-- Actions (3-Dots Dropdown Menu) -->
                                 <td class="p-3.5 text-center whitespace-nowrap">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <?php if (is_admin() || is_owner()): ?>
-                                        <a href="vehicles.php?edit=<?= $v['id'] ?>" 
-                                           title="تعديل البيانات والوثائق"
-                                           class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
-                                            تعديل
-                                        </a>
-                                        <a href="contracts.php?action=new&vehicle_id=<?= $v['id'] ?>" 
-                                           title="إصدار عقد عمل 90-11"
-                                           class="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition text-xs border border-amber-200/60">
-                                            عقد 90-11
-                                        </a>
-                                        <?php else: ?>
-                                        <a href="slips.php" class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 font-bold transition text-xs border border-amber-200/60">
-                                            وصل السير
-                                        </a>
-                                        <?php endif; ?>
-                                        <?php if (is_admin()): ?>
-                                        <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذه المركبة من الأسطول؟')" class="inline">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="action_type" value="delete">
-                                            <input type="hidden" name="vehicle_id" value="<?= $v['id'] ?>">
-                                            <button type="submit" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition" title="حذف المركبة">
-                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    <div class="relative inline-block text-right">
+                                        <button type="button"
+                                                onclick="toggleTableDropdown(event, this)"
+                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                title="خيارات وإجراءات المركبة">
+                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                            </svg>
+                                        </button>
+
+                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                            <?php if (is_admin() || is_owner()): ?>
+                                            <a href="vehicles.php?edit=<?= $v['id'] ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 font-bold transition">
+                                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                                                 </svg>
-                                            </button>
-                                        </form>
-                                        <?php endif; ?>
+                                                <span>تعديل البيانات والوثائق</span>
+                                            </a>
+                                            <?php else: ?>
+                                            <a href="slips.php"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 font-bold transition">
+                                                <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                </svg>
+                                                <span>وصل السير الميداني</span>
+                                            </a>
+                                            <?php endif; ?>
+
+                                            <?php if (is_admin()): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذه المركبة من الأسطول؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action_type" value="delete">
+                                                <input type="hidden" name="vehicle_id" value="<?= $v['id'] ?>">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                    <span>حذف المركبة</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

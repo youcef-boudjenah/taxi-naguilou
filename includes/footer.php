@@ -45,6 +45,77 @@
             if (mobileMenu && mobileBtn && !mobileMenu.contains(e.target) && !mobileBtn.contains(e.target)) {
                 mobileMenu.classList.add('hidden');
             }
+            if (!e.target.closest('.table-dropdown-menu') && !e.target.closest('.table-dropdown-btn')) {
+                document.querySelectorAll('.table-dropdown-menu:not(.hidden)').forEach(function(m) {
+                    m.classList.add('hidden');
+                });
+            }
+        });
+
+        // Universal Table 3-Dots Action Dropdown
+        window.toggleTableDropdown = function(e, btn) {
+            e.stopPropagation();
+            const parent = btn.closest('.relative') || btn.parentElement;
+            const menu = parent ? parent.querySelector('.table-dropdown-menu') : null;
+            if (!menu) return;
+            const isHidden = menu.classList.contains('hidden');
+
+            // Close any other open table dropdown
+            document.querySelectorAll('.table-dropdown-menu:not(.hidden)').forEach(function(m) {
+                if (m !== menu) m.classList.add('hidden');
+            });
+
+            if (isHidden) {
+                menu.classList.remove('hidden');
+                
+                // Position fixed so parent overflow-x/overflow-y in tables never clips it
+                const btnRect = btn.getBoundingClientRect();
+                menu.style.position = 'fixed';
+                menu.style.zIndex = '99999';
+
+                const menuWidth = menu.offsetWidth || 192;
+                let left = btnRect.left;
+                if (left + menuWidth > window.innerWidth - 12) {
+                    left = window.innerWidth - menuWidth - 12;
+                }
+                if (left < 12) left = 12;
+                menu.style.left = left + 'px';
+                menu.style.right = 'auto';
+
+                const menuHeight = menu.offsetHeight || 160;
+                if (btnRect.bottom + menuHeight > window.innerHeight - 15) {
+                    menu.style.top = Math.max(10, btnRect.top - menuHeight - 4) + 'px';
+                } else {
+                    menu.style.top = (btnRect.bottom + 4) + 'px';
+                }
+            } else {
+                menu.classList.add('hidden');
+            }
+        };
+
+        // Close menu upon item selection
+        document.addEventListener('click', function(e) {
+            const item = e.target.closest('.table-dropdown-item');
+            if (item) {
+                const menu = item.closest('.table-dropdown-menu');
+                if (menu) menu.classList.add('hidden');
+            }
+        });
+
+        // Close table dropdowns on window scroll
+        window.addEventListener('scroll', function() {
+            document.querySelectorAll('.table-dropdown-menu:not(.hidden)').forEach(function(m) {
+                m.classList.add('hidden');
+            });
+        }, true);
+
+        // Close on Escape
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.table-dropdown-menu:not(.hidden)').forEach(function(m) {
+                    m.classList.add('hidden');
+                });
+            }
         });
     </script>
 </body>

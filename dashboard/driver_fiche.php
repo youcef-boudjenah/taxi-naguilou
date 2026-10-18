@@ -107,6 +107,34 @@ if ($driver && $pdo) {
     } catch (\Throwable $e) {}
 }
 
+// Calculate Probation info according to the 3-month cycle rule
+$probInfo = resolve_driver_probation_info($driver);
+
+// Calculate accurate document statuses
+$today = strtotime(date('Y-m-d'));
+
+// License
+$lic = !empty($driver['license_expiry']) && $driver['license_expiry'] !== '0000-00-00' ? $driver['license_expiry'] : null;
+$licDays = $lic ? (int)round((strtotime($lic) - $today) / 86400) : null;
+$licExpired = ($licDays !== null && $licDays < 0);
+$licExpiringSoon = ($licDays !== null && $licDays >= 0 && $licDays <= 30);
+$licMissing = empty($lic);
+
+// Medical Exam & Certificate
+$med = !empty($driver['medical_cert_expiry']) && $driver['medical_cert_expiry'] !== '0000-00-00' 
+    ? $driver['medical_cert_expiry'] 
+    : (!empty($driver['medical_exam_end']) && $driver['medical_exam_end'] !== '0000-00-00' ? $driver['medical_exam_end'] : null);
+$medDays = $med ? (int)round((strtotime($med) - $today) / 86400) : null;
+$medExpired = ($medDays !== null && $medDays < 0);
+$medExpiringSoon = ($medDays !== null && $medDays >= 0 && $medDays <= 30);
+$medMissing = empty($med);
+
+// Taxi Exploitation Contract
+$taxiCont = !empty($driver['taxi_contract_end']) && $driver['taxi_contract_end'] !== '0000-00-00' ? $driver['taxi_contract_end'] : null;
+$taxiContDays = $taxiCont ? (int)round((strtotime($taxiCont) - $today) / 86400) : null;
+$taxiContExpired = ($taxiContDays !== null && $taxiContDays < 0);
+$taxiContExpiringSoon = ($taxiContDays !== null && $taxiContDays >= 0 && $taxiContDays <= 30);
+
 $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_name']);
 ?>
 <!DOCTYPE html>
@@ -201,6 +229,30 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
 
         <div class="flex items-center gap-2 flex-wrap justify-end">
             <?php if (!is_driver()): ?>
+                <a href="drivers.php?filter=alerts&open_docs_id=<?= $driver['id'] ?>" 
+                   class="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs"
+                   title="تحديث وتجديد رخصة السياقة، الفحص الطبي، وعقد رخصة الأجرة مباشرة">
+                    <svg class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                    <span>⚡ إدارة وتجديد الوثائق</span>
+                </a>
+                <?php if (!empty($probInfo['is_ready_for_promotion'])): ?>
+                    <form method="POST" action="" class="inline-flex items-center m-0">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="update_driver_stage">
+                        <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
+                        <input type="hidden" name="probation_stage" value="official">
+                        <button type="submit" 
+                                class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs shadow-xs transition inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                                title="اكتملت 9 أشهر (3 فترات تجريبية) - انقر هنا للتثبيت كسائق رسمي فوراً">
+                            <svg class="w-3.5 h-3.5 text-amber-300 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                            </svg>
+                            <span>⭐ تثبيت كسائق رسمي (اكتملت 9 أشهر)</span>
+                        </button>
+                    </form>
+                <?php endif; ?>
                 <form method="POST" action="" class="inline-flex items-center m-0">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="update_driver_stage">
@@ -208,10 +260,10 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                     <select name="probation_stage" onchange="this.form.submit()" 
                             class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer shadow-2xs"
                             title="ترقية وتعديل المرحلة المهنية للسائق">
-                        <option value="trial_1" <?= ($driver['probation_stage'] ?? 'trial_1') === 'trial_1' ? 'selected' : '' ?>>فترة تجريبية الأولى</option>
-                        <option value="trial_2" <?= ($driver['probation_stage'] ?? '') === 'trial_2' ? 'selected' : '' ?>>تجريبية الثانية</option>
-                        <option value="trial_3" <?= ($driver['probation_stage'] ?? '') === 'trial_3' ? 'selected' : '' ?>>تجريبية الثالثة</option>
-                        <option value="official" <?= ($driver['probation_stage'] ?? '') === 'official' ? 'selected' : '' ?>>سائق رسمي</option>
+                        <option value="trial_1" <?= ($driver['probation_stage'] ?? 'trial_1') === 'trial_1' ? 'selected' : '' ?>>فترة تجريبية 1 (3 أشهر)</option>
+                        <option value="trial_2" <?= ($driver['probation_stage'] ?? '') === 'trial_2' ? 'selected' : '' ?>>فترة تجريبية 2 (3 أشهر)</option>
+                        <option value="trial_3" <?= ($driver['probation_stage'] ?? '') === 'trial_3' ? 'selected' : '' ?>>فترة تجريبية 3 (3 أشهر)</option>
+                        <option value="official" <?= ($driver['probation_stage'] ?? '') === 'official' ? 'selected' : '' ?>>سائق رسمي (تثبيت دائم يدوي)</option>
                     </select>
                 </form>
             <?php endif; ?>
@@ -222,6 +274,14 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                     </svg>
                     <span>معاينة العقد <bdi dir="ltr">(90-11)</bdi></span>
+                </a>
+            <?php elseif (is_admin() || is_owner()): ?>
+                <a href="contracts.php?action=new&driver_id=<?= $driver['id'] ?>" 
+                   class="px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 border border-teal-200">
+                    <svg class="w-3.5 h-3.5 text-teal-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    <span>إصدار عقد <bdi dir="ltr">(90-11)</bdi></span>
                 </a>
             <?php endif; ?>
                 <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
@@ -301,18 +361,11 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-slate-950 shadow-2xs">
                             سائق <?= $driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني' ?>
                         </span>
-                        <?php
-                        $stgVal = $driver['probation_stage'] ?? 'trial_1';
-                        $stageBadges = [
-                            'trial_1' => ['label' => 'فترة تجريبية الأولى', 'cls' => 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-700'],
-                            'trial_2' => ['label' => 'تجريبية الثانية', 'cls' => 'bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-700'],
-                            'trial_3' => ['label' => 'تجريبية الثالثة', 'cls' => 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700'],
-                            'official' => ['label' => 'سائق رسمي', 'cls' => 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'],
-                        ];
-                        $stg = $stageBadges[$stgVal] ?? $stageBadges['trial_1'];
-                        ?>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $stg['cls'] ?>">
-                            <?= $stg['label'] ?>
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $probInfo['cls'] ?>">
+                            <span><?= $probInfo['label'] ?></span>
+                            <?php if (!empty($probInfo['sub_label'])): ?>
+                                <span class="opacity-75 text-[10px] font-normal mr-1 font-num">(<?= $probInfo['sub_label'] ?>)</span>
+                            <?php endif; ?>
                         </span>
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                             نشط ميدانياً
@@ -345,7 +398,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                         <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= htmlspecialchars($driver['mother_name'] ?? 'حمو صالح خيرة') ?></strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">العنوان الشخصي:</span>
+                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">العنوان:</span>
                         <strong class="text-slate-900 dark:text-slate-100 font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>"><?= htmlspecialchars($driver['address'] ?? 'حي الحطابة، بلدية أدرار') ?></strong>
                     </div>
                 </div>
@@ -360,27 +413,49 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-3">
                 <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                     <div class="flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <span class="w-2.5 h-2.5 rounded-full <?= $licExpired ? 'bg-rose-500' : ($licExpiringSoon ? 'bg-amber-500' : ($licMissing ? 'bg-slate-400' : 'bg-emerald-500')) ?>"></span>
                         <h4 class="font-black text-slate-900 dark:text-white text-sm">بيانات رخصة السياقة والمهنة</h4>
                     </div>
-                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Permis de Conduire</span>
+                    <?php if ($licExpired): ?>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 font-num">منتهية الصلاحية</span>
+                    <?php elseif ($licExpiringSoon): ?>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">تجديد وشيك</span>
+                    <?php elseif ($licMissing): ?>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-num">غير مسجلة</span>
+                    <?php else: ?>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">سارية المفعول</span>
+                    <?php endif; ?>
                 </div>
                 <div class="space-y-2 text-xs">
                     <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">رقم رخصة السياقة:</span>
-                        <span class="font-num font-bold text-slate-950 dark:text-white text-sm" dir="ltr"><?= htmlspecialchars($driver['license_number'] ?? 'A02669719') ?></span>
+                        <span class="font-num font-bold text-slate-950 dark:text-white text-sm" dir="ltr"><?= !empty($driver['license_number']) ? htmlspecialchars($driver['license_number']) : '<span class="text-slate-400 font-normal">غير مسجل</span>' ?></span>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">تاريخ الإصدار:</span>
-                        <span class="font-num font-bold text-slate-900 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($driver['license_issue_date'] ?? '2022/10/11') ?></span>
+                        <span class="font-num font-bold text-slate-900 dark:text-slate-200" dir="ltr"><?= !empty($driver['license_issue_date']) ? htmlspecialchars($driver['license_issue_date']) : '<span class="text-slate-400 font-normal">—</span>' ?></span>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">جهة الإصدار الرسمية:</span>
-                        <span class="font-bold text-slate-900 dark:text-slate-200"><?= htmlspecialchars($driver['license_issue_place'] ?? 'بلدية أدرار') ?></span>
+                        <span class="font-bold text-slate-900 dark:text-slate-200"><?= !empty($driver['license_issue_place']) ? htmlspecialchars($driver['license_issue_place']) : '<span class="text-slate-400 font-normal">—</span>' ?></span>
                     </div>
                     <div class="flex justify-between items-center py-1">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">صلاحية رخصة السياقة:</span>
-                        <span class="font-num font-bold text-emerald-700 dark:text-emerald-400" dir="ltr"><?= htmlspecialchars($driver['license_expiry'] ?? '2032/10/10') ?></span>
+                        <?php if ($licExpired): ?>
+                            <span class="font-num font-bold text-rose-700 dark:text-rose-400 flex items-center gap-1.5" dir="ltr">
+                                <span><?= htmlspecialchars($lic) ?></span>
+                                <span class="text-[10px] bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-300 dark:border-rose-700 font-semibold">(منتهية منذ <?= abs($licDays) ?> يوم)</span>
+                            </span>
+                        <?php elseif ($licExpiringSoon): ?>
+                            <span class="font-num font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5" dir="ltr">
+                                <span><?= htmlspecialchars($lic) ?></span>
+                                <span class="text-[10px] bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-700 font-semibold">(متبقي <?= $licDays ?> يوم)</span>
+                            </span>
+                        <?php elseif ($licMissing): ?>
+                            <span class="font-bold text-slate-400">غير مسجلة بالنظام</span>
+                        <?php else: ?>
+                            <span class="font-num font-bold text-emerald-700 dark:text-emerald-400" dir="ltr"><?= htmlspecialchars($lic) ?> (سارية)</span>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -397,29 +472,46 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                 <div class="space-y-2 text-xs">
                     <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">رقم تسجيل المركبة (اللوحة الحالية):</span>
-                        <span class="font-num font-black text-slate-950 dark:text-white bg-amber-500/10 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-600/40 text-sm" dir="ltr">
-                            <?= htmlspecialchars($driver['plate_number'] ?? '07039-115-01') ?>
-                        </span>
-                    </div>
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">المركبة السابقة المشطوبة بالدفتر:</span>
-                        <span class="font-num font-semibold text-slate-400 dark:text-slate-500 line-through" dir="ltr">04722-110-01</span>
+                        <?php if (!empty($driver['plate_number'])): ?>
+                            <span class="font-num font-black text-slate-950 dark:text-white bg-amber-500/10 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-600/40 text-sm" dir="ltr">
+                                <?= htmlspecialchars($driver['plate_number']) ?>
+                            </span>
+                        <?php else: ?>
+                            <span class="font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs">
+                                بدون مركبة حالياً (احتياطي)
+                            </span>
+                        <?php endif; ?>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">صنف وطراز المركبة:</span>
-                        <span class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                            <span><?= htmlspecialchars($driver['brand'] ?? 'Dacia') ?> <?= htmlspecialchars($driver['model'] ?? 'Logan Taxi') ?></span>
-                            <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num text-[11px] font-bold" dir="ltr">(باب: <?= htmlspecialchars($driver['door_number'] ?? '01') ?>)</span>
-                        </span>
+                        <?php if (!empty($driver['brand']) || !empty($driver['model'])): ?>
+                            <span class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <span><?= htmlspecialchars(($driver['brand'] ?? '') . ' ' . ($driver['model'] ?? '')) ?></span>
+                                <?php if (!empty($driver['door_number'])): ?>
+                                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num text-[11px] font-bold" dir="ltr">(باب: <?= htmlspecialchars($driver['door_number']) ?>)</span>
+                                <?php endif; ?>
+                            </span>
+                        <?php else: ?>
+                            <span class="text-slate-400 font-normal">—</span>
+                        <?php endif; ?>
                     </div>
                     <div class="flex justify-between items-center py-1">
                         <span class="text-slate-600 dark:text-slate-400 font-medium">مدة صلاحية عقد رخصة الأجرة:</span>
-                        <span class="font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
-                            <span>من</span>
-                            <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_start'] ?? '2024/09/01') ?></span>
-                            <span>إلى</span>
-                            <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_end'] ?? '2027/08/31') ?></span>
-                        </span>
+                        <?php if (!empty($driver['taxi_contract_start']) || !empty($taxiCont)): ?>
+                            <span class="font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1 flex-wrap">
+                                <span>من</span>
+                                <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_start'] ?? '—') ?></span>
+                                <span>إلى</span>
+                                <span class="font-num font-black <?= $taxiContExpired ? 'text-rose-600' : ($taxiContExpiringSoon ? 'text-amber-600' : '') ?>" dir="ltr"><?= htmlspecialchars($taxiCont ?? '—') ?></span>
+                                <?php if ($taxiContExpired): ?>
+                                    <span class="text-[9px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-num font-bold">منتهي</span>
+                                <?php elseif ($taxiContExpiringSoon): ?>
+                                    <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-num font-bold"><?= $taxiContDays ?> يوم</span>
+                                <?php endif; ?>
+                            </span>
+                        <?php else: ?>
+                            <span class="text-slate-400 font-medium">غير محدد</span>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -430,12 +522,26 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
         <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div class="flex items-center gap-2">
-                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <span class="w-2.5 h-2.5 rounded-full <?= $medExpired ? 'bg-rose-500' : ($medExpiringSoon ? 'bg-amber-500' : ($medMissing ? 'bg-slate-400' : 'bg-emerald-500')) ?>"></span>
                     <h4 class="font-black text-slate-900 dark:text-white text-sm">الفحوصات الطبية الدورية (Contrôles Médicaux)</h4>
                 </div>
-                <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">
-                    لائق صحياً وبدنياً
-                </span>
+                <?php if ($medExpired): ?>
+                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 font-num">
+                        ⚠️ منتهي الصلاحية (بحاجة لتجديد فوري)
+                    </span>
+                <?php elseif ($medExpiringSoon): ?>
+                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">
+                        ⏳ وشيك الانتهاء (متبقي <?= $medDays ?> يوم)
+                    </span>
+                <?php elseif ($medMissing): ?>
+                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-num">
+                        فحص طبي غير مسجل
+                    </span>
+                <?php else: ?>
+                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">
+                        ✓ لائق صحياً وبدنياً (ساري المفعول)
+                    </span>
+                <?php endif; ?>
             </div>
 
             <div class="overflow-x-auto">
@@ -451,26 +557,48 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                        <tr class="bg-emerald-50/20 dark:bg-emerald-950/20">
+                        <tr class="<?= $medExpired ? 'bg-rose-50/30 dark:bg-rose-950/20' : ($medExpiringSoon ? 'bg-amber-50/30 dark:bg-amber-950/20' : 'bg-emerald-50/20 dark:bg-emerald-950/20') ?>">
                             <td class="p-2.5 font-bold text-slate-900 dark:text-white">الفحص الطبي الساري (مقررة معتمدة)</td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['medical_exam_start'] ?? '2024/09/01') ?></td>
-                            <td class="p-2.5 font-num font-bold text-slate-950 dark:text-white" dir="ltr"><?= htmlspecialchars($driver['medical_exam_end'] ?? '2026/08/31') ?></td>
+                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['medical_exam_start']) ? htmlspecialchars($driver['medical_exam_start']) : '—' ?></td>
+                            <td class="p-2.5 font-num font-bold text-slate-950 dark:text-white" dir="ltr"><?= !empty($med) ? htmlspecialchars($med) : '—' ?></td>
                             <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">سنتان (24 شهراً)</td>
                             <td class="p-2.5">
-                                <span class="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 font-num" dir="ltr">
-                                    ✓ شهادة طبية معتمدة ومطابقة
-                                </span>
+                                <?php if ($medExpired): ?>
+                                    <span class="inline-flex items-center gap-1 font-bold text-rose-700 dark:text-rose-400 font-num" dir="ltr">
+                                        ✗ منتهي الصلاحية (مطلوب شهادة طبية جديدة)
+                                    </span>
+                                <?php elseif ($medMissing): ?>
+                                    <span class="text-slate-400 font-medium">غير مسجل</span>
+                                <?php else: ?>
+                                    <span class="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 font-num" dir="ltr">
+                                        ✓ شهادة طبية معتمدة ومطابقة
+                                    </span>
+                                <?php endif; ?>
                             </td>
                             <td class="p-2.5 text-center">
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                    ساري الصلاحية
-                                </span>
+                                <?php if ($medExpired): ?>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
+                                        منتهي الصلاحية
+                                    </span>
+                                <?php elseif ($medExpiringSoon): ?>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                        تجديد وشيك
+                                    </span>
+                                <?php elseif ($medMissing): ?>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                        غير مسجل
+                                    </span>
+                                <?php else: ?>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                        ساري الصلاحية
+                                    </span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <tr class="text-slate-500 dark:text-slate-400">
                             <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">الفحص الدوري المجدول القادم</td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_start'] ?? '2026/09/15') ?></td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= htmlspecialchars($driver['next_medical_end'] ?? '2028/09/14') ?></td>
+                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['next_medical_start']) ? htmlspecialchars($driver['next_medical_start']) : '—' ?></td>
+                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['next_medical_end']) ? htmlspecialchars($driver['next_medical_end']) : '—' ?></td>
                             <td class="p-2.5 text-slate-600 dark:text-slate-400">سنتان (تجديد)</td>
                             <td class="p-2.5 font-num text-slate-600 dark:text-slate-400">مجدول دورياً وفق القانون</td>
                             <td class="p-2.5 text-center">
@@ -497,11 +625,11 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
                     <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">تاريخ بداية النشاط:</span>
-                    <strong class="text-slate-950 dark:text-white text-sm font-num font-black" dir="ltr"><?= htmlspecialchars($driver['activity_start_date'] ?? '2024/09/03') ?></strong>
+                    <strong class="text-slate-950 dark:text-white text-sm font-num font-black" dir="ltr"><?= !empty($driver['activity_start_date']) ? htmlspecialchars($driver['activity_start_date']) : '—' ?></strong>
                 </div>
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
                     <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">دفتر المقررة / البطاقة:</span>
-                    <strong class="text-slate-950 dark:text-white text-sm font-num font-bold" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024-047') ?></strong>
+                    <strong class="text-slate-950 dark:text-white text-sm font-num font-bold" dir="ltr"><?= !empty($driver['card_number']) ? htmlspecialchars($driver['card_number']) : '—' ?></strong>
                 </div>
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
                     <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">حالة النشاط والتوقف:</span>

@@ -4,6 +4,11 @@ DirectoryIndex index.php
 # Prevent Directory Browsing
 Options -Indexes
 
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^dashboard/fleet\.php$ /dashboard/vehicles.php [R=301,L]
+</IfModule>
+
 # UTF-8 Encoding
 AddDefaultCharset UTF-8
 
