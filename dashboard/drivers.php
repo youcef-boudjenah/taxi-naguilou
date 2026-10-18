@@ -226,9 +226,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $medEnd = !empty($_POST['medical_exam_end']) ? $_POST['medical_exam_end'] : $medExp;
         if (empty($medExp) && !empty($medEnd)) $medExp = $medEnd;
         if (empty($medEnd) && !empty($medExp)) $medEnd = $medExp;
-        $medVisa = !empty($_POST['medical_visa_date']) ? $_POST['medical_visa_date'] : null;
-        $nextMedStart = !empty($_POST['next_medical_start']) ? $_POST['next_medical_start'] : null;
-        $nextMedEnd = !empty($_POST['next_medical_end']) ? $_POST['next_medical_end'] : null;
 
         $cardNum = trim($_POST['card_number'] ?? '');
         $taxiStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
@@ -238,15 +235,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmtUp = $pdo->prepare("
                 UPDATE users SET 
                     license_number = ?, license_issue_date = ?, license_issue_place = ?, license_expiry = ?,
-                    medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?, medical_visa_date = ?,
-                    next_medical_start = ?, next_medical_end = ?,
+                    medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?,
                     card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?
                 WHERE id = ? AND (role = 'driver' OR role = 'owner')
             ");
             $stmtUp->execute([
                 $licNum, $licIssue, $licPlace, $licExp,
-                $medStart, $medExp, $medEnd, $medVisa,
-                $nextMedStart, $nextMedEnd,
+                $medStart, $medExp, $medEnd,
                 $cardNum, $taxiStart, $taxiEnd,
                 $driverId
             ]);
@@ -1691,46 +1686,6 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
-                <!-- Next Checkup Notification Window Selection (10 أيام / 15 يوم / شهر) -->
-                <div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <label class="block font-black text-amber-950 text-xs flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                            <span>التنبيه المسبق لموعد الفحص الطبي القادم</span>
-                        </label>
-                        <span id="selectedAlertDaysBadge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-200/80 text-amber-900 border border-amber-300 font-num">
-                            تنبيه قبل: شهر (30 يوماً)
-                        </span>
-                    </div>
-
-                    <!-- 3 Quick Buttons: 10 أيام / 15 يوم / شهر -->
-                    <div class="grid grid-cols-3 gap-2.5 text-center text-xs font-bold">
-                        <button type="button" 
-                                onclick="selectMedicalAlertDays(10, this)"
-                                class="med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5">
-                            <span class="font-extrabold text-sm font-num">10 أيام</span>
-                            <span class="text-[10px] text-slate-400 font-medium">إشعار عاجل</span>
-                        </button>
-                        <button type="button" 
-                                onclick="selectMedicalAlertDays(15, this)"
-                                class="med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5">
-                            <span class="font-extrabold text-sm font-num">15 يوماً</span>
-                            <span class="text-[10px] text-slate-400 font-medium">إشعار متوسط</span>
-                        </button>
-                        <button type="button" 
-                                onclick="selectMedicalAlertDays(30, this)"
-                                class="med-alert-btn py-2.5 px-3 rounded-xl border-2 border-amber-500 bg-amber-100/90 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20 cursor-pointer flex flex-col items-center justify-center gap-0.5">
-                            <span class="font-extrabold text-sm">شهر</span>
-                            <span class="text-[10px] text-amber-800 font-semibold font-num">30 يوماً مسبقاً</span>
-                        </button>
-                    </div>
-
-                    <!-- Hidden inputs automatically computed without manual date entry -->
-                    <input type="hidden" name="medical_alert_days" id="medicalAlertDaysInput" value="30">
-                    <input type="hidden" name="next_medical_start" id="nextMedStartHidden" value="">
-                    <input type="hidden" name="next_medical_end" id="nextMedEndHidden" value="">
-                </div>
-
             </div>
 
             <!-- ==============================================
@@ -1970,15 +1925,6 @@ require_once __DIR__ . '/../includes/header.php';
                     <div>
                         <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء صلاحية الفحص (سنتان)</label>
                         <input type="date" name="medical_cert_expiry" id="docMedExpiry" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">تاريخ تأشيرة المراقبة الطبية (DTW)</label>
-                        <input type="date" name="medical_visa_date" id="docMedVisa" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">الفحص المجدول القادم (نهاية الصلاحية)</label>
-                        <input type="date" name="next_medical_end" id="docNextMedEnd" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
-                        <input type="hidden" name="next_medical_start" id="docNextMedStart" value="">
                     </div>
                 </div>
             </div>
@@ -2501,8 +2447,6 @@ require_once __DIR__ . '/../includes/header.php';
     function autoCalculateMedicalDates() {
         const startInput = document.getElementById('medStartInput');
         const endInput = document.getElementById('medEndInput');
-        const nextStart = document.getElementById('nextMedStartHidden');
-        const nextEnd = document.getElementById('nextMedEndHidden');
         if (startInput && startInput.value && endInput) {
             const startDate = new Date(startInput.value);
             if (!isNaN(startDate.getTime())) {
@@ -2510,33 +2454,7 @@ require_once __DIR__ . '/../includes/header.php';
                 endDate.setFullYear(endDate.getFullYear() + 2);
                 endDate.setDate(endDate.getDate() - 1);
                 endInput.value = endDate.toISOString().split('T')[0];
-
-                if (nextStart && nextEnd) {
-                    const nStart = new Date(endDate);
-                    nStart.setDate(nStart.getDate() + 1);
-                    const nEnd = new Date(nStart);
-                    nEnd.setFullYear(nEnd.getFullYear() + 2);
-                    nEnd.setDate(nEnd.getDate() - 1);
-                    nextStart.value = nStart.toISOString().split('T')[0];
-                    nextEnd.value = nEnd.toISOString().split('T')[0];
-                }
             }
-        }
-    }
-
-    function selectMedicalAlertDays(days, btn) {
-        const input = document.getElementById('medicalAlertDaysInput');
-        if (input) input.value = days;
-        const badge = document.getElementById('selectedAlertDaysBadge');
-        if (badge) {
-            const label = days === 30 ? 'شهر (30 يوماً)' : (days + ' يوماً');
-            badge.textContent = 'تنبيه قبل: ' + label;
-        }
-        document.querySelectorAll('.med-alert-btn').forEach(b => {
-            b.className = 'med-alert-btn py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs cursor-pointer flex flex-col items-center justify-center gap-0.5';
-        });
-        if (btn) {
-            btn.className = 'med-alert-btn py-2.5 px-3 rounded-xl border-2 border-amber-500 bg-amber-100/90 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20 cursor-pointer flex flex-col items-center justify-center gap-0.5';
         }
     }
 
@@ -2600,12 +2518,11 @@ require_once __DIR__ . '/../includes/header.php';
         document.getElementById('docLicenseIssuePlace').value = driver.license_issue_place || '';
         document.getElementById('docLicenseExpiry').value = driver.license_expiry || '';
 
-        // Medical fields
-        document.getElementById('docMedStart').value = driver.medical_exam_start || '';
-        document.getElementById('docMedExpiry').value = driver.medical_cert_expiry || driver.medical_exam_end || '';
-        document.getElementById('docMedVisa').value = driver.medical_visa_date || '';
-        document.getElementById('docNextMedStart').value = driver.next_medical_start || '';
-        document.getElementById('docNextMedEnd').value = driver.next_medical_end || '';
+        // Medical fields (بداية ونهاية الفحص فقط)
+        const docStart = document.getElementById('docMedStart');
+        const docExp = document.getElementById('docMedExpiry');
+        if (docStart) docStart.value = driver.medical_exam_start || '';
+        if (docExp) docExp.value = driver.medical_cert_expiry || driver.medical_exam_end || '';
 
         // Taxi contract fields
         document.getElementById('docCardNumber').value = driver.card_number || '';
@@ -2651,15 +2568,10 @@ require_once __DIR__ . '/../includes/header.php';
         end2.setDate(end2.getDate() - 1);
         const end2Str = end2.toISOString().split('T')[0];
 
-        const nextEnd = new Date(end2);
-        nextEnd.setFullYear(nextEnd.getFullYear() + 2);
-        const nextEndStr = nextEnd.toISOString().split('T')[0];
-
-        document.getElementById('docMedStart').value = todayStr;
-        document.getElementById('docMedExpiry').value = end2Str;
-        document.getElementById('docMedVisa').value = todayStr;
-        document.getElementById('docNextMedStart').value = end2Str;
-        document.getElementById('docNextMedEnd').value = nextEndStr;
+        const docStart = document.getElementById('docMedStart');
+        const docExp = document.getElementById('docMedExpiry');
+        if (docStart) docStart.value = todayStr;
+        if (docExp) docExp.value = end2Str;
     }
 
     function renewTaxiContract(years) {

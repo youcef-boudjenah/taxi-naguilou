@@ -539,12 +539,12 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
 
         </div>
 
-        <!-- Section 3: الجدول الرسمي للفحوصات الطبية الدورية (Contrôles Médicaux) -->
+        <!-- Section 3: الفحوصات الطبية الدورية (Visites Médicales) -->
         <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div class="flex items-center gap-2">
                     <span class="w-2.5 h-2.5 rounded-full <?= $medExpired ? 'bg-rose-500' : ($medExpiringSoon ? 'bg-amber-500' : ($medMissing ? 'bg-slate-400' : 'bg-emerald-500')) ?>"></span>
-                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الفحوصات الطبية الدورية (Contrôles Médicaux)</h4>
+                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الفحوصات الطبية الدورية (Visites Médicales)</h4>
                 </div>
                 <?php if ($medExpired): ?>
                     <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 font-num">
@@ -560,76 +560,31 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                     </span>
                 <?php else: ?>
                     <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">
-                        ✓ لائق صحياً وبدنياً (ساري المفعول)
+                        ✓ ساري المفعول (لائق صحياً)
                     </span>
                 <?php endif; ?>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-right text-xs">
-                    <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
-                        <tr>
-                            <th class="p-2.5">الفحص الطبي الدوري</th>
-                            <th class="p-2.5">تاريخ البداية</th>
-                            <th class="p-2.5">تاريخ نهاية الصلاحية</th>
-                            <th class="p-2.5">مدة الصلاحية</th>
-                            <th class="p-2.5">الاعتماد الطبي</th>
-                            <th class="p-2.5 text-center">الوضعية القانونية</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                        <tr class="<?= $medExpired ? 'bg-rose-50/30 dark:bg-rose-950/20' : ($medExpiringSoon ? 'bg-amber-50/30 dark:bg-amber-950/20' : 'bg-emerald-50/20 dark:bg-emerald-950/20') ?>">
-                            <td class="p-2.5 font-bold text-slate-900 dark:text-white">الفحص الطبي الساري (مقررة معتمدة)</td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['medical_exam_start']) ? htmlspecialchars($driver['medical_exam_start']) : '—' ?></td>
-                            <td class="p-2.5 font-num font-bold text-slate-950 dark:text-white" dir="ltr"><?= !empty($med) ? htmlspecialchars($med) : '—' ?></td>
-                            <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">سنتان (24 شهراً)</td>
-                            <td class="p-2.5">
-                                <?php if ($medExpired): ?>
-                                    <span class="inline-flex items-center gap-1 font-bold text-rose-700 dark:text-rose-400 font-num" dir="ltr">
-                                        ✗ منتهي الصلاحية (مطلوب شهادة طبية جديدة)
-                                    </span>
-                                <?php elseif ($medMissing): ?>
-                                    <span class="text-slate-400 font-medium">غير مسجل</span>
-                                <?php else: ?>
-                                    <span class="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 font-num" dir="ltr">
-                                        ✓ شهادة طبية معتمدة ومطابقة
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="p-2.5 text-center">
-                                <?php if ($medExpired): ?>
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
-                                        منتهي الصلاحية
-                                    </span>
-                                <?php elseif ($medExpiringSoon): ?>
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                        تجديد وشيك
-                                    </span>
-                                <?php elseif ($medMissing): ?>
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                        غير مسجل
-                                    </span>
-                                <?php else: ?>
-                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                        ساري الصلاحية
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <tr class="text-slate-500 dark:text-slate-400">
-                            <td class="p-2.5 font-bold text-slate-700 dark:text-slate-300">الفحص الدوري المجدول القادم</td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['next_medical_start']) ? htmlspecialchars($driver['next_medical_start']) : '—' ?></td>
-                            <td class="p-2.5 font-num" dir="ltr"><?= !empty($driver['next_medical_end']) ? htmlspecialchars($driver['next_medical_end']) : '—' ?></td>
-                            <td class="p-2.5 text-slate-600 dark:text-slate-400">سنتان (تجديد)</td>
-                            <td class="p-2.5 font-num text-slate-600 dark:text-slate-400">مجدول دورياً وفق القانون</td>
-                            <td class="p-2.5 text-center">
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                    تجديد مستقبلي
-                                </span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                    <span class="text-slate-500 dark:text-slate-400 block font-semibold text-xs">بداية الفحص الطبي:</span>
+                    <div class="font-num font-bold text-slate-900 dark:text-white text-base" dir="ltr">
+                        <?= !empty($driver['medical_exam_start']) ? htmlspecialchars($driver['medical_exam_start']) : '—' ?>
+                    </div>
+                </div>
+                <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                    <span class="text-slate-500 dark:text-slate-400 block font-semibold text-xs">نهاية صلاحية الفحص:</span>
+                    <div class="flex items-center gap-2">
+                        <span class="font-num font-black <?= $medExpired ? 'text-rose-600 dark:text-rose-400' : ($medExpiringSoon ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400') ?> text-base" dir="ltr">
+                            <?= !empty($med) ? htmlspecialchars($med) : '—' ?>
+                        </span>
+                        <?php if ($medExpired): ?>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 font-num">منتهي منذ <?= abs($medDays) ?> يوم</span>
+                        <?php elseif ($medExpiringSoon): ?>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-num">متبقي <?= $medDays ?> يوم</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
         </div>
 
