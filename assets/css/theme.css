@@ -175,12 +175,81 @@ html.dark textarea:focus {
 }
 
 /* Surface backgrounds in Dark Mode */
-html.dark .bg-white {
+html.dark .bg-white,
+html.dark .bg-white\/95,
+html.dark .bg-white\/90,
+html.dark .bg-white\/85,
+html.dark .bg-white\/80,
+html.dark .bg-white\/75,
+html.dark .bg-white\/70,
+html.dark .bg-white\/60,
+html.dark .bg-white\/50 {
     background-color: #161d27 !important;
 }
 
-html.dark .bg-white\/95 {
-    background-color: rgba(22, 29, 39, 0.95) !important;
+html.dark .bg-white\/40,
+html.dark .bg-white\/30,
+html.dark .bg-white\/20,
+html.dark .bg-white\/10 {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Document Alert Management Section & Cards in Dark Mode */
+html.dark #alertsManagementSection {
+    background-color: #121820 !important;
+    border-color: rgba(244, 63, 94, 0.28) !important;
+}
+
+html.dark .alert-card {
+    background-color: #161d27 !important;
+}
+
+html.dark .alert-card[data-alert-type="expired"] {
+    border-color: rgba(244, 63, 94, 0.4) !important;
+    background-color: rgba(136, 19, 55, 0.16) !important;
+}
+
+html.dark .alert-card[data-alert-type="soon"] {
+    border-color: rgba(245, 158, 11, 0.4) !important;
+    background-color: rgba(120, 53, 15, 0.16) !important;
+}
+
+html.dark .alert-card[data-alert-type="missing"] {
+    border-color: rgba(51, 65, 85, 0.6) !important;
+    background-color: rgba(30, 41, 59, 0.25) !important;
+}
+
+html.dark .alert-card .bg-white\/90,
+html.dark .alert-card .bg-white {
+    background-color: #111827 !important;
+    border-color: #1f2937 !important;
+}
+
+html.dark .alert-card .text-slate-600 {
+    color: #94a3b8 !important;
+}
+
+html.dark .alert-tab-btn {
+    color: #94a3b8 !important;
+}
+
+html.dark .alert-tab-btn.bg-white,
+html.dark .alert-tab-btn[id*="btnAlertTab"].bg-white {
+    background-color: #243245 !important;
+    color: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.dark .alert-tab-btn#btnAlertTab-expired:not(.bg-white) {
+    color: #fb7185 !important;
+}
+
+html.dark .alert-tab-btn#btnAlertTab-soon:not(.bg-white) {
+    color: #fbbf24 !important;
+}
+
+html.dark .alert-tab-btn#btnAlertTab-missing:not(.bg-white) {
+    color: #cbd5e1 !important;
 }
 
 html.dark .bg-slate-50,

@@ -690,42 +690,42 @@ require_once __DIR__ . '/../includes/header.php';
 
     <!-- SECTION 1: Alert Management Area (مركز إدارة التنبيهات وتجديد الوثائق) -->
     <?php if (!empty($alertDrivers)): ?>
-        <div class="bg-white rounded-2xl border border-rose-200 shadow-xs p-5 space-y-4" id="alertsManagementSection">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-rose-100 pb-3">
+        <div class="bg-white dark:bg-[#121820] rounded-2xl border border-rose-200 dark:border-rose-950/70 shadow-xs p-5 space-y-4" id="alertsManagementSection">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-rose-100 dark:border-slate-800/80 pb-3">
                 <div class="flex items-center gap-2.5">
-                    <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                    <div class="w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                         </svg>
                     </div>
                     <div>
                         <div class="flex items-center gap-2">
-                            <h3 class="font-bold text-slate-900 text-sm">مركز إدارة تنبيهات الوثائق والرخص (Contrôle & Alertes)</h3>
-                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 font-num">
+                            <h3 class="font-bold text-slate-900 dark:text-slate-100 text-sm">مركز إدارة تنبيهات الوثائق والرخص (Contrôle & Alertes)</h3>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-num">
                                 <?= $countAlerts ?> تنبيهات
                             </span>
                         </div>
-                        <p class="text-xs text-slate-500 mt-0.5">انقر على زر "إدارة وتجديد الوثائق" لأي سائق لتحديث رخصة السياقة، الفحص الطبي، وعقد الاستغلال فورياً</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">انقر على زر "إدارة وتجديد الوثائق" لأي سائق لتحديث رخصة السياقة، الفحص الطبي، وعقد الاستغلال فورياً</p>
                     </div>
                 </div>
 
                 <!-- Alert Filter Tabs -->
-                <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold shrink-0">
-                    <button type="button" onclick="filterAlertCards('all')" id="btnAlertTab-all" class="alert-tab-btn px-2.5 py-1 rounded-lg bg-white text-slate-900 shadow-2xs transition">
+                <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl text-xs font-bold shrink-0 border border-slate-200/50 dark:border-slate-700/60">
+                    <button type="button" onclick="filterAlertCards('all')" id="btnAlertTab-all" class="alert-tab-btn px-2.5 py-1 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition">
                         الكل (<?= $countAlerts ?>)
                     </button>
                     <?php if ($countExpired > 0): ?>
-                    <button type="button" onclick="filterAlertCards('expired')" id="btnAlertTab-expired" class="alert-tab-btn px-2.5 py-1 rounded-lg text-rose-700 hover:bg-white/60 transition">
+                    <button type="button" onclick="filterAlertCards('expired')" id="btnAlertTab-expired" class="alert-tab-btn px-2.5 py-1 rounded-lg text-rose-700 dark:text-rose-400 hover:bg-white/60 dark:hover:bg-slate-700/60 transition">
                         منتهية (<?= $countExpired ?>)
                     </button>
                     <?php endif; ?>
                     <?php if ($countExpiringSoon > 0): ?>
-                    <button type="button" onclick="filterAlertCards('soon')" id="btnAlertTab-soon" class="alert-tab-btn px-2.5 py-1 rounded-lg text-amber-700 hover:bg-white/60 transition">
+                    <button type="button" onclick="filterAlertCards('soon')" id="btnAlertTab-soon" class="alert-tab-btn px-2.5 py-1 rounded-lg text-amber-700 dark:text-amber-400 hover:bg-white/60 dark:hover:bg-slate-700/60 transition">
                         وشيكة (<?= $countExpiringSoon ?>)
                     </button>
                     <?php endif; ?>
                     <?php if ($countMissingDocs > 0): ?>
-                    <button type="button" onclick="filterAlertCards('missing')" id="btnAlertTab-missing" class="alert-tab-btn px-2.5 py-1 rounded-lg text-slate-600 hover:bg-white/60 transition">
+                    <button type="button" onclick="filterAlertCards('missing')" id="btnAlertTab-missing" class="alert-tab-btn px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 transition">
                         ناقصة (<?= $countMissingDocs ?>)
                     </button>
                     <?php endif; ?>
@@ -735,69 +735,73 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5" id="alertCardsContainer">
                 <?php foreach ($alertDrivers as $expD): 
                     $cardType = $expD['has_expired'] ? 'expired' : ($expD['has_expiring_soon'] ? 'soon' : 'missing');
-                    $borderCls = $expD['has_expired'] ? 'border-rose-200 bg-rose-50/30' : ($expD['has_expiring_soon'] ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-slate-50/50');
+                    $borderCls = $expD['has_expired'] 
+                        ? 'border-rose-200 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/20' 
+                        : ($expD['has_expiring_soon'] 
+                            ? 'border-amber-200 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20' 
+                            : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30');
                 ?>
                     <div class="alert-card p-4 rounded-2xl border <?= $borderCls ?> space-y-3 transition-all hover:shadow-sm" data-alert-type="<?= $cardType ?>">
                         <div class="flex items-start justify-between gap-2">
                             <div class="flex items-center gap-2.5 min-w-0">
-                                <div class="w-9 h-9 rounded-xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
+                                <div class="w-9 h-9 rounded-xl overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-2xs">
                                     <?php if (!empty($expD['avatar_url'])): ?>
                                         <img src="<?= url($expD['avatar_url']) ?>" alt="<?= htmlspecialchars($expD['full_name']) ?>" class="w-full h-full object-cover">
                                     <?php else: ?>
-                                        <span class="text-xs font-bold text-slate-600"><?= mb_substr($expD['full_name'], 0, 1) ?></span>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-300"><?= mb_substr($expD['full_name'], 0, 1) ?></span>
                                     <?php endif; ?>
                                 </div>
                                 <div class="min-w-0">
-                                    <a href="driver_fiche.php?id=<?= $expD['id'] ?>" class="font-bold text-slate-900 text-xs hover:text-amber-600 transition truncate block">
+                                    <a href="driver_fiche.php?id=<?= $expD['id'] ?>" class="font-bold text-slate-900 dark:text-slate-100 text-xs hover:text-amber-500 transition truncate block">
                                         <?= htmlspecialchars($expD['full_name']) ?>
                                     </a>
-                                    <div class="text-[11px] text-slate-500 font-num" dir="ltr"><?= htmlspecialchars($expD['phone']) ?></div>
+                                    <div class="text-[11px] text-slate-500 dark:text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($expD['phone']) ?></div>
                                 </div>
                             </div>
                             <?php if ($expD['has_expired']): ?>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 shrink-0">منتهية</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/80 shrink-0">منتهية</span>
                             <?php elseif ($expD['has_expiring_soon']): ?>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">وشيكة</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80 shrink-0">وشيكة</span>
                             <?php else: ?>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 text-slate-800 border border-slate-300 shrink-0">ناقصة</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700 shrink-0">ناقصة</span>
                             <?php endif; ?>
                         </div>
 
                         <!-- Documents status list -->
                         <div class="space-y-1.5 text-xs">
                             <!-- License -->
-                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
-                                <span class="text-slate-600 text-[11px] font-semibold">رخصة السياقة:</span>
+                            <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">رخصة السياقة:</span>
                                 <?php if ($expD['lic_expired']): ?>
-                                    <span class="font-num text-[11px] font-bold text-rose-700">منتهية منذ <?= abs($expD['lic_days']) ?> يوماً</span>
+                                    <span class="font-num text-[11px] font-bold text-rose-700 dark:text-rose-400">منتهية منذ <?= abs($expD['lic_days']) ?> يوماً</span>
                                 <?php elseif ($expD['lic_expiring_soon']): ?>
-                                    <span class="font-num text-[11px] font-bold text-amber-700">تنتهي خلال <?= $expD['lic_days'] ?> يوماً</span>
+                                    <span class="font-num text-[11px] font-bold text-amber-700 dark:text-amber-400">تنتهي خلال <?= $expD['lic_days'] ?> يوماً</span>
                                 <?php elseif ($expD['lic_missing']): ?>
-                                    <span class="text-[11px] font-bold text-rose-500">غير مسجلة</span>
+                                    <span class="text-[11px] font-bold text-rose-500 dark:text-rose-400">غير مسجلة</span>
                                 <?php else: ?>
-                                    <span class="font-num text-[11px] font-semibold text-emerald-700">سارية (<?= htmlspecialchars($expD['lic_date']) ?>)</span>
+                                    <span class="font-num text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">سارية (<?= htmlspecialchars($expD['lic_date']) ?>)</span>
                                 <?php endif; ?>
                             </div>
 
                             <!-- Medical -->
-                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
-                                <span class="text-slate-600 text-[11px] font-semibold">الفحص الطبي الدوري:</span>
+                            <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">الفحص الطبي الدوري:</span>
                                 <?php if ($expD['med_expired']): ?>
-                                    <span class="font-num text-[11px] font-bold text-rose-700">منتهي منذ <?= abs($expD['med_days']) ?> يوماً</span>
+                                    <span class="font-num text-[11px] font-bold text-rose-700 dark:text-rose-400">منتهي منذ <?= abs($expD['med_days']) ?> يوماً</span>
                                 <?php elseif ($expD['med_expiring_soon']): ?>
-                                    <span class="font-num text-[11px] font-bold text-amber-700">ينتهي خلال <?= $expD['med_days'] ?> يوماً</span>
+                                    <span class="font-num text-[11px] font-bold text-amber-700 dark:text-amber-400">ينتهي خلال <?= $expD['med_days'] ?> يوماً</span>
                                 <?php elseif ($expD['med_missing']): ?>
-                                    <span class="text-[11px] font-bold text-rose-500">غير مسجل (مطلوب)</span>
+                                    <span class="text-[11px] font-bold text-rose-500 dark:text-rose-400">غير مسجل (مطلوب)</span>
                                 <?php else: ?>
-                                    <span class="font-num text-[11px] font-semibold text-emerald-700">ساري (<?= htmlspecialchars($expD['med_date']) ?>)</span>
+                                    <span class="font-num text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">ساري (<?= htmlspecialchars($expD['med_date']) ?>)</span>
                                 <?php endif; ?>
                             </div>
 
                             <!-- Taxi Contract if applicable -->
                             <?php if (!empty($expD['cont_date']) && ($expD['cont_expired'] || $expD['cont_expiring_soon'])): ?>
-                            <div class="flex justify-between items-center bg-white/90 p-2 rounded-xl border border-slate-100">
-                                <span class="text-slate-600 text-[11px] font-semibold">عقد استغلال الأجرة:</span>
-                                <span class="font-num text-[11px] font-bold <?= $expD['cont_expired'] ? 'text-rose-700' : 'text-amber-700' ?>">
+                            <div class="flex justify-between items-center bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <span class="text-slate-600 dark:text-slate-400 text-[11px] font-semibold">عقد استغلال الأجرة:</span>
+                                <span class="font-num text-[11px] font-bold <?= $expD['cont_expired'] ? 'text-rose-700 dark:text-rose-400' : 'text-amber-700 dark:text-amber-400' ?>">
                                     <?= $expD['cont_expired'] ? 'منتهي منذ ' . abs($expD['cont_days']) . ' يوم' : 'ينتهي خلال ' . $expD['cont_days'] . ' يوم' ?>
                                 </span>
                             </div>
@@ -808,14 +812,14 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="pt-1 flex items-center gap-2">
                             <button type="button" 
                                     onclick='openManageDocsModal(<?= htmlspecialchars(json_encode($expD, JSON_UNESCAPED_UNICODE), ENT_QUOTES, "UTF-8") ?>)'
-                                    class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs cursor-pointer">
+                                    class="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 dark:border dark:border-slate-700 text-white font-bold text-xs transition shadow-xs cursor-pointer">
                                 <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
                                 </svg>
                                 <span>إدارة وتجديد الوثائق</span>
                             </button>
                             <a href="driver_fiche.php?id=<?= $expD['id'] ?>" target="_blank"
-                               class="p-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition shadow-2xs" title="معاينة البطاقة الفنية">
+                               class="p-2 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition shadow-2xs" title="معاينة البطاقة الفنية">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                                 </svg>
@@ -861,9 +865,9 @@ require_once __DIR__ . '/../includes/header.php';
             </a>
 
             <a href="drivers.php?filter=actifs<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' ?>">
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'actifs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200' ?>">
                 <span>نشطون</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/90 font-num font-bold text-slate-900"><?= $countActifs ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] <?= $filter === 'actifs' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200' ?> font-num font-bold"><?= $countActifs ?></span>
             </a>
 
             <a href="drivers.php?filter=official<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
@@ -2551,13 +2555,13 @@ require_once __DIR__ . '/../includes/header.php';
     function filterAlertCards(tab) {
         const buttons = document.querySelectorAll('.alert-tab-btn');
         buttons.forEach(btn => {
-            btn.classList.remove('bg-white', 'text-slate-900', 'shadow-2xs');
-            btn.classList.add('text-slate-600');
+            btn.classList.remove('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+            btn.classList.add('text-slate-600', 'dark:text-slate-400');
         });
         const activeBtn = document.getElementById('btnAlertTab-' + tab);
         if (activeBtn) {
-            activeBtn.classList.add('bg-white', 'text-slate-900', 'shadow-2xs');
-            activeBtn.classList.remove('text-slate-600');
+            activeBtn.classList.add('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+            activeBtn.classList.remove('text-slate-600', 'dark:text-slate-400');
         }
 
         const cards = document.querySelectorAll('.alert-card');
