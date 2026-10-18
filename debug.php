@@ -1,12 +1,9 @@
 <?php
 // debug.php - Bluehost / Shared Hosting Diagnostic & Health Check Tool
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+require_once __DIR__ . '/includes/auth.php';
+require_login();
+require_role(['super_admin', 'admin']);
 
-if (session_status() === PHP_SESSION_NONE) {
-    @session_start();
-}
 
 $dbConfigExists = file_exists(__DIR__ . '/config/db.php');
 if ($dbConfigExists) {

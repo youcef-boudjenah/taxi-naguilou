@@ -1300,13 +1300,13 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">اللقب (Nom de famille) <span class="text-rose-500">*</span></label>
-                                <input type="text" name="last_name" id="inputLastName" placeholder="مثال: حمو صالح" value="حمو صالح"
+                                <input type="text" name="last_name" id="inputLastName" placeholder="مثال: بلبشير" value=""
                                        oninput="updateDriverPreviewName()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">الاسم (Prénom) <span class="text-rose-500">*</span></label>
-                                <input type="text" name="first_name" id="inputFirstName" placeholder="مثال: يوسف" value="يوسف"
+                                <input type="text" name="first_name" id="inputFirstName" placeholder="مثال: بوجمعة" value=""
                                        oninput="updateDriverPreviewName()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
@@ -1316,12 +1316,12 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">تاريخ الازدياد (Date de Naissance)</label>
-                                <input type="date" name="birth_date" value="1983-05-18"
+                                <input type="date" name="birth_date" value=""
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">مكان الازدياد (Lieu de Naissance)</label>
-                                <input type="text" name="birth_place" placeholder="مثال: بعريانو تامست، أدرار" value="بعريانو تامست"
+                                <input type="text" name="birth_place" placeholder="مثال: أدرار" value=""
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                         </div>
@@ -1330,12 +1330,12 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">اسم الأب (إبن)</label>
-                                <input type="text" name="father_name" placeholder="مثال: أحمد" value="أحمد"
+                                <input type="text" name="father_name" placeholder="مثال: اسم الأب" value=""
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">اسم ولقب الأم (وابن)</label>
-                                <input type="text" name="mother_name" placeholder="مثال: حمو صالح خيرة" value="حمو صالح خيرة"
+                                <input type="text" name="mother_name" placeholder="مثال: اسم ولقب الأم" value=""
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                             </div>
                         </div>
@@ -1345,7 +1345,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">رقم الهاتف <span class="text-rose-500">*</span></label>
                                 <div class="relative">
-                                    <input type="tel" name="phone" id="inputPhone" placeholder="0661234567" dir="ltr" value="0661234567"
+                                    <input type="tel" name="phone" id="inputPhone" placeholder="06XXXXXXXX" dir="ltr" value=""
                                            oninput="updateDriverPreviewPhone()"
                                            class="w-full pl-12 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-slate-50/60 focus:bg-white text-right transition shadow-2xs">
                                     <span class="absolute left-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-[10px] font-num font-bold bg-slate-200 text-slate-700">🇩🇿 +213</span>
@@ -1353,7 +1353,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
                             <div>
                                 <label class="block font-bold text-slate-700 mb-1.5">العنوان</label>
-                                <input type="text" name="address" id="inputAddress" placeholder="حي الحطابة أدرار" value="حي الحطابة أدرار"
+                                <input type="text" name="address" id="inputAddress" placeholder="مثال: حي 20 مسكن، أدرار" value=""
                                        oninput="updateDriverPreviewAddress()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                                 <input type="hidden" name="wilaya" value="01 - أدرار">
@@ -1385,17 +1385,17 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">رقم رخصة السياقة</label>
-                            <input type="text" name="license_number" placeholder="مثال: A02669719" dir="ltr" value="A02669719"
+                            <input type="text" name="license_number" placeholder="مثال: رقم رخصة السياقة" dir="ltr" value=""
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num text-right bg-white transition shadow-2xs">
                         </div>
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">تاريخ الإصدار (Délivré le)</label>
-                            <input type="date" name="license_issue_date" value="2008-03-24"
+                            <input type="date" name="license_issue_date" value=""
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">جهة الإصدار (Délivré par)</label>
-                            <input type="text" name="license_issue_place" placeholder="مثال: بلدية أدرار" value="بلدية أدرار"
+                            <input type="text" name="license_issue_place" placeholder="مثال: بلدية / دائرة الإصدار" value=""
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
                         </div>
                     </div>
@@ -1403,7 +1403,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">تاريخ انتهاء صلاحية الرخصة</label>
-                            <input type="date" name="license_expiry" value="2028-03-23"
+                            <input type="date" name="license_expiry" value=""
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
                         <div>
@@ -1419,8 +1419,8 @@ require_once __DIR__ . '/../includes/header.php';
                                 <input type="text" 
                                        name="activity_start_period" 
                                        id="inputActivityPeriod" 
-                                       value="07/2005" 
-                                       placeholder="07/2005" 
+                                       value="" 
+                                       placeholder="MM/YYYY (مثال: 09/2024)" 
                                        dir="ltr" 
                                        maxlength="7"
                                        oninput="formatMonthYearInput(this)"
@@ -1435,12 +1435,12 @@ require_once __DIR__ . '/../includes/header.php';
                                     </label>
                                     <input type="month" 
                                            id="nativeMonthPicker" 
-                                           value="2005-07" 
+                                           value="" 
                                            class="sr-only" 
                                            onchange="syncNativeMonthToInput(this)">
                                 </div>
                             </div>
-                            <span class="text-[11px] text-slate-500 font-medium mt-1 block">الشهر والسنة فقط (مثال: 07/2005)</span>
+                            <span class="text-[11px] text-slate-500 font-medium mt-1 block">الشهر والسنة فقط (مثال: 09/2024)</span>
                             <input type="hidden" name="card_number" value="">
                         </div>
                     </div>
@@ -1522,7 +1522,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
 
                     <!-- Hidden inputs to seamlessly populate existing PHP and DB handlers -->
-                    <input type="hidden" name="activity_start_date" id="inputActivityStartDate" value="2005-07-01">
+                    <input type="hidden" name="activity_start_date" id="inputActivityStartDate" value="">
                     <input type="hidden" name="probation_stage" id="inputProbationStage" value="trial_1">
                     <input type="checkbox" name="is_manual_official" id="checkManualOfficial" value="1" class="hidden">
                 </div>
@@ -1548,7 +1548,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         <div>
                             <label class="block font-bold text-slate-700 mb-1.5">صلاحية الفحص الطبي: من (Date début)</label>
-                            <input type="date" name="medical_exam_start" id="medStartInput" value="2024-09-01"
+                            <input type="date" name="medical_exam_start" id="medStartInput" value=""
                                    onchange="autoCalculateMedicalDates()"
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
@@ -1557,7 +1557,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 <span>صلاحية الفحص الطبي: إلى (Fin - سنتين)</span>
                                 <span class="text-[10px] text-emerald-600 font-normal mr-1">(محسوب تلقائياً)</span>
                             </label>
-                            <input type="date" name="medical_exam_end" id="medEndInput" value="2026-08-31"
+                            <input type="date" name="medical_exam_end" id="medEndInput" value=""
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
                     </div>
@@ -1599,8 +1599,8 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <!-- Hidden inputs automatically computed without manual date entry -->
                     <input type="hidden" name="medical_alert_days" id="medicalAlertDaysInput" value="30">
-                    <input type="hidden" name="next_medical_start" id="nextMedStartHidden" value="2026-09-01">
-                    <input type="hidden" name="next_medical_end" id="nextMedEndHidden" value="2028-08-31">
+                    <input type="hidden" name="next_medical_start" id="nextMedStartHidden" value="">
+                    <input type="hidden" name="next_medical_end" id="nextMedEndHidden" value="">
                 </div>
 
             </div>
@@ -1661,21 +1661,21 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="min-w-0 flex-1 space-y-1">
                             <div class="flex items-center gap-2">
-                                <h4 id="livePreviewName" class="font-black text-sm text-white truncate">يوسف حمو صالح</h4>
-                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">نشط</span>
+                                <h4 id="livePreviewName" class="font-black text-sm text-white truncate">اسم ولقب السائق</h4>
+                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">جديد</span>
                                 <span id="livePreviewStageBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                     فترة تجريبية الأولى
                                 </span>
                             </div>
                             <div class="text-[11px] text-slate-300 flex items-center gap-2 font-num">
-                                <span id="livePreviewPhone">0661234567</span>
+                                <span id="livePreviewPhone">—</span>
                                 <span>•</span>
-                                <span id="livePreviewAddress">حي الحطابة أدرار</span>
+                                <span id="livePreviewAddress">—</span>
                             </div>
                             <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2">
                                 <span>المركبة: <strong id="livePreviewVehicle" class="text-white font-num font-bold">لم تعين بعد</strong></span>
                                 <span>•</span>
-                                <span>المقررة: <strong id="livePreviewPeriodBadge" class="text-white font-num font-bold">07/2005</strong></span>
+                                <span>المقررة: <strong id="livePreviewPeriodBadge" class="text-white font-num font-bold">—</strong></span>
                             </div>
                         </div>
                     </div>
@@ -1910,13 +1910,23 @@ require_once __DIR__ . '/../includes/header.php';
         modal.classList.remove('hidden');
         modal.classList.add('flex');
         document.body.classList.add('overflow-hidden');
-        goToWizardStep(1);
-        const initialVal = document.getElementById('inputActivityPeriod')?.value || '07/2005';
-        syncMonthPeriodValues(initialVal);
-        selectProbationStage('trial_1', true);
+        
+        // Reset form for clean production entry
+        const form = document.getElementById('addDriverForm');
+        if (form) form.reset();
+
+        userManuallySelectedStage = false;
+        selectProbationStage('trial_1', false);
+
         updateDriverPreviewName();
         updateDriverPreviewPhone();
+        updateDriverPreviewAddress();
         updateDriverPreviewVehicle();
+
+        const previewBadge = document.getElementById('livePreviewPeriodBadge');
+        if (previewBadge) previewBadge.textContent = '—';
+
+        goToWizardStep(1);
     }
 
     function closeAddDriverModal() {
@@ -2298,26 +2308,26 @@ require_once __DIR__ . '/../includes/header.php';
     function updateDriverPreviewName() {
         const first = document.getElementById('inputFirstName')?.value.trim() || '';
         const last = document.getElementById('inputLastName')?.value.trim() || '';
-        const fullName = (first + ' ' + last).trim() || 'اسم السائق';
+        const fullName = (first + ' ' + last).trim() || 'اسم ولقب السائق';
         
         const previewName = document.getElementById('livePreviewName');
         const previewInitials = document.getElementById('livePreviewInitials');
 
         if (previewName) previewName.textContent = fullName;
-        if (previewInitials && first) {
-            previewInitials.textContent = first.charAt(0);
+        if (previewInitials) {
+            previewInitials.textContent = first ? first.charAt(0) : '?';
         }
     }
 
     // Live preview phone
     function updateDriverPreviewPhone() {
-        const phone = document.getElementById('inputPhone')?.value.trim() || '0661000000';
+        const phone = document.getElementById('inputPhone')?.value.trim() || '—';
         const previewPhone = document.getElementById('livePreviewPhone');
         if (previewPhone) previewPhone.textContent = phone;
     }
 
     function updateDriverPreviewAddress() {
-        const addr = document.getElementById('inputAddress')?.value.trim() || 'العنوان';
+        const addr = document.getElementById('inputAddress')?.value.trim() || '—';
         const previewAddr = document.getElementById('livePreviewAddress');
         if (previewAddr) previewAddr.textContent = addr;
     }
@@ -2607,8 +2617,12 @@ require_once __DIR__ . '/../includes/header.php';
 
     // Initial probation stage / period selection
     window.addEventListener('DOMContentLoaded', function() {
-        const initialVal = document.getElementById('inputActivityPeriod')?.value || '07/2005';
-        syncMonthPeriodValues(initialVal);
+        const initialVal = document.getElementById('inputActivityPeriod')?.value || '';
+        if (initialVal) {
+            syncMonthPeriodValues(initialVal);
+        } else {
+            selectProbationStage('trial_1', false);
+        }
     });
 
     <?php if (!empty($_GET['open_docs_id'])): 

@@ -376,30 +376,32 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 text-xs">
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">اللقب (Nom):</span>
-                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= htmlspecialchars($driver['last_name'] ?? 'حمو صالح') ?></strong>
+                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= !empty($driver['last_name']) ? htmlspecialchars($driver['last_name']) : '—' ?></strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">الاسم (Prénom):</span>
-                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= htmlspecialchars($driver['first_name'] ?? 'يوسف') ?></strong>
+                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= !empty($driver['first_name']) ? htmlspecialchars($driver['first_name']) : '—' ?></strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">تاريخ ومكان الازدياد:</span>
                         <strong class="text-slate-950 dark:text-white font-bold flex items-center gap-1">
-                            <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['birth_date'] ?? '1992/04/01') ?></span> 
-                            <span>(<?= htmlspecialchars($driver['birth_place'] ?? 'بعريانو تامست') ?>)</span>
+                            <span class="font-num" dir="ltr"><?= !empty($driver['birth_date']) ? htmlspecialchars($driver['birth_date']) : '—' ?></span> 
+                            <?php if (!empty($driver['birth_place'])): ?>
+                                <span>(<?= htmlspecialchars($driver['birth_place']) ?>)</span>
+                            <?php endif; ?>
                         </strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">ابن (Fils de):</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= htmlspecialchars($driver['father_name'] ?? 'أحمد') ?></strong>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= !empty($driver['father_name']) ? htmlspecialchars($driver['father_name']) : '—' ?></strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">و (Et de):</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= htmlspecialchars($driver['mother_name'] ?? 'حمو صالح خيرة') ?></strong>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= !empty($driver['mother_name']) ? htmlspecialchars($driver['mother_name']) : '—' ?></strong>
                     </div>
                     <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
                         <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">العنوان:</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>"><?= htmlspecialchars($driver['address'] ?? 'حي الحطابة، بلدية أدرار') ?></strong>
+                        <strong class="text-slate-900 dark:text-slate-100 font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>"><?= !empty($driver['address']) ? htmlspecialchars($driver['address']) : '—' ?></strong>
                     </div>
                 </div>
             </div>
