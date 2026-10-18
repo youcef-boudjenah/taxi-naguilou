@@ -1404,9 +1404,41 @@ require_once __DIR__ . '/../includes/header.php';
                                    class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num bg-white transition shadow-2xs">
                         </div>
                         <div>
-                            <label class="block font-bold text-slate-700 mb-1.5">رقم دفتر المقررة / البطاقة المهنية</label>
-                            <input type="text" name="card_number" placeholder="مثال: LIV-01-2024-047" dir="ltr" value="LIV-01-2024-047"
-                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 font-num text-right bg-white transition shadow-2xs">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <label class="block font-bold text-slate-700">
+                                    <span>المرحلة والوضعية المهنية (دفتر المقررة)</span>
+                                    <span class="text-rose-500">*</span>
+                                </label>
+                                <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-1.5 py-0.2 rounded font-num">3 أشهر/مرحلة</span>
+                            </div>
+                            <div class="relative w-full">
+                                <!-- Direct visible input showing MM/YYYY -->
+                                <input type="text" 
+                                       name="activity_start_period" 
+                                       id="inputActivityPeriod" 
+                                       value="07/2005" 
+                                       placeholder="07/2005" 
+                                       dir="ltr" 
+                                       maxlength="7"
+                                       oninput="formatMonthYearInput(this)"
+                                       class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                                
+                                <!-- Native Month Picker Trigger Button & Hidden Native Input -->
+                                <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center">
+                                    <label for="nativeMonthPicker" class="cursor-pointer text-slate-400 hover:text-amber-600 transition p-1" title="اختيار الشهر والسنة من الروزنامة">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
+                                        </svg>
+                                    </label>
+                                    <input type="month" 
+                                           id="nativeMonthPicker" 
+                                           value="2005-07" 
+                                           class="sr-only" 
+                                           onchange="syncNativeMonthToInput(this)">
+                                </div>
+                            </div>
+                            <span class="text-[11px] text-slate-500 font-medium mt-1 block">الشهر والسنة فقط (مثال: 07/2005)</span>
+                            <input type="hidden" name="card_number" value="">
                         </div>
                     </div>
                 </div>
@@ -1414,48 +1446,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <!-- Driver Status Type (Default to 'ajir' as requested) -->
                 <input type="hidden" name="driver_type" value="ajir">
 
-                <!-- المرحلة والوضعية المهنية للسائق (دفتر المقررة) -->
+                <!-- دورة التدرج المهني للسائق (3 أشهر لكل مرحلة) -->
                 <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <label class="block font-black text-slate-900 text-xs">
-                            <span>المرحلة والوضعية المهنية للسائق (دفتر المقررة)</span>
-                            <span class="text-rose-500">*</span>
-                        </label>
-                        <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md font-num">
-                            3 أشهر لكل مرحلة
-                        </span>
-                    </div>
-
-                    <div class="flex flex-col sm:flex-row sm:items-center gap-3">
-                        <div class="relative w-full sm:w-64">
-                            <!-- Direct visible input showing MM/YYYY -->
-                            <input type="text" 
-                                   name="activity_start_period" 
-                                   id="inputActivityPeriod" 
-                                   value="07/2005" 
-                                   placeholder="07/2005" 
-                                   dir="ltr" 
-                                   maxlength="7"
-                                   oninput="formatMonthYearInput(this)"
-                                   class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
-                            
-                            <!-- Native Month Picker Trigger Button & Hidden Native Input -->
-                            <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center">
-                                <label for="nativeMonthPicker" class="cursor-pointer text-slate-400 hover:text-amber-600 transition p-1" title="اختيار الشهر والسنة من الروزنامة">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5" />
-                                    </svg>
-                                </label>
-                                <input type="month" 
-                                       id="nativeMonthPicker" 
-                                       value="2005-07" 
-                                       class="sr-only" 
-                                       onchange="syncNativeMonthToInput(this)">
-                            </div>
-                        </div>
-
-                        <span class="text-[11px] text-slate-500 font-medium">الشهر والسنة فقط (مثال: 07/2005)</span>
-                    </div>
 
                     <!-- Probation Cycle Rule Indicator (3 months per stage) -->
                     <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5">
@@ -1659,7 +1651,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2">
                                 <span>المركبة: <strong id="livePreviewVehicle" class="text-white font-num font-bold">لم تعين بعد</strong></span>
                                 <span>•</span>
-                                <span>دفتر المقررة: LIV-01-2024-047</span>
+                                <span>المقررة: <strong id="livePreviewPeriodBadge" class="text-white font-num font-bold">07/2005</strong></span>
                             </div>
                         </div>
                     </div>
@@ -2039,6 +2031,7 @@ require_once __DIR__ . '/../includes/header.php';
     function syncMonthPeriodValues(val) {
         const hiddenDate = document.getElementById('inputActivityStartDate');
         const nativePicker = document.getElementById('nativeMonthPicker');
+        const previewBadge = document.getElementById('livePreviewPeriodBadge');
 
         const parts = (val || '').split('/');
         if (parts.length === 2 && parts[0].length === 2 && parts[1].length === 4) {
@@ -2046,6 +2039,9 @@ require_once __DIR__ . '/../includes/header.php';
             const year = parts[1];
             if (hiddenDate) hiddenDate.value = year + '-' + month + '-01';
             if (nativePicker) nativePicker.value = year + '-' + month;
+        }
+        if (previewBadge && val) {
+            previewBadge.textContent = val;
         }
         updateProbationProgressionUI(val);
     }
