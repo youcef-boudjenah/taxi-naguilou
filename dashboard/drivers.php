@@ -187,6 +187,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Quick Toggle Driver Type (بديل / أساسي)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_driver_type') {
+    require_csrf_token();
+    if (!is_admin() && !is_owner()) {
+        set_flash('error', 'عذراً، فقط إدارة المنصة ومالك الأسطول مخولان بتعديل تصنيف السائق.');
+        redirect('/dashboard/drivers.php');
+    }
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $targetType = trim($_POST['driver_type'] ?? 'ajir');
+    if ($driverId > 0 && in_array($targetType, ['ajir', 'replacement'])) {
+        $stmtUpdate = $pdo->prepare("UPDATE users SET driver_type = ? WHERE id = ? AND (role = 'driver' OR role = 'owner')");
+        $stmtUpdate->execute([$targetType, $driverId]);
+        $typeLabel = ($targetType === 'replacement') ? 'سائق بديل' : 'سائق أساسي';
+        log_audit($pdo, 'driver_type_updated', 'users', $driverId, "تحديث تصنيف السائق إلى: $typeLabel");
+        set_flash('success', "تم تحديث وضعية السائق إلى ($typeLabel) بنجاح");
+    }
+    $retFilter = trim($_POST['return_filter'] ?? '');
+    redirect('/dashboard/drivers.php' . (!empty($retFilter) ? '?filter=' . urlencode($retFilter) : ''));
+}
+
 // Handle Update Driver Documents & Renewals (إدارة وتجديد وثائق السائق)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_docs') {
     require_csrf_token();
@@ -483,7 +503,10 @@ if ($pdo) {
                    MAX(v.model) as model, 
                    MAX(v.door_number) as door_number,
                    MAX(v.technical_control_expiry) as veh_tc_expiry, 
-                   MAX(v.insurance_expiry) as veh_ins_expiry
+                   MAX(v.insurance_expiry) as veh_ins_expiry,
+                   MAX(CASE WHEN v.replacement_driver_id = u.id THEN 1 ELSE 0 END) as is_veh_replacement,
+                   (SELECT COUNT(*) FROM vehicles v2 WHERE v2.replacement_driver_id = u.id) as veh_repl_count,
+                   (SELECT COUNT(*) FROM leaves l WHERE l.replacement_driver_id = u.id AND l.status = 'approved' AND l.end_date >= CURDATE()) as act_leave_repl_count
             FROM users u
             LEFT JOIN vehicles v ON $joinVehOn
             WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
@@ -514,6 +537,20 @@ if ($pdo) {
         $probInfo = resolve_driver_probation_info($d);
         $d['probation_info'] = $probInfo;
         $d['probation_stage'] = $probInfo['stage'];
+
+        // Determine if driver is a replacement / substitute driver (سائق بديل)
+        $isReplacement = (!empty($d['is_veh_replacement']))
+            || (!empty($d['veh_repl_count']) && (int)$d['veh_repl_count'] > 0)
+            || (!empty($d['act_leave_repl_count']) && (int)$d['act_leave_repl_count'] > 0)
+            || in_array(strtolower($d['driver_type'] ?? ''), ['replacement', 'remplacant', 'substitute', 'بديل'])
+            || (($d['probation_stage'] ?? '') === 'replacement')
+            || (mb_strpos($d['full_name'] ?? '', 'بديل') !== false);
+
+        $d['is_replacement'] = $isReplacement;
+
+        // Clean name to avoid "(بديل) (بديل)" if already partially typed in name
+        $cleanName = preg_replace('/\s*\(?سائق\s*بديل( معتمد)?\)?|\s*\(بديل\)/u', '', $d['full_name'] ?? '');
+        $d['clean_name'] = trim($cleanName) ?: $d['full_name'];
 
         // Active drivers with alerts
         if ($d['has_alert'] && ($d['status'] ?? 'active') === 'active') {
@@ -944,8 +981,12 @@ require_once __DIR__ . '/../includes/header.php';
                                         <div class="space-y-0.5">
                                             <div class="flex items-center gap-1.5 flex-wrap">
                                                 <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 dark:text-white text-[13px] hover:text-amber-600 dark:hover:text-amber-400 transition">
-                                                    <?= htmlspecialchars($d['full_name']) ?>
+                                                    <?= htmlspecialchars($d['clean_name'] ?? $d['full_name']) ?>
                                                 </a>
+
+                                                <?php if (!empty($d['is_replacement'])): ?>
+                                                    <span class="text-amber-600 dark:text-amber-400 font-extrabold text-xs" title="سائق بديل معتمد">(بديل)</span>
+                                                <?php endif; ?>
 
                                                 <?php if (!empty($d['has_expired'])): ?>
                                                     <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800">وثائق منتهية</span>
@@ -1181,6 +1222,38 @@ require_once __DIR__ . '/../includes/header.php';
                                                 <span>تعديل بيانات الحساب</span>
                                             </a>
 
+                                            <!-- Toggle Driver Type (بديل / أساسي) -->
+                                            <?php if (is_admin() || is_owner()): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <form method="POST" action="" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="toggle_driver_type">
+                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                <input type="hidden" name="return_filter" value="<?= htmlspecialchars($filter) ?>">
+                                                <?php if (!empty($d['is_replacement'])): ?>
+                                                    <input type="hidden" name="driver_type" value="ajir">
+                                                    <button type="submit"
+                                                            class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition text-right cursor-pointer"
+                                                            title="إلغاء وضعية البديل وتعيينه كسائق أساسي">
+                                                        <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                        </svg>
+                                                        <span>تحويل إلى سائق أساسي</span>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <input type="hidden" name="driver_type" value="replacement">
+                                                    <button type="submit"
+                                                            class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-amber-900 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold transition text-right cursor-pointer"
+                                                            title="تعيين هذا السائق كسائق بديل معتمد">
+                                                        <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                                        </svg>
+                                                        <span>تعيين كسائق بديل (بديل)</span>
+                                                    </button>
+                                                <?php endif; ?>
+                                            </form>
+                                            <?php endif; ?>
+
                                             <?php if (is_admin()): ?>
                                             <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
                                             <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من حذف هذا السائق وفك ارتباط مركبته نهائياً؟')" class="w-full">
@@ -1391,6 +1464,27 @@ require_once __DIR__ . '/../includes/header.php';
                                        oninput="updateDriverPreviewAddress()"
                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-slate-50/60 focus:bg-white transition shadow-2xs">
                                 <input type="hidden" name="wilaya" value="01 - أدرار">
+                            </div>
+                        </div>
+
+                        <!-- Driver Classification (أساسي أو بديل) -->
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                            <label class="block font-bold text-slate-700">تصنيف ومهمة السائق</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-white cursor-pointer hover:border-amber-500 transition shadow-2xs">
+                                    <input type="radio" name="driver_type" value="ajir" checked class="text-amber-500 focus:ring-amber-500">
+                                    <div>
+                                        <div class="font-bold text-xs text-slate-800">سائق أساسي (Titulaire)</div>
+                                        <div class="text-[10px] text-slate-400">سائق قار مسؤول عن المركبة</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-white cursor-pointer hover:border-amber-500 transition shadow-2xs">
+                                    <input type="radio" name="driver_type" value="replacement" class="text-amber-500 focus:ring-amber-500">
+                                    <div>
+                                        <div class="font-bold text-xs text-amber-600">سائق بديل (Remplaçant)</div>
+                                        <div class="text-[10px] text-slate-400">ينوب في حالات العطل والغياب (بديل)</div>
+                                    </div>
+                                </label>
                             </div>
                         </div>
 

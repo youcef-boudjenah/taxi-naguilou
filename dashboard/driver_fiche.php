@@ -23,6 +23,9 @@ if ($pdo && $driverId > 0) {
             SELECT u.*, 
                    v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.color,
                    v.insurance_expiry, v.technical_control_expiry,
+                   (CASE WHEN v.replacement_driver_id = u.id THEN 1 ELSE 0 END) as is_veh_replacement,
+                   (SELECT COUNT(*) FROM vehicles v2 WHERE v2.replacement_driver_id = u.id) as veh_repl_count,
+                   (SELECT COUNT(*) FROM leaves l WHERE l.replacement_driver_id = u.id AND l.status = 'approved' AND l.end_date >= CURDATE()) as act_leave_repl_count,
                    c.id as contract_id, c.contract_number, c.start_date as contract_start, c.end_date as contract_end, 
                    c.monthly_wage, c.status as contract_status,
                    u_owner.full_name as owner_name, u_owner.phone as owner_phone
@@ -34,6 +37,17 @@ if ($pdo && $driverId > 0) {
         ");
         $stmt->execute([$driverId]);
         $driver = $stmt->fetch();
+        if ($driver) {
+            $isReplacement = (!empty($driver['is_veh_replacement']))
+                || (!empty($driver['veh_repl_count']) && (int)$driver['veh_repl_count'] > 0)
+                || (!empty($driver['act_leave_repl_count']) && (int)$driver['act_leave_repl_count'] > 0)
+                || in_array(strtolower($driver['driver_type'] ?? ''), ['replacement', 'remplacant', 'substitute', 'بديل'])
+                || (($driver['probation_stage'] ?? '') === 'replacement')
+                || (mb_strpos($driver['full_name'] ?? '', 'بديل') !== false);
+            $driver['is_replacement'] = $isReplacement;
+            $cleanName = preg_replace('/\s*\(?سائق\s*بديل( معتمد)?\)?|\s*\(بديل\)/u', '', $driver['full_name'] ?? '');
+            $driver['clean_name'] = trim($cleanName) ?: $driver['full_name'];
+        }
     } catch (\Throwable $e) {
         error_log("driver_fiche query error: " . $e->getMessage());
         $driver = null;
@@ -220,7 +234,7 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
             <div class="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-800"></div>
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-xs font-bold text-slate-600 dark:text-slate-400">البطاقة الفنية:</span>
-                <span class="font-extrabold text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['full_name']) ?></span>
+                <span class="font-extrabold text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?> <?= !empty($driver['is_replacement']) ? '<span class="text-amber-600 dark:text-amber-400 font-bold text-xs mr-1">(بديل)</span>' : '' ?></span>
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">
                     <?= htmlspecialchars($driver['card_number'] ?? 'دفتر المقررة رقم 4') ?>
                 </span>
@@ -355,11 +369,16 @@ $pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_na
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-3">
                     <div>
                         <div class="text-xs font-bold text-slate-600 dark:text-slate-400">الاسم واللقب الكامل:</div>
-                        <h3 class="text-xl sm:text-2xl font-black text-slate-950 dark:text-white tracking-tight"><?= htmlspecialchars($driver['full_name']) ?></h3>
+                        <h3 class="text-xl sm:text-2xl font-black text-slate-950 dark:text-white tracking-tight flex items-center gap-2 flex-wrap">
+                            <span><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?></span>
+                            <?php if (!empty($driver['is_replacement'])): ?>
+                                <span class="text-amber-600 dark:text-amber-400 font-extrabold text-lg mr-1">(بديل)</span>
+                            <?php endif; ?>
+                        </h3>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-500 text-slate-950 shadow-2xs">
-                            سائق <?= $driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني' ?>
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold <?= !empty($driver['is_replacement']) ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-amber-500 text-slate-950' ?> shadow-2xs">
+                            سائق <?= !empty($driver['is_replacement']) ? 'بديل (Remplaçant)' : ($driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني') ?>
                         </span>
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $probInfo['cls'] ?>">
                             <span><?= $probInfo['label'] ?></span>
