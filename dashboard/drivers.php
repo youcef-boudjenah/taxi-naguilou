@@ -906,32 +906,33 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
+                <thead class="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200/80 dark:border-slate-700/80">
                     <tr>
-                        <th class="p-3.5 whitespace-nowrap">السائق والهوية المهنية</th>
-                        <th class="p-3.5 whitespace-nowrap">رقم الهاتف</th>
+                        <th class="p-3.5 whitespace-nowrap">السائق والاتصال</th>
+                        <th class="p-3.5 whitespace-nowrap">المركبة الحالية</th>
+                        <th class="p-3.5 whitespace-nowrap">الفترة والوضعية المهنية</th>
                         <th class="p-3.5 whitespace-nowrap">رخصة السياقة</th>
                         <th class="p-3.5 whitespace-nowrap">صلاحية الرخصة</th>
                         <th class="p-3.5 whitespace-nowrap">الفحص الطبي الدوري</th>
-                        <th class="p-3.5 whitespace-nowrap">المركبة الحالية</th>
                         <th class="p-3.5 whitespace-nowrap text-center">الإجراءات</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 font-medium">
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
                     <?php if (!empty($drivers)): ?>
                         <?php foreach ($drivers as $d): 
                             $rowAlertCls = '';
                             if (!empty($d['has_expired'])) {
-                                $rowAlertCls = 'bg-rose-50/25';
+                                $rowAlertCls = 'bg-rose-50/25 dark:bg-rose-950/20';
                             } elseif (!empty($d['has_expiring_soon'])) {
-                                $rowAlertCls = 'bg-amber-50/20';
+                                $rowAlertCls = 'bg-amber-50/20 dark:bg-amber-950/20';
                             }
                         ?>
-                            <tr class="hover:bg-slate-50/80 transition <?= $rowAlertCls ?>">
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition <?= $rowAlertCls ?>">
                                 
+                                <!-- 1. الاسم واللقب وتحته رقم الهاتف والإيميل -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded-xl overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
+                                    <div class="flex items-start gap-3">
+                                        <div class="w-10 h-10 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
                                             <?php if (!empty($d['avatar_url'])): ?>
                                                 <img src="<?= url($d['avatar_url']) ?>" alt="<?= htmlspecialchars($d['full_name']) ?>" class="w-full h-full object-cover">
                                             <?php else: ?>
@@ -940,138 +941,167 @@ require_once __DIR__ . '/../includes/header.php';
                                                 </svg>
                                             <?php endif; ?>
                                         </div>
-                                        <div>
+                                        <div class="space-y-0.5">
                                             <div class="flex items-center gap-1.5 flex-wrap">
-                                                <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 text-[13px] hover:text-amber-600 transition">
+                                                <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 dark:text-white text-[13px] hover:text-amber-600 dark:hover:text-amber-400 transition">
                                                     <?= htmlspecialchars($d['full_name']) ?>
                                                 </a>
 
                                                 <?php if (!empty($d['has_expired'])): ?>
-                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">وثائق منتهية</span>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800">وثائق منتهية</span>
                                                 <?php elseif (!empty($d['has_expiring_soon'])): ?>
-                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">انتهاء وشيك</span>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">انتهاء وشيك</span>
                                                 <?php elseif (!empty($d['has_missing'])): ?>
-                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-slate-200 text-slate-800 border border-slate-300">وثائق ناقصة</span>
+                                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700">وثائق ناقصة</span>
                                                 <?php endif; ?>
-
-                                                <?php 
-                                                $pInfo = $d['probation_info'] ?? resolve_driver_probation_info($d);
-                                                $stage = $pInfo['stage'] ?? ($d['probation_stage'] ?? 'trial_1');
-                                                ?>
-                                                <div class="inline-flex items-center gap-1.5 flex-wrap">
-                                                    <div class="inline-block relative group">
-                                                        <button type="button" class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 <?= $pInfo['cls'] ?> hover:shadow-2xs transition cursor-pointer" title="انقر لتعديل مرحلة السائق يدوياً">
-                                                            <span><?= $pInfo['label'] ?></span>
-                                                            <?php if (!empty($pInfo['sub_label']) && empty($pInfo['is_ready_for_promotion'])): ?>
-                                                                <span class="opacity-75 text-[9px] font-normal font-num">(<?= $pInfo['sub_label'] ?>)</span>
-                                                            <?php endif; ?>
-                                                            <svg class="w-2.5 h-2.5 opacity-60 group-hover:rotate-180 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
-                                                        </button>
-                                                        <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-52 bg-white dark:bg-[#161d27] rounded-xl shadow-xl border border-slate-200 dark:border-slate-700/80 p-1.5 text-right">
-                                                            <form method="POST" action="">
-                                                                <?= csrf_field() ?>
-                                                                <input type="hidden" name="action" value="update_driver_stage">
-                                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
-                                                                <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 dark:hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 transition flex items-center justify-between">
-                                                                    <span>فترة تجريبية 1 (3 أشهر الأولى)</span>
-                                                                    <?= $stage === 'trial_1' ? '<span class="text-amber-500 font-bold">✓</span>' : '' ?>
-                                                                </button>
-                                                                <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 dark:hover:bg-blue-500/20 text-blue-900 dark:text-blue-300 transition flex items-center justify-between">
-                                                                    <span>تجريبية 2 (3 أشهر الثانية)</span>
-                                                                    <?= $stage === 'trial_2' ? '<span class="text-blue-500 font-bold">✓</span>' : '' ?>
-                                                                </button>
-                                                                <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 transition flex items-center justify-between">
-                                                                    <span>تجريبية 3 (3 أشهر الأخيرة)</span>
-                                                                    <?= $stage === 'trial_3' ? '<span class="text-indigo-500 font-bold">✓</span>' : '' ?>
-                                                                </button>
-                                                                <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 transition flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 mt-1 pt-1">
-                                                                    <span class="flex items-center gap-1 font-black text-emerald-700 dark:text-emerald-300">
-                                                                        <svg class="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                                                        سائق رسمي (تثبيت دائم يدوي)
-                                                                    </span>
-                                                                    <?= $stage === 'official' ? '<span class="text-emerald-500 font-bold">✓</span>' : '' ?>
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-
-                                                    <?php if (!empty($pInfo['is_ready_for_promotion'])): ?>
-                                                        <form method="POST" action="" class="inline m-0">
-                                                            <?= csrf_field() ?>
-                                                            <input type="hidden" name="action" value="update_driver_stage">
-                                                            <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
-                                                            <input type="hidden" name="probation_stage" value="official">
-                                                            <button type="submit" class="px-2 py-0.5 rounded text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-xs flex items-center gap-1 transition cursor-pointer" title="اكتملت 9 أشهر (3 مراحل تجريبية) - انقر هنا للتثبيت كسائق رسمي فوراً">
-                                                                <span>⭐ تثبيت رسمي</span>
-                                                            </button>
-                                                        </form>
-                                                    <?php endif; ?>
-                                                </div>
                                             </div>
-                                            <div class="text-[11px] text-slate-400 mt-0.5" dir="ltr"><?= htmlspecialchars($d['email']) ?></div>
+
+                                            <!-- رقم الهاتف تحت الاسم مباشرة -->
+                                            <?php if (!empty($d['phone'])): ?>
+                                                <div class="text-[11px] font-semibold text-slate-700 dark:text-slate-300 font-num flex items-center gap-1 mt-0.5" dir="ltr">
+                                                    <svg class="w-3 h-3 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                                                    </svg>
+                                                    <span><?= htmlspecialchars($d['phone']) ?></span>
+                                                </div>
+                                            <?php endif; ?>
+
+                                            <!-- البريد الإلكتروني تحت رقم الهاتف -->
+                                            <?php if (!empty($d['email'])): ?>
+                                                <div class="text-[11px] text-slate-400 dark:text-slate-400 flex items-center gap-1" dir="ltr">
+                                                    <svg class="w-3 h-3 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                                    </svg>
+                                                    <span><?= htmlspecialchars($d['email']) ?></span>
+                                                </div>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </td>
 
-                                <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800" dir="ltr">
-                                    <?= htmlspecialchars($d['phone']) ?>
+                                <!-- 2. المركبة الحالية -->
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <?php if (!empty($d['plate_number'])): ?>
+                                        <div class="font-bold text-slate-900 dark:text-white font-num text-[12px]" dir="ltr">
+                                            <?= htmlspecialchars($d['plate_number']) ?>
+                                        </div>
+                                        <div class="text-[11px] text-slate-500 dark:text-slate-400">
+                                            <?= htmlspecialchars($d['brand'] . ' ' . $d['model']) ?> 
+                                            <?php if (!empty($d['door_number'])): ?>
+                                                <span class="text-slate-400 font-num">(باب: <?= htmlspecialchars($d['door_number']) ?>)</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700">
+                                            بدون مركبة (احتياطي)
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
 
-                                <td class="p-3.5 whitespace-nowrap font-num text-slate-700 font-semibold" dir="ltr">
+                                <!-- 3. الفترة للسائق ونوعها -->
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <?php 
+                                    $pInfo = $d['probation_info'] ?? resolve_driver_probation_info($d);
+                                    $stage = $pInfo['stage'] ?? ($d['probation_stage'] ?? 'trial_1');
+                                    ?>
+                                    <div class="inline-flex items-center gap-1.5 flex-wrap">
+                                        <div class="inline-block relative group">
+                                            <button type="button" class="px-2.5 py-1 rounded-lg text-[11px] font-bold border flex items-center gap-1 <?= $pInfo['cls'] ?> hover:shadow-2xs transition cursor-pointer" title="انقر لتعديل مرحلة السائق يدوياً">
+                                                <span><?= $pInfo['label'] ?></span>
+                                                <?php if (!empty($pInfo['sub_label']) && empty($pInfo['is_ready_for_promotion'])): ?>
+                                                    <span class="opacity-75 text-[10px] font-normal font-num">(<?= $pInfo['sub_label'] ?>)</span>
+                                                <?php endif; ?>
+                                                <svg class="w-3 h-3 opacity-60 group-hover:rotate-180 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                                            </button>
+                                            <div class="hidden group-hover:block absolute z-30 right-0 mt-1 w-52 bg-white dark:bg-[#161d27] rounded-xl shadow-xl border border-slate-200 dark:border-slate-700/80 p-1.5 text-right">
+                                                <form method="POST" action="">
+                                                    <?= csrf_field() ?>
+                                                    <input type="hidden" name="action" value="update_driver_stage">
+                                                    <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                    <button type="submit" name="probation_stage" value="trial_1" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-amber-50 dark:hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 transition flex items-center justify-between">
+                                                        <span>فترة تجريبية 1 (3 أشهر الأولى)</span>
+                                                        <?= $stage === 'trial_1' ? '<span class="text-amber-500 font-bold">✓</span>' : '' ?>
+                                                    </button>
+                                                    <button type="submit" name="probation_stage" value="trial_2" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-blue-50 dark:hover:bg-blue-500/20 text-blue-900 dark:text-blue-300 transition flex items-center justify-between">
+                                                        <span>تجريبية 2 (3 أشهر الثانية)</span>
+                                                        <?= $stage === 'trial_2' ? '<span class="text-blue-500 font-bold">✓</span>' : '' ?>
+                                                    </button>
+                                                    <button type="submit" name="probation_stage" value="trial_3" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-indigo-900 dark:text-indigo-300 transition flex items-center justify-between">
+                                                        <span>تجريبية 3 (3 أشهر الأخيرة)</span>
+                                                        <?= $stage === 'trial_3' ? '<span class="text-indigo-500 font-bold">✓</span>' : '' ?>
+                                                    </button>
+                                                    <button type="submit" name="probation_stage" value="official" class="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 transition flex items-center justify-between border-t border-slate-100 dark:border-slate-700/60 mt-1 pt-1">
+                                                        <span class="flex items-center gap-1 font-black text-emerald-700 dark:text-emerald-300">
+                                                            <svg class="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                                                            سائق رسمي (تثبيت دائم يدوي)
+                                                        </span>
+                                                        <?= $stage === 'official' ? '<span class="text-emerald-500 font-bold">✓</span>' : '' ?>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+
+                                        <?php if (!empty($pInfo['is_ready_for_promotion'])): ?>
+                                            <form method="POST" action="" class="inline m-0">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="update_driver_stage">
+                                                <input type="hidden" name="driver_id" value="<?= $d['id'] ?>">
+                                                <input type="hidden" name="probation_stage" value="official">
+                                                <button type="submit" class="px-2 py-0.5 rounded text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-xs flex items-center gap-1 transition cursor-pointer" title="اكتملت 9 أشهر (3 مراحل تجريبية) - انقر هنا للتثبيت كسائق رسمي فوراً">
+                                                    <span>⭐ تثبيت رسمي</span>
+                                                </button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+
+                                <!-- 4. رخصة السياقة -->
+                                <td class="p-3.5 whitespace-nowrap font-num text-slate-800 dark:text-slate-200 font-semibold text-xs" dir="ltr">
                                     <?= htmlspecialchars($d['license_number'] ?? '—') ?>
                                 </td>
 
-                                <!-- LICENSE EXPIRY -->
+                                <!-- 5. صلاحية الرخصة -->
                                 <td class="p-3.5 whitespace-nowrap font-num">
                                     <?php if (!empty($d['lic_expired'])): ?>
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300" title="منتهية منذ <?= abs($d['lic_days']) ?> يوماً">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="منتهية منذ <?= abs($d['lic_days']) ?> يوماً">
                                             <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
                                             <span dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
                                             <span class="text-[10px]">(منتهية)</span>
                                         </span>
                                     <?php elseif (!empty($d['lic_expiring_soon'])): ?>
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300" title="تنتهي خلال <?= $d['lic_days'] ?> يوماً">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="تنتهي خلال <?= $d['lic_days'] ?> يوماً">
                                             <span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
                                             <span dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
                                             <span class="text-[10px]">(باقي <?= $d['lic_days'] ?>ج)</span>
                                         </span>
                                     <?php elseif (!empty($d['lic_date'])): ?>
-                                        <span class="font-semibold text-slate-800" dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
+                                        <span class="font-semibold text-slate-800 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($d['lic_date']) ?></span>
                                     <?php else: ?>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">غير مسجلة</span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">غير مسجلة</span>
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- MEDICAL EXAM -->
+                                <!-- 6. الفحص الطبي الدوري -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <?php if (!empty($d['med_expired'])): ?>
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 font-num" title="الفحص الطبي منتهي الصلاحية منذ <?= abs($d['med_days']) ?> يوماً">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-num" title="الفحص الطبي منتهي الصلاحية منذ <?= abs($d['med_days']) ?> يوماً">
                                             <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
                                             <span dir="ltr"><?= htmlspecialchars($d['med_date']) ?></span>
                                             <span class="text-[10px] font-bold">(منتهي)</span>
                                         </span>
                                     <?php elseif (!empty($d['med_expiring_soon'])): ?>
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 font-num" title="ينتهي الفحص الطبي خلال <?= $d['med_days'] ?> يوماً">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-num" title="ينتهي الفحص الطبي خلال <?= $d['med_days'] ?> يوماً">
                                             <span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
                                             <span dir="ltr"><?= htmlspecialchars($d['med_date']) ?></span>
                                             <span class="text-[10px] font-bold">(باقي <?= $d['med_days'] ?>ج)</span>
                                         </span>
                                     <?php elseif (!empty($d['med_date'])): ?>
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-num" dir="ltr">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800 font-num" dir="ltr">
                                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                             <span><?= htmlspecialchars($d['med_date']) ?></span>
                                         </span>
                                     <?php else: ?>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">غير مسجل</span>
-                                    <?php endif; ?>
-                                </td>
-
-                                <td class="p-3.5 whitespace-nowrap">
-                                    <?php if (!empty($d['plate_number'])): ?>
-                                        <div class="font-bold text-slate-800 font-num text-[11px]" dir="ltr"><?= htmlspecialchars($d['plate_number']) ?></div>
-                                        <div class="text-[11px] text-slate-400"><?= htmlspecialchars($d['brand'] . ' ' . $d['model']) ?> (باب: <?= htmlspecialchars($d['door_number']) ?>)</div>
-                                    <?php else: ?>
-                                        <span class="text-slate-400 text-[11px]">بدون مركبة (احتياطي)</span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800">غير مسجل</span>
                                     <?php endif; ?>
                                 </td>
 
@@ -1174,7 +1204,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <tr><td colspan="8" class="p-10 text-center text-slate-400">لا يوجد سائقون مطابقون لشرط التصفية.</td></tr>
+                        <tr><td colspan="7" class="p-10 text-center text-slate-400">لا يوجد سائقون مطابقون لشرط التصفية.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
