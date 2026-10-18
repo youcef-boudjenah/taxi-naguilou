@@ -16,6 +16,37 @@ function is_logged_in() {
 function require_login() {
     if (!is_logged_in()) {
         redirect('/auth/login.php');
+        exit;
+    }
+
+    static $statusChecked = false;
+    if (!$statusChecked && !empty($_SESSION['user_id'])) {
+        $statusChecked = true;
+        try {
+            $pdo = getDBConnection();
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT status, subscription_type, subscription_expires_at FROM users WHERE id = ? LIMIT 1");
+                $stmt->execute([$_SESSION['user_id']]);
+                $u = $stmt->fetch();
+                if ($u) {
+                    $isExpired = in_array($u['subscription_type'] ?? '', ['free', 'paid']) 
+                                 && !empty($u['subscription_expires_at']) 
+                                 && ($u['subscription_expires_at'] < date('Y-m-d'));
+                    if ($isExpired && $u['status'] === 'active') {
+                        $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?")->execute([$_SESSION['user_id']]);
+                        $u['status'] = 'suspended';
+                        log_audit($pdo, 'subscription_expired_frozen', 'auth', $_SESSION['user_id'], "تجميد الحساب لانتهاء مدة الاشتراك ({$u['subscription_type']})");
+                    }
+
+                    if ($u['status'] !== 'active') {
+                        logout_user();
+                        set_flash('error', 'تم تجميد حسابك لانتهاء فترة الصلاحية أو بقرار إداري. يرجى التواصل مع إدارة المنصة.');
+                        redirect('/auth/login.php');
+                        exit;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
     }
 }
 
@@ -167,8 +198,28 @@ function login_user($email, $password) {
         } catch (\Throwable $e) {}
     }
 
+    // Check if user subscription (free or paid) has expired
+    $subType = $user['subscription_type'] ?? 'unlimited';
+    $subExpiry = $user['subscription_expires_at'] ?? null;
+    if (in_array($subType, ['free', 'paid']) && !empty($subExpiry)) {
+        if ($subExpiry < date('Y-m-d')) {
+            try {
+                $stmtSuspend = $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?");
+                $stmtSuspend->execute([$user['id']]);
+                $user['status'] = 'suspended';
+                log_audit($pdo, 'subscription_expired_frozen', 'auth', $user['id'], "محاولة دخول بعد انتهاء مدة الاشتراك ({$subType} حتى {$subExpiry}) وتجميد الحساب");
+            } catch (\Throwable $e) {}
+
+            $subTypeArabic = ($subType === 'free') ? 'المجانية' : 'المدفوعة';
+            return [
+                'success' => false, 
+                'message' => "عذراً، لقد انتهت صلاحية حسابك ({$subTypeArabic}) بتاريخ {$subExpiry} وتم تجميد الحساب تلقائياً. يرجى التواصل مع إدارة المنصة للتجديد."
+            ];
+        }
+    }
+
     if ($user['status'] !== 'active') {
-        return ['success' => false, 'message' => 'هذا الحساب معلق أو قيد المراجعة الإدارية'];
+        return ['success' => false, 'message' => 'هذا الحساب معلق أو تم تجميده إدارياً'];
     }
 
     // Regenerate session ID to prevent session fixation
@@ -185,6 +236,66 @@ function login_user($email, $password) {
     $_SESSION['user_wilaya'] = $user['wilaya'];
 
     log_audit($pdo, 'login_success', 'auth', $user['id'], "تسجيل دخول ناجح إلى المنصة");
+
+    return ['success' => true, 'user' => $user];
+}
+
+function login_user_by_qr_token(string $qrToken): array {
+    $pdo = getDBConnection();
+    if (!$pdo) {
+        return ['success' => false, 'message' => 'تعذر الاتصال بقاعدة البيانات'];
+    }
+
+    $cleanToken = trim($qrToken);
+    if (empty($cleanToken)) {
+        return ['success' => false, 'message' => 'رمز الدخول السريع غير صالح'];
+    }
+
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE qr_token = ? LIMIT 1");
+    $stmt->execute([$cleanToken]);
+    $user = $stmt->fetch();
+
+    if (!$user) {
+        return ['success' => false, 'message' => 'رمز QR غير مسجل أو تم إلغاؤه'];
+    }
+
+    // Check subscription expiry
+    $subType = $user['subscription_type'] ?? 'unlimited';
+    $subExpiry = $user['subscription_expires_at'] ?? null;
+    if (in_array($subType, ['free', 'paid']) && !empty($subExpiry)) {
+        if ($subExpiry < date('Y-m-d')) {
+            try {
+                $stmtSuspend = $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?");
+                $stmtSuspend->execute([$user['id']]);
+                $user['status'] = 'suspended';
+                log_audit($pdo, 'subscription_expired_frozen', 'auth', $user['id'], "محاولة دخول عبر QR بعد انتهاء مدة الاشتراك ({$subType} حتى {$subExpiry})");
+            } catch (\Throwable $e) {}
+
+            $subTypeArabic = ($subType === 'free') ? 'المجانية' : 'المدفوعة';
+            return [
+                'success' => false, 
+                'message' => "عذراً، لقد انتهت صلاحية حسابك ({$subTypeArabic}) بتاريخ {$subExpiry} وتم تجميده تلقائياً. يرجى التواصل مع إدارة المنصة للتجديد."
+            ];
+        }
+    }
+
+    if ($user['status'] !== 'active') {
+        return ['success' => false, 'message' => 'هذا الحساب موقوف أو مجمد إدارياً ولا يمكن الدخول إليه'];
+    }
+
+    if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
+        @session_regenerate_id(true);
+    }
+
+    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['user_name'] = $user['full_name'];
+    $_SESSION['user_email'] = $user['email'];
+    $_SESSION['user_role'] = $user['role'];
+    $_SESSION['user_phone'] = $user['phone'];
+    $_SESSION['user_wilaya'] = $user['wilaya'];
+    $_SESSION['logged_via_qr'] = true;
+
+    log_audit($pdo, 'login_qr_success', 'auth', $user['id'], "تسجيل دخول ناجح عبر مسح رمز QR للمستخدم: {$user['full_name']} ({$user['role']})");
 
     return ['success' => true, 'user' => $user];
 }

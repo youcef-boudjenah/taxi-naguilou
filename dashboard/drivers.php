@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
     $dtwVisaDate = !empty($_POST['dtw_visa_date']) ? $_POST['dtw_visa_date'] : null;
-    $cardNumber = trim($_POST['card_number'] ?? '');
+    $cardNumber = !empty($_POST['card_number']) ? trim($_POST['card_number']) : null;
     
     $medExpiry = !empty($_POST['medical_cert_expiry']) ? $_POST['medical_cert_expiry'] : null;
     $medStart = !empty($_POST['medical_exam_start']) ? $_POST['medical_exam_start'] : null;
@@ -86,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $taxiContractStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
     $taxiContractEnd = !empty($_POST['taxi_contract_end']) ? $_POST['taxi_contract_end'] : null;
     $assignedVehicleId = !empty($_POST['assigned_vehicle_id']) ? intval($_POST['assigned_vehicle_id']) : null;
+    $vehiclePlateNumber = trim($_POST['vehicle_plate_number'] ?? '');
 
     // Handle photo upload
     $avatarUrl = null;
@@ -136,12 +137,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ]);
             $newDriverId = (int)$pdo->lastInsertId();
 
+            // If vehiclePlateNumber was provided and assignedVehicleId is empty, find or create vehicle
+            if ((!$assignedVehicleId || $assignedVehicleId <= 0) && !empty($vehiclePlateNumber)) {
+                $stmtFindVeh = $pdo->prepare("SELECT id FROM vehicles WHERE plate_number = ? LIMIT 1");
+                $stmtFindVeh->execute([$vehiclePlateNumber]);
+                $existingVehId = $stmtFindVeh->fetchColumn();
+                if ($existingVehId) {
+                    $assignedVehicleId = (int)$existingVehId;
+                } else {
+                    $stmtNewVeh = $pdo->prepare("
+                        INSERT INTO vehicles (plate_number, brand, model, color, door_number, status, current_driver_id)
+                        VALUES (?, 'سيارة أجرة', 'Toyota Corolla', 'أصفر', '00', 'active', ?)
+                    ");
+                    $stmtNewVeh->execute([$vehiclePlateNumber, $newDriverId]);
+                    $assignedVehicleId = (int)$pdo->lastInsertId();
+                }
+            }
+
             // Link vehicle if assigned
             if ($assignedVehicleId && $assignedVehicleId > 0) {
                 $stmtVeh = $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?");
                 $stmtVeh->execute([$newDriverId, $assignedVehicleId]);
+            }
 
-                // Auto-issue official labor contract when vehicle is assigned
+            // Handle contract dates and official contract record
+            if (!empty($taxiContractStart) || !empty($taxiContractEnd) || ($assignedVehicleId && $assignedVehicleId > 0)) {
                 if (empty($taxiContractStart)) {
                     $taxiContractStart = date('Y-m-d');
                 }
@@ -151,13 +171,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->prepare("UPDATE users SET taxi_contract_start = ?, taxi_contract_end = ? WHERE id = ?")
                     ->execute([$taxiContractStart, $taxiContractEnd, $newDriverId]);
 
-                $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
-                $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
-                $stmtContract = $pdo->prepare("
-                    INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11 والمرسوم 12-230')
-                ");
-                $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'] ?? 1, $taxiContractStart, $taxiContractEnd]);
+                if ($assignedVehicleId && $assignedVehicleId > 0) {
+                    $maxCId = (int)$pdo->query("SELECT COALESCE(MAX(id), 0) FROM contracts")->fetchColumn();
+                    $contractNum = 'CT-' . date('Y') . '-' . str_pad($maxCId + 1, 3, '0', STR_PAD_LEFT);
+                    $stmtContract = $pdo->prepare("
+                        INSERT INTO contracts (contract_number, driver_id, vehicle_id, owner_id, start_date, end_date, monthly_wage, status, signed_at, notes)
+                        VALUES (?, ?, ?, ?, ?, ?, 45000.00, 'signed', NOW(), 'عقد عمل وسريان استغلال رخصة الأجرة وفق القانون 90-11 والمرسوم 12-230')
+                    ");
+                    $stmtContract->execute([$contractNum, $newDriverId, $assignedVehicleId, $user['id'] ?? 1, $taxiContractStart, $taxiContractEnd]);
+                }
             }
 
             log_audit($pdo, 'driver_created', 'users', $newDriverId, "تسجيل بطاقة فنية لسائق جديد: $fullName ($phone)");
@@ -1296,9 +1318,6 @@ require_once __DIR__ . '/../includes/header.php';
                 <div>
                     <div class="flex items-center gap-2">
                         <h3 class="font-black text-slate-900 text-base sm:text-lg">تسجيل سائق سيارة أجرة جديد</h3>
-                        <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 font-num">
-                            دفتر المقررة
-                        </span>
                     </div>
                     <p class="text-xs text-slate-500 mt-0.5">إدخال البطاقة الفنية، رخصة السياقة، الفحوصات الطبية، وتعيين المركبة وفق القانون 90-11</p>
                 </div>
@@ -1324,7 +1343,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <button type="button" onclick="goToWizardStep(2)" id="stepTab-2" 
                         class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100">
                     <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-num font-black shrink-0">2</span>
-                    <span class="truncate">الرخصة والمقررة</span>
+                    <span class="truncate">رخصة السياقة والنشاط</span>
                 </button>
                 <button type="button" onclick="goToWizardStep(3)" id="stepTab-3" 
                         class="wizard-tab py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 transition bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100">
@@ -1387,7 +1406,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
 
                         <input type="file" id="driverAvatarInput" name="avatar" accept="image/*" class="hidden" onchange="previewDriverAvatar(this)">
-                        <span class="text-[10px] text-slate-400 text-center mt-2">تظهر في البطاقة الفنية ودفتر المقررة</span>
+                        <span class="text-[10px] text-slate-400 text-center mt-2">تظهر في البطاقة الفنية الرسمية للسائق</span>
                     </div>
 
                     <!-- Right: Civil Status & Personal Details Form -->
@@ -1395,7 +1414,7 @@ require_once __DIR__ . '/../includes/header.php';
                         
                         <div class="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 flex items-center gap-2 text-amber-900 font-bold text-xs">
                             <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
-                            <span>الصفحة 4 من دفتر المقررة: الحالة المدنية والهوية الشخصية</span>
+                            <span>الحالة المدنية والهوية الشخصية للسائق</span>
                         </div>
 
                         <!-- Nom & Prénom -->
@@ -1489,13 +1508,13 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
 
             <!-- ==============================================
-                 STEP 2: رخصة السياقة ودفتر المقررة
+                 STEP 2: رخصة السياقة وتاريخ بداية النشاط
                  ============================================== -->
             <div id="stepSection-2" class="wizard-section space-y-5 hidden">
                 
                 <div class="p-3 bg-blue-50/60 rounded-xl border border-blue-200/80 flex items-center gap-2 text-blue-900 font-bold text-xs">
                     <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z"/></svg>
-                    <span>الصفحة 4 و 7 من دفتر المقررة: رخصة السياقة والكفاءة المهنية وبداية النشاط</span>
+                    <span>بيانات رخصة السياقة والكفاءة المهنية وتاريخ بداية النشاط</span>
                 </div>
 
                 <!-- Driver's License Info -->
@@ -1532,7 +1551,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <div>
                             <div class="flex items-center justify-between mb-1.5">
                                 <label class="block font-bold text-slate-700">
-                                    <span>المرحلة والوضعية المهنية (دفتر المقررة)</span>
+                                    <span>تاريخ بداية النشاط المهني</span>
                                     <span class="text-rose-500">*</span>
                                 </label>
                                 <span class="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-200 px-1.5 py-0.2 rounded font-num">3 أشهر/مرحلة</span>
@@ -1564,7 +1583,6 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                             </div>
                             <span class="text-[11px] text-slate-500 font-medium mt-1 block">الشهر والسنة فقط (مثال: 09/2024)</span>
-                            <input type="hidden" name="card_number" value="">
                         </div>
                     </div>
                 </div>
@@ -1659,7 +1677,7 @@ require_once __DIR__ . '/../includes/header.php';
                 
                 <div class="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200/80 flex items-center gap-2 text-emerald-900 font-bold text-xs">
                     <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
-                    <span>الصفحة 8-9 من دفتر المقررة: الفحص الطبي الإجباري الدوري (صلاحية سنتين وفق المرسوم 12-230)</span>
+                    <span>الفحص الطبي الإجباري الدوري (صلاحية سنتين وفق المرسوم 12-230)</span>
                 </div>
 
                 <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-4">
@@ -1695,33 +1713,92 @@ require_once __DIR__ . '/../includes/header.php';
                 
                 <div class="p-3 bg-purple-50/60 rounded-xl border border-purple-200/80 flex items-center gap-2 text-purple-900 font-bold text-xs">
                     <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25"/></svg>
-                    <span>ربط السائق بمركبة من الأسطول ومعاينة البطاقة الفنية الرسمية</span>
+                    <span>ربط السائق بمركبة من الأسطول وتحديد سريان العقد ومعاينة البطاقة</span>
                 </div>
 
                 <div class="space-y-4">
                     
-                    <!-- Vehicle Assignment Selection -->
-                    <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                        <label class="block font-black text-slate-800 text-xs">تعيين سيارة أجرة من الأسطول (Véhicule Assigné)</label>
-                        
-                        <select name="assigned_vehicle_id" id="assignedVehicleSelect" onchange="updateDriverPreviewVehicle()"
-                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
-                            <option value="">-- بدون تعيين مركبة حالياً (تعيين لاحقاً) --</option>
-                            <?php foreach ($activeVehicles as $veh): 
-                                $isOccupied = !empty($veh['current_driver_id']);
-                            ?>
-                                <option value="<?= $veh['id'] ?>" data-plate="<?= htmlspecialchars($veh['plate_number']) ?>" data-brand="<?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?>">
-                                    <?= htmlspecialchars($veh['plate_number']) ?> - <?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?> (باب: <?= htmlspecialchars($veh['door_number']) ?>) <?= $isOccupied ? '[مع سائق: ' . htmlspecialchars($veh['current_driver_name']) . ']' : '[شاغرة]' ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                    <!-- Vehicle Assignment & Plate Number Box -->
+                    <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3.5">
+                        <div class="flex items-center gap-2 border-b border-slate-200/80 pb-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                            <h4 class="font-black text-slate-800 text-xs">بيانات سيارة الأجرة ورقم تسجيل المركبة</h4>
+                        </div>
 
-                        <p class="text-[11px] text-slate-400">يمكنك ربط السائق بسيارة الأجرة مباشرة لتظهر في سجل المركبات ومخطط المناوبات.</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">تعيين سيارة أجرة من الأسطول</label>
+                                <select name="assigned_vehicle_id" id="assignedVehicleSelect" onchange="onVehicleSelectChanged(this)"
+                                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                                    <option value="">-- بدون تعيين مركبة حالياً (تعيين لاحقاً) --</option>
+                                    <?php foreach ($activeVehicles as $veh): 
+                                        $isOccupied = !empty($veh['current_driver_id']);
+                                    ?>
+                                        <option value="<?= $veh['id'] ?>" data-plate="<?= htmlspecialchars($veh['plate_number']) ?>" data-brand="<?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?>">
+                                            <?= htmlspecialchars($veh['plate_number']) ?> - <?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?> (باب: <?= htmlspecialchars($veh['door_number']) ?>) <?= $isOccupied ? '[مع سائق: ' . htmlspecialchars($veh['current_driver_name']) . ']' : '[شاغرة]' ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">
+                                    <span>رقم تسجيل المركبة (Matricule)</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="text" name="vehicle_plate_number" id="vehiclePlateNumberInput" 
+                                           placeholder="مثال: 00123-116-47" dir="ltr" 
+                                           oninput="onPlateInputChanged(this)"
+                                           class="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 bg-white transition shadow-2xs">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                        <span class="text-xs">🇩🇿</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="text-[11px] text-slate-400">يمكنك اختيار سيارة الأجرة من القائمة أو إدخال رقم تسجيل المركبة مباشرة لربطها بالسائق تلقائياً.</p>
                     </div>
 
-                    <!-- Hidden inputs for contract dates -->
-                    <input type="hidden" name="taxi_contract_start" id="taxiContractStart" value="">
-                    <input type="hidden" name="taxi_contract_end" id="taxiContractEnd" value="">
+                    <!-- Contract Duration Box (من إلى) -->
+                    <div class="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-200/80 space-y-3.5">
+                        <div class="flex items-center justify-between border-b border-indigo-200/70 pb-2.5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                                <h4 class="font-black text-slate-900 text-xs">عقد استغلال رخصة الأجرة والعمل (من / إلى)</h4>
+                            </div>
+                            <button type="button" onclick="setNewDriverContractPeriod(3)" 
+                                    class="px-2.5 py-1 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-900 font-bold text-[11px] transition shadow-2xs cursor-pointer flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                                <span>+3 سنوات (المدة القانونية للعقد)</span>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">
+                                    <span>بداية سريان العقد: من (Date Début)</span>
+                                </label>
+                                <input type="date" name="taxi_contract_start" id="taxiContractStart" 
+                                       onchange="onContractStartDateChanged()"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 bg-white transition shadow-2xs">
+                            </div>
+                            <div>
+                                <label class="block font-bold text-slate-700 mb-1.5">
+                                    <span>نهاية سريان العقد: إلى (Date Fin)</span>
+                                    <span class="text-[10px] text-indigo-600 font-normal mr-1">(صلاحية 3 سنوات)</span>
+                                </label>
+                                <input type="date" name="taxi_contract_end" id="taxiContractEnd" 
+                                       onchange="updateDriverPreviewContract()"
+                                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold font-num focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 bg-white transition shadow-2xs">
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 text-[11px] text-slate-500">
+                            <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span>عقد الاستغلال القانوني يمتد عادة لثلاث (03) سنوات قابلة للتجديد وفق المرسوم التنفيذي 12-230.</span>
+                        </div>
+                    </div>
 
                 </div>
 
@@ -1755,10 +1832,12 @@ require_once __DIR__ . '/../includes/header.php';
                                 <span>•</span>
                                 <span id="livePreviewAddress">—</span>
                             </div>
-                            <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2">
+                            <div class="text-[10px] text-amber-400 font-semibold flex items-center gap-2 flex-wrap">
                                 <span>المركبة: <strong id="livePreviewVehicle" class="text-white font-num font-bold">لم تعين بعد</strong></span>
                                 <span>•</span>
-                                <span>المقررة: <strong id="livePreviewPeriodBadge" class="text-white font-num font-bold">—</strong></span>
+                                <span>بداية النشاط: <strong id="livePreviewPeriodBadge" class="text-white font-num font-bold">—</strong></span>
+                                <span>•</span>
+                                <span>العقد: <strong id="livePreviewContractBadge" class="text-white font-num font-bold">—</strong></span>
                             </div>
                         </div>
                     </div>
@@ -1995,7 +2074,12 @@ require_once __DIR__ . '/../includes/header.php';
         updateDriverPreviewName();
         updateDriverPreviewPhone();
         updateDriverPreviewAddress();
+        
+        const plateInput = document.getElementById('vehiclePlateNumberInput');
+        if (plateInput) plateInput.value = '';
         updateDriverPreviewVehicle();
+
+        setNewDriverContractPeriod(3);
 
         const previewBadge = document.getElementById('livePreviewPeriodBadge');
         if (previewBadge) previewBadge.textContent = '—';
@@ -2406,19 +2490,106 @@ require_once __DIR__ . '/../includes/header.php';
         if (previewAddr) previewAddr.textContent = addr;
     }
 
+    // Vehicle selection & Plate synchronization
+    function onVehicleSelectChanged(select) {
+        const plateInput = document.getElementById('vehiclePlateNumberInput');
+        if (select && select.value) {
+            const opt = select.options[select.selectedIndex];
+            const plate = opt ? (opt.getAttribute('data-plate') || '') : '';
+            if (plateInput) plateInput.value = plate;
+        } else {
+            if (plateInput) plateInput.value = '';
+        }
+        updateDriverPreviewVehicle();
+    }
+
+    function onPlateInputChanged(input) {
+        const val = (input.value || '').trim().toLowerCase();
+        const select = document.getElementById('assignedVehicleSelect');
+        if (select) {
+            let matched = false;
+            for (let i = 0; i < select.options.length; i++) {
+                const optPlate = (select.options[i].getAttribute('data-plate') || '').trim().toLowerCase();
+                if (val && optPlate && optPlate === val) {
+                    select.selectedIndex = i;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched && val === '') {
+                select.value = '';
+            }
+        }
+        updateDriverPreviewVehicle();
+    }
+
     // Live preview vehicle
     function updateDriverPreviewVehicle() {
         const select = document.getElementById('assignedVehicleSelect');
+        const plateInput = document.getElementById('vehiclePlateNumberInput');
         const previewVeh = document.getElementById('livePreviewVehicle');
-        if (!select || !previewVeh) return;
+        if (!previewVeh) return;
 
-        const selectedOption = select.options[select.selectedIndex];
-        if (selectedOption && selectedOption.value) {
-            const plate = selectedOption.getAttribute('data-plate') || '';
-            const brand = selectedOption.getAttribute('data-brand') || '';
-            previewVeh.textContent = plate + ' (' + brand + ')';
+        let plate = plateInput ? plateInput.value.trim() : '';
+        let brand = '';
+
+        if (select && select.value) {
+            const opt = select.options[select.selectedIndex];
+            if (opt) {
+                if (!plate) plate = opt.getAttribute('data-plate') || '';
+                brand = opt.getAttribute('data-brand') || '';
+            }
+        }
+
+        if (plate) {
+            previewVeh.textContent = plate + (brand ? ' (' + brand + ')' : '');
         } else {
             previewVeh.textContent = 'لم تعين بعد (شاغرة)';
+        }
+    }
+
+    // Contract duration helpers for Add Driver modal
+    function setNewDriverContractPeriod(years = 3) {
+        const startInput = document.getElementById('taxiContractStart');
+        const endInput = document.getElementById('taxiContractEnd');
+        if (!startInput || !endInput) return;
+
+        let startDate = startInput.value ? new Date(startInput.value) : new Date();
+        if (isNaN(startDate.getTime())) startDate = new Date();
+        
+        startInput.value = startDate.toISOString().split('T')[0];
+        const endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + parseInt(years));
+        endDate.setDate(endDate.getDate() - 1);
+        endInput.value = endDate.toISOString().split('T')[0];
+        updateDriverPreviewContract();
+    }
+
+    function onContractStartDateChanged() {
+        const startInput = document.getElementById('taxiContractStart');
+        const endInput = document.getElementById('taxiContractEnd');
+        if (startInput && startInput.value && endInput && !endInput.value) {
+            setNewDriverContractPeriod(3);
+        } else {
+            updateDriverPreviewContract();
+        }
+    }
+
+    function updateDriverPreviewContract() {
+        const startInput = document.getElementById('taxiContractStart');
+        const endInput = document.getElementById('taxiContractEnd');
+        const previewContract = document.getElementById('livePreviewContractBadge');
+        if (!previewContract) return;
+
+        const s = startInput ? startInput.value : '';
+        const e = endInput ? endInput.value : '';
+
+        if (s && e) {
+            previewContract.textContent = 'من ' + s + ' إلى ' + e;
+        } else if (s) {
+            previewContract.textContent = 'ساري من ' + s;
+        } else {
+            previewContract.textContent = 'لم يحدد بعد';
         }
     }
 

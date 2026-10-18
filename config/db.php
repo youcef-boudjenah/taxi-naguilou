@@ -47,6 +47,12 @@ function url(string $path = ''): string {
     return $base . $path;
 }
 
+function absolute_url(string $path = ''): string {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return $protocol . '://' . $host . url($path);
+}
+
 function redirect(string $path): void {
     $target = url($path);
     if (!headers_sent()) {
@@ -163,9 +169,12 @@ function initAllTables(PDO $pdo) {
         last_name VARCHAR(80) NULL,
         email VARCHAR(150) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
+        qr_token VARCHAR(64) UNIQUE NULL,
         phone VARCHAR(30) NOT NULL,
         role ENUM('super_admin', 'admin', 'owner', 'driver') DEFAULT 'driver',
         status ENUM('active', 'pending', 'suspended') DEFAULT 'active',
+        subscription_type VARCHAR(30) DEFAULT 'unlimited',
+        subscription_expires_at DATE NULL,
         driver_type VARCHAR(50) DEFAULT 'ajir',
         probation_stage VARCHAR(50) DEFAULT 'trial_1',
         activity_start_date DATE NULL,
@@ -519,7 +528,10 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'next_medical_start' => "DATE NULL AFTER `medical_visa_date`",
             'next_medical_end' => "DATE NULL AFTER `next_medical_start`",
             'taxi_contract_start' => "DATE NULL AFTER `next_medical_end`",
-            'taxi_contract_end' => "DATE NULL AFTER `taxi_contract_start`"
+            'taxi_contract_end' => "DATE NULL AFTER `taxi_contract_start`",
+            'subscription_type' => "VARCHAR(30) DEFAULT 'unlimited' AFTER `status`",
+            'subscription_expires_at' => "DATE NULL AFTER `subscription_type`",
+            'qr_token' => "VARCHAR(64) UNIQUE NULL AFTER `password_hash`"
         ];
 
         foreach ($addCols as $col => $def) {
@@ -529,6 +541,18 @@ function migrateDriverFicheFields(PDO $pdo): void {
                 } catch (\Throwable $ex) {}
             }
         }
+
+        // Backfill qr_token for any existing users that have null/empty token
+        try {
+            $stmtMissingQr = $pdo->query("SELECT id FROM `users` WHERE `qr_token` IS NULL OR `qr_token` = ''");
+            if ($stmtMissingQr) {
+                while ($uId = $stmtMissingQr->fetchColumn()) {
+                    $token = bin2hex(random_bytes(16));
+                    $upd = $pdo->prepare("UPDATE `users` SET `qr_token` = ? WHERE `id` = ?");
+                    $upd->execute([$token, $uId]);
+                }
+            }
+        } catch (\Throwable $ex) {}
     } catch (\Throwable $e) {
         error_log("Users table migration notice: " . $e->getMessage());
     }
