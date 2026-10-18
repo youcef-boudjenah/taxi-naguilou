@@ -47,9 +47,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     // Determine Probation Stage: 3 months each stage, stops after 9 months, manual official promotion
-    $isManualOfficial = !empty($_POST['is_manual_official']) || ($_POST['probation_stage'] ?? '') === 'official';
+    $postStage = trim($_POST['probation_stage'] ?? '');
+    $isManualOfficial = !empty($_POST['is_manual_official']) || $postStage === 'official';
     if ($isManualOfficial) {
         $probationStage = 'official';
+    } elseif (in_array($postStage, ['trial_1', 'trial_2', 'trial_3'], true)) {
+        $probationStage = $postStage;
     } else {
         $probationStage = 'trial_1';
         if (!empty($activityStartDate)) {
@@ -1446,61 +1449,82 @@ require_once __DIR__ . '/../includes/header.php';
                 <!-- Driver Status Type (Default to 'ajir' as requested) -->
                 <input type="hidden" name="driver_type" value="ajir">
 
-                <!-- دورة التدرج المهني للسائق (3 أشهر لكل مرحلة) -->
-                <div class="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-
-                    <!-- Probation Cycle Rule Indicator (3 months per stage) -->
-                    <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5">
-                        <div class="flex items-center justify-between text-[11px]">
-                            <span class="font-bold text-slate-700 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                                <span>دورة التدرج (3 أشهر للأولى ➔ 3 أشهر للثانية ➔ 3 أشهر للثالثة ➔ توقف):</span>
-                            </span>
-                            <span id="calculatedStageBadge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                المرحلة 1: تجريبية الأولى
-                            </span>
+                <!-- دورة التدرج المهني وتحديد وضعية السائق -->
+                <div class="rounded-2xl bg-slate-50/80 border border-slate-200/90 p-4 space-y-3.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-amber-500/10"></span>
+                            <span class="text-xs font-bold text-slate-800">المرحلة والوضعية المهنية للسائق:</span>
                         </div>
+                        <span id="calculatedStageBadge" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs transition-all">
+                            فترة تجريبية 1 (3 أشهر الأولى)
+                        </span>
+                    </div>
 
-                        <!-- 4 Step progression cards -->
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[10px] font-bold">
-                            <div id="stepBox_1" class="p-2 rounded-lg border bg-amber-50 border-amber-300 text-amber-900 transition">
-                                <span>فترة تجريبية 1</span>
-                                <div class="text-[9px] font-semibold text-amber-700 font-num">3 أشهر الأولى</div>
+                    <!-- 4 Interactive Clickable Stage Selection Buttons -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <!-- Stage 1 -->
+                        <button type="button" 
+                                id="btnStage_trial_1" 
+                                onclick="selectProbationStage('trial_1', true)"
+                                class="probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs focus:outline-none">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-xs">فترة تجريبية 1</span>
+                                <span class="stage-check hidden w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
                             </div>
-                            <div id="stepBox_2" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
-                                <span>تجريبية 2</span>
-                                <div class="text-[9px] font-normal text-slate-500 font-num">3 أشهر الثانية</div>
-                            </div>
-                            <div id="stepBox_3" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
-                                <span>تجريبية 3</span>
-                                <div class="text-[9px] font-normal text-slate-500 font-num">3 أشهر الأخيرة</div>
-                            </div>
-                            <div id="stepBox_official" class="p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition">
-                                <span>سائق رسمي</span>
-                                <div class="text-[9px] font-normal text-slate-500">تثبيت يدوي ✍️</div>
-                            </div>
-                        </div>
+                            <div class="text-[11px] font-semibold text-slate-500 font-num">3 أشهر الأولى</div>
+                        </button>
 
-                        <p id="stageCalculationNotice" class="text-[11px] text-slate-500">
-                            يبدأ السائق بالفترة التجريبية الأولى (3 أشهر)، ثم ينتقل للثانية فالثالثة، ويتوقف التدرج عند 9 أشهر بانتظار التثبيت يدوياً.
+                        <!-- Stage 2 -->
+                        <button type="button" 
+                                id="btnStage_trial_2" 
+                                onclick="selectProbationStage('trial_2', true)"
+                                class="probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs focus:outline-none">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-xs">تجريبية 2</span>
+                                <span class="stage-check hidden w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                            </div>
+                            <div class="text-[11px] font-semibold text-slate-500 font-num">3 أشهر الثانية</div>
+                        </button>
+
+                        <!-- Stage 3 -->
+                        <button type="button" 
+                                id="btnStage_trial_3" 
+                                onclick="selectProbationStage('trial_3', true)"
+                                class="probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs focus:outline-none">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-xs">تجريبية 3</span>
+                                <span class="stage-check hidden w-4 h-4 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                            </div>
+                            <div class="text-[11px] font-semibold text-slate-500 font-num">3 أشهر الأخيرة</div>
+                        </button>
+
+                        <!-- Official Driver -->
+                        <button type="button" 
+                                id="btnStage_official" 
+                                onclick="selectProbationStage('official', true)"
+                                class="probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs focus:outline-none">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-xs text-emerald-900">سائق رسمي</span>
+                                <span class="stage-check hidden w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">✓</span>
+                            </div>
+                            <div class="text-[11px] font-semibold text-emerald-700">تثبيت يدوي ✍️</div>
+                        </button>
+                    </div>
+
+                    <div class="flex items-start gap-2 pt-1 text-[11px] text-slate-500">
+                        <svg class="w-4 h-4 text-slate-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p id="stageCalculationNotice" class="leading-relaxed">
+                            انقر مباشرة على أي زر لتثبيت المرحلة المطلوبة، أو تتحدد تلقائياً حسب تاريخ البداية (3 أشهر لكل مرحلة).
                         </p>
-
-                        <!-- Manual Official Promotion Override -->
-                        <div class="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <label class="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" name="is_manual_official" id="checkManualOfficial" value="1" onchange="toggleManualOfficial(this)"
-                                       class="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
-                                <span class="text-xs font-bold text-slate-800">تعيين وتثبيت السائق كـ «سائق رسمي» يدوياً فوراً</span>
-                            </label>
-                            <span class="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/80">
-                                تجاوز فترات التجربة (رسمي دائم)
-                            </span>
-                        </div>
                     </div>
 
                     <!-- Hidden inputs to seamlessly populate existing PHP and DB handlers -->
                     <input type="hidden" name="activity_start_date" id="inputActivityStartDate" value="2005-07-01">
                     <input type="hidden" name="probation_stage" id="inputProbationStage" value="trial_1">
+                    <input type="checkbox" name="is_manual_official" id="checkManualOfficial" value="1" class="hidden">
                 </div>
 
             </div>
@@ -1879,6 +1903,8 @@ require_once __DIR__ . '/../includes/header.php';
     let currentWizardStep = 1;
     const totalWizardSteps = 4;
 
+    let userManuallySelectedStage = false;
+
     function openAddDriverModal() {
         const modal = document.getElementById('addDriverModal');
         modal.classList.remove('hidden');
@@ -1887,6 +1913,7 @@ require_once __DIR__ . '/../includes/header.php';
         goToWizardStep(1);
         const initialVal = document.getElementById('inputActivityPeriod')?.value || '07/2005';
         syncMonthPeriodValues(initialVal);
+        selectProbationStage('trial_1', true);
         updateDriverPreviewName();
         updateDriverPreviewPhone();
         updateDriverPreviewVehicle();
@@ -1901,6 +1928,7 @@ require_once __DIR__ . '/../includes/header.php';
 
     // Format Month/Year Input (MM/YYYY) e.g. 07/2005
     function formatMonthYearInput(input) {
+        userManuallySelectedStage = false;
         let v = input.value.replace(/[^\d]/g, '');
         if (v.length > 2) {
             let m = parseInt(v.substring(0, 2), 10);
@@ -1916,6 +1944,7 @@ require_once __DIR__ . '/../includes/header.php';
     // Synchronize native month picker (YYYY-MM) with visible input (MM/YYYY)
     function syncNativeMonthToInput(nativePicker) {
         if (!nativePicker.value) return;
+        userManuallySelectedStage = false;
         const parts = nativePicker.value.split('-');
         if (parts.length === 2) {
             const year = parts[0];
@@ -1944,87 +1973,152 @@ require_once __DIR__ . '/../includes/header.php';
         return diff < 0 ? 0 : diff;
     }
 
-    // Dynamic UI update for 3-month probation cycles
-    function updateProbationProgressionUI(val) {
-        const isManualOfficial = document.getElementById('checkManualOfficial')?.checked;
+    // Select probation stage interactively via clickable buttons
+    function selectProbationStage(stage, isUserClick = false) {
+        if (isUserClick) {
+            userManuallySelectedStage = true;
+        }
+
         const hiddenStage = document.getElementById('inputProbationStage');
+        const chkOfficial = document.getElementById('checkManualOfficial');
         const badge = document.getElementById('calculatedStageBadge');
         const notice = document.getElementById('stageCalculationNotice');
 
-        const box1 = document.getElementById('stepBox_1');
-        const box2 = document.getElementById('stepBox_2');
-        const box3 = document.getElementById('stepBox_3');
-        const boxOff = document.getElementById('stepBox_official');
+        const btn1 = document.getElementById('btnStage_trial_1');
+        const btn2 = document.getElementById('btnStage_trial_2');
+        const btn3 = document.getElementById('btnStage_trial_3');
+        const btnOff = document.getElementById('btnStage_official');
 
-        const resetBox = (b) => {
-            if (b) b.className = 'p-2 rounded-lg border bg-slate-50 border-slate-200 text-slate-600 transition';
-        };
-        resetBox(box1);
-        resetBox(box2);
-        resetBox(box3);
-        resetBox(boxOff);
+        const items = [
+            { id: 'trial_1', btn: btn1 },
+            { id: 'trial_2', btn: btn2 },
+            { id: 'trial_3', btn: btn3 },
+            { id: 'official', btn: btnOff }
+        ];
 
-        if (isManualOfficial) {
-            if (hiddenStage) hiddenStage.value = 'official';
+        // Reset all buttons to default clean state
+        items.forEach(item => {
+            if (!item.btn) return;
+            item.btn.className = 'probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs focus:outline-none';
+            const check = item.btn.querySelector('.stage-check');
+            if (check) {
+                check.classList.add('hidden');
+                check.classList.remove('flex');
+            }
+        });
+
+        if (stage === 'trial_1') {
+            if (hiddenStage) hiddenStage.value = 'trial_1';
+            if (chkOfficial) chkOfficial.checked = false;
+            if (btn1) {
+                btn1.className = 'probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-amber-50/90 border-amber-500 text-amber-950 font-black ring-2 ring-amber-500/25 shadow-xs focus:outline-none';
+                const check = btn1.querySelector('.stage-check');
+                if (check) {
+                    check.classList.remove('hidden');
+                    check.classList.add('flex');
+                }
+            }
             if (badge) {
-                badge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300';
-                badge.textContent = 'الوضعية: سائق رسمي (يدوياً ✍️)';
+                badge.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs';
+                badge.textContent = 'فترة تجريبية 1 (3 أشهر الأولى)';
+            }
+            if (notice) {
+                notice.textContent = 'السائق في الفترة التجريبية الأولى (3 أشهر الأولى). عند انقضائها ينتقل للمرحلة الثانية.';
+            }
+            updateDriverPreviewStage('trial_1');
+        } else if (stage === 'trial_2') {
+            if (hiddenStage) hiddenStage.value = 'trial_2';
+            if (chkOfficial) chkOfficial.checked = false;
+            if (btn2) {
+                btn2.className = 'probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-blue-50/90 border-blue-500 text-blue-950 font-black ring-2 ring-blue-500/25 shadow-xs focus:outline-none';
+                const check = btn2.querySelector('.stage-check');
+                if (check) {
+                    check.classList.remove('hidden');
+                    check.classList.add('flex');
+                }
+            }
+            if (badge) {
+                badge.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs';
+                badge.textContent = 'المرحلة 2: تجريبية 2 (3 أشهر الثانية)';
+            }
+            if (notice) {
+                notice.textContent = 'السائق في الفترة التجريبية الثانية (3 أشهر الثانية).';
+            }
+            updateDriverPreviewStage('trial_2');
+        } else if (stage === 'trial_3') {
+            if (hiddenStage) hiddenStage.value = 'trial_3';
+            if (chkOfficial) chkOfficial.checked = false;
+            if (btn3) {
+                btn3.className = 'probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-indigo-50/90 border-indigo-500 text-indigo-950 font-black ring-2 ring-indigo-500/25 shadow-xs focus:outline-none';
+                const check = btn3.querySelector('.stage-check');
+                if (check) {
+                    check.classList.remove('hidden');
+                    check.classList.add('flex');
+                }
+            }
+            if (badge) {
+                badge.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-100 text-indigo-900 border border-indigo-300 shadow-2xs';
+                badge.textContent = 'المرحلة 3: تجريبية 3 (3 أشهر الأخيرة)';
+            }
+            if (notice) {
+                notice.textContent = 'السائق في الفترة التجريبية الثالثة (3 أشهر الأخيرة). بعد 9 أشهر يتوقف التدرج بانتظار التثبيت.';
+            }
+            updateDriverPreviewStage('trial_3');
+        } else if (stage === 'official') {
+            if (hiddenStage) hiddenStage.value = 'official';
+            if (chkOfficial) chkOfficial.checked = true;
+            if (btnOff) {
+                btnOff.className = 'probation-btn relative group p-3 rounded-xl border-2 text-right transition-all duration-200 cursor-pointer bg-emerald-50/90 border-emerald-500 text-emerald-950 font-black ring-2 ring-emerald-500/25 shadow-xs focus:outline-none';
+                const check = btnOff.querySelector('.stage-check');
+                if (check) {
+                    check.classList.remove('hidden');
+                    check.classList.add('flex');
+                }
+            }
+            if (badge) {
+                badge.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs';
+                badge.textContent = 'الوضعية: سائق رسمي (تثبيت يدوي ✍️)';
             }
             if (notice) {
                 notice.textContent = 'تم تعيين وتثبيت السائق كـ «سائق رسمي» بصفة دائمة وتجاوز كافة الفترات التجريبية.';
             }
-            if (boxOff) {
-                boxOff.className = 'p-2 rounded-lg border-2 bg-emerald-50 border-emerald-500 text-emerald-950 font-black shadow-xs ring-2 ring-emerald-500/20';
-            }
             updateDriverPreviewStage('official');
+        }
+    }
+
+    // Dynamic UI update for 3-month probation cycles
+    function updateProbationProgressionUI(val) {
+        if (userManuallySelectedStage) {
             return;
         }
 
         const elapsed = calculateElapsedMonths(val);
-        let stageKey = 'trial_1';
-        let badgeText = '';
-        let badgeCls = '';
-        let noticeText = '';
-
         if (elapsed < 3) {
-            stageKey = 'trial_1';
-            badgeText = 'المرحلة 1: تجريبية الأولى (الشهر ' + (elapsed + 1) + ' من 3)';
-            badgeCls = 'bg-amber-100 text-amber-900 border-amber-300';
-            noticeText = 'السائق في الفترة التجريبية الأولى (3 أشهر). عند اكتمالها ينتقل تلقائياً للمرحلة الثانية.';
-            if (box1) box1.className = 'p-2 rounded-lg border-2 bg-amber-50 border-amber-500 text-amber-950 font-black shadow-xs ring-2 ring-amber-500/20';
+            selectProbationStage('trial_1', false);
         } else if (elapsed < 6) {
-            stageKey = 'trial_2';
-            badgeText = 'المرحلة 2: تجريبية الثانية (الشهر ' + (elapsed - 2) + ' من 3)';
-            badgeCls = 'bg-blue-100 text-blue-900 border-blue-300';
-            noticeText = 'اكتملت الفترة الأولى (3 أشهر). السائق حالياً في الفترة التجريبية الثانية (3 أشهر).';
-            if (box2) box2.className = 'p-2 rounded-lg border-2 bg-blue-50 border-blue-500 text-blue-950 font-black shadow-xs ring-2 ring-blue-500/20';
+            selectProbationStage('trial_2', false);
         } else if (elapsed < 9) {
-            stageKey = 'trial_3';
-            badgeText = 'المرحلة 3: تجريبية الثالثة (الشهر ' + (elapsed - 5) + ' من 3)';
-            badgeCls = 'bg-indigo-100 text-indigo-900 border-indigo-300';
-            noticeText = 'السائق في الفترة التجريبية الثالثة (3 أشهر). بعد اكتمالها يتوقف التدرج التلقائي ولا يرقى لسائق رسمي إلا يدوياً.';
-            if (box3) box3.className = 'p-2 rounded-lg border-2 bg-indigo-50 border-indigo-500 text-indigo-950 font-black shadow-xs ring-2 ring-indigo-500/20';
+            selectProbationStage('trial_3', false);
         } else {
-            // >= 9 months: stops automatically at trial_3 until manually promoted
-            stageKey = 'trial_3';
-            badgeText = 'تجريبية 3 (اكتملت 9 أشهر - بانتظار التثبيت)';
-            badgeCls = 'bg-purple-100 text-purple-900 border-purple-300 font-extrabold';
-            noticeText = 'اكتملت الفترات التجريبية الثلاث (9 أشهر). توقف التدرج التلقائي وبانتظار تثبيته يدوياً كسائق رسمي من طرف الإدارة.';
-            if (box3) box3.className = 'p-2 rounded-lg border-2 bg-purple-50 border-purple-500 text-purple-950 font-black shadow-xs ring-2 ring-purple-500/20';
+            selectProbationStage('trial_3', false);
+            const badge = document.getElementById('calculatedStageBadge');
+            const notice = document.getElementById('stageCalculationNotice');
+            if (badge) {
+                badge.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs';
+                badge.textContent = 'تجريبية 3 (اكتملت 9 أشهر - بانتظار التثبيت)';
+            }
+            if (notice) {
+                notice.textContent = 'اكتملت الفترات التجريبية الثلاث (9 أشهر). توقف التدرج التلقائي وبانتظار تثبيته يدوياً كسائق رسمي من طرف الإدارة.';
+            }
         }
-
-        if (hiddenStage) hiddenStage.value = stageKey;
-        if (badge) {
-            badge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold ' + badgeCls;
-            badge.textContent = badgeText;
-        }
-        if (notice) notice.textContent = noticeText;
-        updateDriverPreviewStage(stageKey);
     }
 
     function toggleManualOfficial(checkbox) {
-        const val = document.getElementById('inputActivityPeriod')?.value || '07/2005';
-        updateProbationProgressionUI(val);
+        if (checkbox && checkbox.checked) {
+            selectProbationStage('official', true);
+        } else {
+            selectProbationStage('trial_1', true);
+        }
     }
 
     // Sync values across hidden inputs and Step 4 live preview
@@ -2043,16 +2137,6 @@ require_once __DIR__ . '/../includes/header.php';
         if (previewBadge && val) {
             previewBadge.textContent = val;
         }
-        updateProbationProgressionUI(val);
-    }
-
-    // Backward compatibility wrapper
-    function selectProbationStage(stage) {
-        if (stage === 'official') {
-            const chk = document.getElementById('checkManualOfficial');
-            if (chk) chk.checked = true;
-        }
-        const val = document.getElementById('inputActivityPeriod')?.value || '07/2005';
         updateProbationProgressionUI(val);
     }
 
