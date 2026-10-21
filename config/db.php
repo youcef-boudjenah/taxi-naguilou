@@ -1,14 +1,10 @@
 <?php
 // config/db.php - Central Database Configuration & Auto-Migration
-if (!ob_get_level()) {
-    ob_start();
-}
-define('DB_HOST', '127.0.0.1');
+define('DB_HOST', 'localhost');
 define('DB_PORT', '3306');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'taxi_naguilou');
-
+define('DB_USER', 'mvnmwgmy_taxi_naguilou');
+define('DB_PASS', 'mvnmwgmy_taxi_naguilou');
+define('DB_NAME', 'mvnmwgmy_taxi_naguilou');
 /**
  * Dynamic App Base URL Resolution
  * Works seamlessly whether hosted at root (vhost http://taxi-naguilou.test/)
@@ -84,51 +80,78 @@ function getDBConnection() {
     $pdoOptions = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_TIMEOUT => 4
+        PDO::ATTR_TIMEOUT => 2
     ];
     if (defined('PDO::MYSQL_ATTR_MULTI_STATEMENTS')) {
         $pdoOptions[PDO::MYSQL_ATTR_MULTI_STATEMENTS] = true;
     }
 
-    // 1. Direct connection to target database (Standard for Bluehost, cPanel & production)
-    try {
-        $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
+    // Candidate credential pairs (supports both local Laragon/XAMPP and production cPanel/Bluehost)
+    $isLocalEnv = (PHP_OS_FAMILY === 'Windows') 
+                  || in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1']) 
+                  || (($_SERVER['HTTP_HOST'] ?? '') === 'localhost')
+                  || (strpos(str_replace('\\', '/', __DIR__), 'laragon') !== false);
+
+    $candidates = [];
+    if ($isLocalEnv) {
+        $candidates[] = ['host' => '127.0.0.1', 'port' => DB_PORT, 'db' => 'taxi_naguilou', 'user' => 'root', 'pass' => ''];
+        $candidates[] = ['host' => DB_HOST, 'port' => DB_PORT, 'db' => DB_NAME, 'user' => DB_USER, 'pass' => DB_PASS];
+    } else {
+        $candidates[] = ['host' => DB_HOST, 'port' => DB_PORT, 'db' => DB_NAME, 'user' => DB_USER, 'pass' => DB_PASS];
+        $candidates[] = ['host' => '127.0.0.1', 'port' => DB_PORT, 'db' => 'taxi_naguilou', 'user' => 'root', 'pass' => ''];
+    }
+
+    foreach ($candidates as $cand) {
         try {
-            $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
-        } catch (\Throwable $ex) {}
+            $dsnWithDb = "mysql:host=" . $cand['host'] . ";port=" . $cand['port'] . ";dbname=" . $cand['db'] . ";charset=utf8mb4";
+            $pdo = new PDO($dsnWithDb, $cand['user'], $cand['pass'], $pdoOptions);
+            break;
+        } catch (\Throwable $ex) {
+            $g_dbLastError = $ex->getMessage();
+        }
+    }
 
-        initAllTables($pdo);
-        migrateDriverFicheFields($pdo);
-        seedDefaultData($pdo);
-
-        return $pdo;
-    } catch (\Throwable $directEx) {
-        $g_dbLastError = $directEx->getMessage();
-
-        // 2. Fallback: attempt to connect without dbname and create database (for Localhost / Laragon dev)
+    if (!$pdo) {
+        // Fallback: attempt to connect without dbname to create database if missing
         try {
-            $dsnWithoutDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
-            $rawPdo = new PDO($dsnWithoutDb, DB_USER, DB_PASS, $pdoOptions);
-            $rawPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            $fallbackHost = $isLocalEnv ? '127.0.0.1' : DB_HOST;
+            $fallbackUser = $isLocalEnv ? 'root' : DB_USER;
+            $fallbackPass = $isLocalEnv ? '' : DB_PASS;
+            $targetDb = $isLocalEnv ? 'taxi_naguilou' : DB_NAME;
 
-            $dsnWithDb = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-            $pdo = new PDO($dsnWithDb, DB_USER, DB_PASS, $pdoOptions);
-            try {
-                $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
-            } catch (\Throwable $ex) {}
+            $dsnWithoutDb = "mysql:host=" . $fallbackHost . ";port=" . DB_PORT . ";charset=utf8mb4";
+            $rawPdo = new PDO($dsnWithoutDb, $fallbackUser, $fallbackPass, $pdoOptions);
+            $rawPdo->exec("CREATE DATABASE IF NOT EXISTS `" . $targetDb . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
-            initAllTables($pdo);
-            migrateDriverFicheFields($pdo);
-            seedDefaultData($pdo);
-
+            $dsnWithDb = "mysql:host=" . $fallbackHost . ";port=" . DB_PORT . ";dbname=" . $targetDb . ";charset=utf8mb4";
+            $pdo = new PDO($dsnWithDb, $fallbackUser, $fallbackPass, $pdoOptions);
             $g_dbLastError = null;
-            return $pdo;
         } catch (\Throwable $fallbackEx) {
-            error_log("DB Connection Warning: Direct failed: " . $directEx->getMessage() . " | Fallback failed: " . $fallbackEx->getMessage());
+            error_log("DB Connection Warning: All candidates failed: " . ($g_dbLastError ?? '') . " | Fallback: " . $fallbackEx->getMessage());
             return null;
         }
     }
+
+    try {
+        $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
+    } catch (\Throwable $ex) {}
+
+    // Run migrations only once, persist lock file to save ~280ms on every HTTP request!
+    $schemaLock = __DIR__ . '/../uploads/.schema_migrated_v246';
+    if (!file_exists($schemaLock)) {
+        initAllTables($pdo);
+        migrateDriverFicheFields($pdo);
+        migrateSoftDeleteFields($pdo);
+        seedDefaultData($pdo);
+        ensure_db_indexes($pdo);
+        $destDir = dirname($schemaLock);
+        if (!is_dir($destDir)) {
+            @mkdir($destDir, 0777, true);
+        }
+        @file_put_contents($schemaLock, json_encode(['migrated_at' => date('c'), 'v' => '2.4.6']));
+    }
+
+    return $pdo;
 }
 
 function initAllTables(PDO $pdo) {
@@ -219,9 +242,10 @@ function initAllTables(PDO $pdo) {
         gpl_expiry DATE NULL,
         gpl_text VARCHAR(100) NULL,
         saccuriometre_expiry DATE NULL,
-        saccuriometre_text VARCHAR(100) DEFAULT 'معاير ومختوم',
+        saccuriometre_text VARCHAR(100) DEFAULT NULL,
         status ENUM('active', 'suspended', 'in_maintenance') DEFAULT 'active',
         suspended_reason VARCHAR(255) NULL,
+        qr_code VARCHAR(64) UNIQUE NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (current_driver_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -486,6 +510,36 @@ function initAllTables(PDO $pdo) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (report_id) REFERENCES traveler_reports(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Driver & Vehicle Ratings (تقييمات الركاب للخدمة والسائق)
+    CREATE TABLE IF NOT EXISTS driver_ratings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vehicle_id INT NOT NULL,
+        driver_id INT NULL,
+        rating TINYINT UNSIGNED NOT NULL DEFAULT 5,
+        cleanliness_rating TINYINT UNSIGNED DEFAULT 5,
+        driving_rating TINYINT UNSIGNED DEFAULT 5,
+        courtesy_rating TINYINT UNSIGNED DEFAULT 5,
+        passenger_name VARCHAR(150) NULL,
+        passenger_phone VARCHAR(50) NULL,
+        comment TEXT NULL,
+        ip_address VARCHAR(45) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+        FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Vehicle QR Scans Log (سجل مسح الباركود ورمز الاستجابة السريعة للسيارة)
+    CREATE TABLE IF NOT EXISTS vehicle_scans (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vehicle_id INT NOT NULL,
+        driver_id INT NULL,
+        ip_address VARCHAR(45) NULL,
+        user_agent VARCHAR(255) NULL,
+        scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+        FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
     $queries = array_filter(array_map('trim', explode(';', $schema)));
@@ -578,9 +632,10 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'gpl_expiry' => "DATE NULL AFTER `extinguisher_expiry`",
             'gpl_text' => "VARCHAR(100) NULL AFTER `gpl_expiry`",
             'saccuriometre_expiry' => "DATE NULL AFTER `gpl_text`",
-            'saccuriometre_text' => "VARCHAR(100) DEFAULT 'معاير ومختوم' AFTER `saccuriometre_expiry`",
+            'saccuriometre_text' => "VARCHAR(100) DEFAULT NULL AFTER `saccuriometre_expiry`",
             'status' => "ENUM('active', 'suspended', 'in_maintenance') DEFAULT 'active' AFTER `saccuriometre_text`",
-            'suspended_reason' => "VARCHAR(255) NULL AFTER `status`"
+            'suspended_reason' => "VARCHAR(255) NULL AFTER `status`",
+            'qr_code' => "VARCHAR(64) UNIQUE NULL AFTER `suspended_reason`"
         ];
 
         foreach ($addVCols as $col => $def) {
@@ -590,6 +645,18 @@ function migrateDriverFicheFields(PDO $pdo): void {
                 } catch (\Throwable $ex) {}
             }
         }
+
+        // Backfill qr_code for any vehicles that have null/empty qr_code
+        try {
+            $stmtMissingVQr = $pdo->query("SELECT id FROM `vehicles` WHERE `qr_code` IS NULL OR `qr_code` = ''");
+            if ($stmtMissingVQr) {
+                while ($vId = $stmtMissingVQr->fetchColumn()) {
+                    $token = 'TN-V' . str_pad($vId, 3, '0', STR_PAD_LEFT) . '-' . bin2hex(random_bytes(6));
+                    $upd = $pdo->prepare("UPDATE `vehicles` SET `qr_code` = ? WHERE `id` = ?");
+                    $upd->execute([$token, $vId]);
+                }
+            }
+        } catch (\Throwable $ex) {}
     } catch (\Throwable $e) {
         error_log("Vehicles table migration notice: " . $e->getMessage());
     }
@@ -758,7 +825,7 @@ function seedDefaultData(PDO $pdo) {
         date('Y-m-d', strtotime('+85 days')),
         date('Y-m-d', strtotime('+120 days')),
         date('Y-m-d', strtotime('+160 days')),
-        date('Y-m-d', strtotime('+90 days')), 'معاير ومختوم', 'active'
+        date('Y-m-d', strtotime('+90 days')), null, 'active'
     ]);
     $v1Id = $pdo->lastInsertId();
 
@@ -769,7 +836,7 @@ function seedDefaultData(PDO $pdo) {
         date('Y-m-d', strtotime('+6 days')), // URGENT ALERT
         date('Y-m-d', strtotime('+40 days')),
         date('Y-m-d', strtotime('+110 days')),
-        date('Y-m-d', strtotime('+45 days')), 'معاير ومختوم', 'active'
+        date('Y-m-d', strtotime('+45 days')), null, 'active'
     ]);
     $v2Id = $pdo->lastInsertId();
 
@@ -780,7 +847,7 @@ function seedDefaultData(PDO $pdo) {
         date('Y-m-d', strtotime('+95 days')),
         date('Y-m-d', strtotime('+30 days')),
         date('Y-m-d', strtotime('+14 days')), // GPL inspection due soon
-        date('Y-m-d', strtotime('+80 days')), 'معاير ومختوم', 'active'
+        date('Y-m-d', strtotime('+80 days')), null, 'active'
     ]);
     $v3Id = $pdo->lastInsertId();
 
@@ -1229,4 +1296,210 @@ function getRecentNotifications(?PDO $pdo, int $limit = 5): array {
         return [];
     }
 }
+
+function ensure_db_indexes(PDO $pdo): void {
+    $indexes = [
+        'users' => [
+            'idx_users_role_status' => '(`role`, `status`)',
+            'idx_users_phone' => '(`phone`)',
+            'idx_users_lic_num' => '(`license_number`)',
+            'idx_users_card_num' => '(`card_number`)',
+            'idx_users_lic_exp' => '(`license_expiry`)',
+            'idx_users_med_exp' => '(`medical_cert_expiry`)'
+        ],
+        'vehicles' => [
+            'idx_veh_status' => '(`status`)',
+            'idx_veh_tc_exp' => '(`technical_control_expiry`)',
+            'idx_veh_ins_exp' => '(`insurance_expiry`)',
+            'idx_veh_gpl_exp' => '(`gpl_expiry`)',
+            'idx_veh_sac_exp' => '(`saccuriometre_expiry`)'
+        ],
+        'notifications' => [
+            'idx_notif_read_created' => '(`is_read`, `created_at`)'
+        ],
+        'contracts' => [
+            'idx_contracts_driver_status' => '(`driver_id`, `status`)'
+        ],
+        'leaves' => [
+            'idx_leaves_repl_status_end' => '(`replacement_driver_id`, `status`, `end_date`)'
+        ],
+        'driver_debts' => [
+            'idx_debts_user_status' => '(`user_id`, `status`)'
+        ]
+    ];
+
+    foreach ($indexes as $table => $tIndexes) {
+        try {
+            $existing = [];
+            $stmt = $pdo->query("SHOW INDEX FROM `$table`");
+            while ($row = $stmt->fetch()) {
+                $existing[$row['Key_name']] = true;
+            }
+            foreach ($tIndexes as $name => $cols) {
+                if (!isset($existing[$name])) {
+                    try {
+                        $pdo->exec("ALTER TABLE `$table` ADD INDEX `$name` $cols");
+                    } catch (\Throwable $e) {}
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
+}
+
+/**
+ * Ensures deleted_at timestamp column and indexes exist on all relevant tables
+ */
+function migrateSoftDeleteFields(PDO $pdo): void {
+    $tables = [
+        'vehicles',
+        'users',
+        'contracts',
+        'insurance_policies',
+        'leaves',
+        'driver_debts',
+        'versements',
+        'transmission_slips',
+        'driver_subscriptions',
+        'cnas_declarations',
+        'traveler_reports'
+    ];
+
+    foreach ($tables as $table) {
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            if (!in_array('deleted_at', $cols)) {
+                try {
+                    $pdo->exec("ALTER TABLE `$table` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL");
+                } catch (\Throwable $e) {}
+            }
+            $indexes = $pdo->query("SHOW INDEX FROM `$table`")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $hasIndex = false;
+            foreach ($indexes as $idx) {
+                if ($idx['Column_name'] === 'deleted_at') {
+                    $hasIndex = true;
+                    break;
+                }
+            }
+            if (!$hasIndex) {
+                try {
+                    $pdo->exec("ALTER TABLE `$table` ADD INDEX `idx_{$table}_deleted_at` (`deleted_at`)");
+                } catch (\Throwable $e) {}
+            }
+        } catch (\Throwable $e) {}
+    }
+}
+
+/**
+ * Soft deletes an entity by setting its deleted_at to current timestamp
+ */
+function soft_delete_entity(PDO $pdo, string $table, int $id, ?string $reason = null): bool {
+    $allowed = ['vehicles', 'users', 'contracts', 'insurance_policies', 'leaves', 'driver_debts', 'versements', 'transmission_slips', 'driver_subscriptions', 'cnas_declarations', 'traveler_reports'];
+    if (!in_array($table, $allowed) || $id <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("UPDATE `$table` SET deleted_at = NOW() WHERE id = ?");
+        $res = $stmt->execute([$id]);
+        if ($res) {
+            log_audit($pdo, 'entity_soft_deleted', $table, $id, "نقل العنصر رقم $id من جدول $table إلى سلة المهملات / الأرشيف" . ($reason ? ": $reason" : ''));
+        }
+        return $res;
+    } catch (\Throwable $e) {
+        error_log("soft_delete_entity error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Restores an entity from trash by resetting its deleted_at to NULL
+ */
+function restore_entity(PDO $pdo, string $table, int $id): bool {
+    $allowed = ['vehicles', 'users', 'contracts', 'insurance_policies', 'leaves', 'driver_debts', 'versements', 'transmission_slips', 'driver_subscriptions', 'cnas_declarations', 'traveler_reports'];
+    if (!in_array($table, $allowed) || $id <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("UPDATE `$table` SET deleted_at = NULL WHERE id = ?");
+        $res = $stmt->execute([$id]);
+        if ($res) {
+            if ($table === 'users') {
+                $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
+            } elseif ($table === 'vehicles') {
+                $pdo->prepare("UPDATE vehicles SET status = 'active' WHERE id = ? AND (status IS NULL OR status = 'suspended')")->execute([$id]);
+            }
+            log_audit($pdo, 'entity_restored', $table, $id, "استرجاع العنصر رقم $id في جدول $table من سلة المهملات");
+        }
+        return $res;
+    } catch (\Throwable $e) {
+        error_log("restore_entity error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Permanently deletes an entity from database
+ */
+function permanent_delete_entity(PDO $pdo, string $table, int $id): bool {
+    $allowed = ['vehicles', 'users', 'contracts', 'insurance_policies', 'leaves', 'driver_debts', 'versements', 'transmission_slips', 'driver_subscriptions', 'cnas_declarations', 'traveler_reports'];
+    if (!in_array($table, $allowed) || $id <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("DELETE FROM `$table` WHERE id = ?");
+        $res = $stmt->execute([$id]);
+        if ($res) {
+            log_audit($pdo, 'entity_permanently_deleted', $table, $id, "حذف نهائي للعنصر رقم $id من جدول $table");
+        }
+        return $res;
+    } catch (\Throwable $e) {
+        error_log("permanent_delete_entity error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Gets trash item counts across all tables
+ */
+function get_trash_counts(?PDO $pdo): array {
+    $counts = [
+        'total' => 0,
+        'vehicles' => 0,
+        'drivers' => 0,
+        'users' => 0,
+        'contracts' => 0,
+        'insurance' => 0,
+        'leaves' => 0,
+        'debts' => 0,
+        'slips' => 0,
+        'reports' => 0
+    ];
+    if (!$pdo) return $counts;
+
+    try {
+        $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['drivers'] = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['users'] = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role != 'driver' AND deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['contracts'] = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['insurance'] = (int)$pdo->query("SELECT COUNT(*) FROM insurance_policies WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['leaves'] = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['debts'] = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['slips'] = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+    try {
+        $counts['reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports WHERE deleted_at IS NOT NULL")->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    $counts['total'] = $counts['vehicles'] + $counts['drivers'] + $counts['users'] + $counts['contracts'] + $counts['insurance'] + $counts['leaves'] + $counts['debts'] + $counts['slips'] + $counts['reports'];
+    return $counts;
+}
+
+
 

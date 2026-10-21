@@ -115,6 +115,7 @@ $erpNavCategories = [
             'notifications' => ['title' => 'مركز الإشعارات', 'url' => '/dashboard/notifications.php', 'badge' => 'تنبيهات'],
             'users' => ['title' => 'المستخدمون والصلاحيات', 'url' => '/dashboard/users.php', 'badge' => 'صلاحيات'],
             'audit_logs' => ['title' => 'سجل التدقيق والرقابة', 'url' => '/dashboard/audit_logs.php', 'badge' => 'أمان'],
+            'archive' => ['title' => 'سلة المهملات والأرشيف', 'url' => '/dashboard/archive.php', 'badge' => 'سلة'],
             'settings' => ['title' => 'إعدادات المنصة والهوية', 'url' => '/dashboard/settings.php', 'badge' => 'نظام'],
             'import'   => ['title' => 'استيراد البيانات (نقل)', 'url' => '/dashboard/import.php', 'badge' => 'نقل'],
         ]
@@ -139,10 +140,12 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $pageTitle ?? 'لوحة التحكم' ?> | تاكسي نقيلو (Desktop ERP)</title>
 
-    <!-- Google Fonts -->
+    <!-- Google Fonts Optimized -->
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -241,6 +244,11 @@ foreach ($erpNavCategories as $catKey => $catData) {
         .animate-fadeIn {
             animation: fadeIn 0.15s ease-out forwards;
         }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; padding: 0 !important; color: black !important; }
+            main { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+        }
     </style>
 </head>
 <body class="min-h-full bg-[#f4f6f9] text-slate-800 antialiased flex flex-col font-sans">
@@ -248,7 +256,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
 
         <!-- 1. Top Expiry Radar Alert Banner (If Any Warnings) -->
         <?php if (!empty($expiringList)): ?>
-            <div class="bg-rose-600 text-white px-4 py-2 text-xs font-bold shadow-2xs z-50">
+            <div class="bg-rose-600 text-white px-4 py-2 text-xs font-bold shadow-2xs z-50 no-print">
                 <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
                     <div class="flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
@@ -262,7 +270,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <?php endif; ?>
 
         <!-- 2. Sticky Desktop Top ERP Header -->
-        <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
+        <header class="sticky top-0 z-40 bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 shadow-2xs no-print">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
                 
                 <!-- Brand & Desktop Launcher Button & Quick Dropdowns -->
@@ -294,129 +302,154 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     </a>
 
                     <!-- Desktop Module Dropdown Menus (Quick ERP Navigation) -->
-                    <div class="hidden xl:flex items-center gap-1 border-r border-slate-200 pr-3 mr-1">
+                    <div class="hidden xl:flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3 mr-1">
                         
                         <!-- 1. الأسطول -->
-                        <div class="relative group">
-                            <button type="button" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition <?= $activeCategoryKey === 'fleet' ? 'text-blue-700 bg-blue-50 font-black' : '' ?>">
+                        <div class="relative group app-bar-dropdown">
+                            <button type="button" 
+                                    onclick="toggleAppBarDropdown(event, this)"
+                                    class="app-bar-dropdown-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition <?= $activeCategoryKey === 'fleet' ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 font-black' : '' ?>">
                                 <span>الأسطول</span>
-                                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <svg class="chevron-icon w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-150" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
-                            <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
-                                <a href="<?= url('/dashboard/vehicles.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition">
-                                    <span>سجل المركبات والوثائق</span>
-                                    <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
-                                </a>
-                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                                <a href="<?= url('/dashboard/insurance.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition">
-                                    <span>التأمين والمراقبة التقنية</span>
-                                    <span class="text-[10px] text-slate-400 font-num">SAA / GPL</span>
-                                </a>
-                                <?php endif; ?>
+                            <div class="app-bar-dropdown-menu absolute right-0 top-full pt-1 w-60 bg-white dark:bg-[#161d27] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 py-2 hidden group-hover:block z-50 animate-fadeIn">
+                                <div class="space-y-0.5 px-1.5">
+                                    <a href="<?= url('/dashboard/vehicles.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 transition">
+                                        <span>سجل المركبات والوثائق</span>
+                                        <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
+                                    </a>
+                                    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                    <a href="<?= url('/dashboard/insurance.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-800 dark:hover:text-emerald-300 transition">
+                                        <span>التأمين والمراقبة التقنية</span>
+                                        <span class="text-[10px] text-slate-400 font-num">SAA / GPL</span>
+                                    </a>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
 
                         <!-- 2. السائقون -->
-                        <div class="relative group">
-                            <button type="button" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition <?= $activeCategoryKey === 'drivers' ? 'text-violet-700 bg-violet-50 font-black' : '' ?>">
+                        <div class="relative group app-bar-dropdown">
+                            <button type="button" 
+                                    onclick="toggleAppBarDropdown(event, this)"
+                                    class="app-bar-dropdown-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition <?= $activeCategoryKey === 'drivers' ? 'text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/40 font-black' : '' ?>">
                                 <span>السائقون والتشغيل</span>
-                                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <svg class="chevron-icon w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-150" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
-                            <div class="absolute right-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
-                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                                <a href="<?= url('/dashboard/drivers.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition">
-                                    <span>السائقون والبطاقات المهنية</span>
-                                    <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
-                                </a>
-                                <?php endif; ?>
-                                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition">
-                                    <span><?= $isTaxiDriver ? 'بطاقتي الفنية (دفتر المقررة)' : 'البطاقة الفنية للسائق' ?></span>
-                                    <span class="text-[10px] text-slate-400 font-num">Fiche</span>
-                                </a>
-                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                                <a href="<?= url('/dashboard/contracts.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition">
-                                    <span>عقود العمل (قانون 90-11)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">قانوني</span>
-                                </a>
-                                <?php endif; ?>
-                                <?php if ($isSuperOrAdmin): ?>
-                                <a href="<?= url('/dashboard/cnas.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition">
-                                    <span>الضمان الاجتماعي (CNAS)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">أجراء</span>
-                                </a>
-                                <?php endif; ?>
-                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                                <a href="<?= url('/dashboard/leaves.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition">
-                                    <span>السائق البديل والعطل</span>
-                                    <span class="text-[10px] text-slate-400 font-num">إنابة</span>
-                                </a>
-                                <?php endif; ?>
-                                <a href="<?= url('/dashboard/slips.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-800 transition">
-                                    <span>جداول الإرسال (Bordereaux)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">DTW</span>
-                                </a>
-                                <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-cyan-50 hover:text-cyan-700 transition">
-                                    <span>محاضر المسافرين (PV)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">بين الولايات</span>
-                                </a>
-                                <a href="<?= url('/dashboard/planning.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition">
-                                    <span>حراسة الحظيرة والجدول (3j)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">مناوبة</span>
-                                </a>
+                            <div class="app-bar-dropdown-menu absolute right-0 top-full pt-1 w-64 bg-white dark:bg-[#161d27] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 py-2 hidden group-hover:block z-50 animate-fadeIn">
+                                <div class="space-y-0.5 px-1.5">
+                                    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                    <a href="<?= url('/dashboard/drivers.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-violet-900/30 hover:text-violet-800 dark:hover:text-violet-300 transition">
+                                        <span>السائقون والبطاقات المهنية</span>
+                                        <span class="text-[10px] text-slate-400 font-num">البطاقات</span>
+                                    </a>
+                                    <?php endif; ?>
+                                    <?php if (!$isTaxiDriver): ?>
+                                     <a href="<?= url('/dashboard/driver_fiche.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-violet-50 dark:hover:bg-violet-900/30 hover:text-violet-800 dark:hover:text-violet-300 transition">
+                                         <span>البطاقة الفنية للسائق</span>
+                                         <span class="text-[10px] text-slate-400 font-num">Fiche</span>
+                                     </a>
+                                     <?php endif; ?>
+                                    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                    <a href="<?= url('/dashboard/contracts.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-teal-50 dark:hover:bg-teal-900/30 hover:text-teal-800 dark:hover:text-teal-300 transition">
+                                        <span>عقود العمل (قانون 90-11)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">قانوني</span>
+                                    </a>
+                                    <?php endif; ?>
+                                    <?php if ($isSuperOrAdmin): ?>
+                                    <a href="<?= url('/dashboard/cnas.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-sky-50 dark:hover:bg-sky-900/30 hover:text-sky-800 dark:hover:text-sky-300 transition">
+                                        <span>الضمان الاجتماعي (CNAS)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">أجراء</span>
+                                    </a>
+                                    <?php endif; ?>
+                                    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                    <a href="<?= url('/dashboard/leaves.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-800 dark:hover:text-indigo-300 transition">
+                                        <span>السائق البديل والعطل</span>
+                                        <span class="text-[10px] text-slate-400 font-num">إنابة</span>
+                                    </a>
+                                    <?php endif; ?>
+                                    <a href="<?= url('/dashboard/slips.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 transition">
+                                        <span>جداول الإرسال (Bordereaux)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">DTW</span>
+                                    </a>
+                                    <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/30 hover:text-cyan-800 dark:hover:text-cyan-300 transition">
+                                        <span>محاضر المسافرين (PV)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">بين الولايات</span>
+                                    </a>
+                                    <a href="<?= url('/dashboard/planning.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-800 dark:hover:text-purple-300 transition">
+                                        <span>حراسة الحظيرة والجدول (3j)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">مناوبة</span>
+                                    </a>
+                                </div>
                             </div>
                         </div>
 
                         <!-- 3. المالية -->
                         <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                        <div class="relative group">
-                            <button type="button" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition <?= $activeCategoryKey === 'finance' ? 'text-emerald-700 bg-emerald-50 font-black' : '' ?>">
+                        <div class="relative group app-bar-dropdown">
+                            <button type="button" 
+                                    onclick="toggleAppBarDropdown(event, this)"
+                                    class="app-bar-dropdown-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition <?= $activeCategoryKey === 'finance' ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 font-black' : '' ?>">
                                 <span>المالية</span>
-                                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <svg class="chevron-icon w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-150" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
-                            <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
-                                <a href="<?= url('/dashboard/analytics.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-700 transition">
-                                    <span>التحليلات والمؤشرات (KPIs)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">تنفيذي</span>
-                                </a>
-                                <?php if ($isSuperOrAdmin): ?>
-                                <a href="<?= url('/dashboard/debts.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-rose-50 hover:text-rose-700 transition">
-                                    <span>المالية والديون</span>
-                                    <span class="text-[10px] text-slate-400 font-num">مستحقات</span>
-                                </a>
-                                <?php endif; ?>
-                                <a href="<?= url('/dashboard/billing.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition">
-                                    <span>الفوترة والاشتراكات (CCP)</span>
-                                    <span class="text-[10px] text-slate-400 font-num">BaridiMob</span>
-                                </a>
+                            <div class="app-bar-dropdown-menu absolute right-0 top-full pt-1 w-60 bg-white dark:bg-[#161d27] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 py-2 hidden group-hover:block z-50 animate-fadeIn">
+                                <div class="space-y-0.5 px-1.5">
+                                    <a href="<?= url('/dashboard/analytics.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 transition">
+                                        <span>التحليلات والمؤشرات (KPIs)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">تنفيذي</span>
+                                    </a>
+                                    <?php if ($isSuperOrAdmin): ?>
+                                    <a href="<?= url('/dashboard/debts.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-900/30 hover:text-rose-800 dark:hover:text-rose-300 transition">
+                                        <span>المالية والديون</span>
+                                        <span class="text-[10px] text-slate-400 font-num">مستحقات</span>
+                                    </a>
+                                    <?php endif; ?>
+                                    <a href="<?= url('/dashboard/billing.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-800 dark:hover:text-emerald-300 transition">
+                                        <span>الفوترة والاشتراكات (CCP)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">BaridiMob</span>
+                                    </a>
+                                </div>
                             </div>
                         </div>
                         <?php endif; ?>
 
                         <!-- 4. النظام -->
-                        <div class="relative group">
-                            <button type="button" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition <?= $activeCategoryKey === 'system' ? 'text-slate-950 bg-slate-100 font-black' : '' ?>">
+                        <div class="relative group app-bar-dropdown">
+                            <button type="button" 
+                                    onclick="toggleAppBarDropdown(event, this)"
+                                    class="app-bar-dropdown-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition <?= $activeCategoryKey === 'system' ? 'text-slate-950 dark:text-white bg-slate-100 dark:bg-slate-800 font-black' : '' ?>">
                                 <span>النظام</span>
-                                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <svg class="chevron-icon w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-150" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                             </button>
-                            <div class="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-slate-200/90 py-1.5 hidden group-hover:block z-50 animate-fadeIn">
-                                <a href="<?= url('/dashboard/notifications.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-amber-800 transition">
-                                    <span>مركز الإشعارات</span>
-                                    <span class="text-[10px] text-slate-400 font-num">تنبيهات</span>
-                                </a>
-                                <?php if ($isSuperOrAdmin): ?>
-                                <a href="<?= url('/dashboard/users.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-950 transition">
-                                    <span>المستخدمون والصلاحيات</span>
-                                    <span class="text-[10px] text-slate-400 font-num">RBAC</span>
-                                </a>
-                                <a href="<?= url('/dashboard/audit_logs.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-orange-50 hover:text-orange-700 transition">
-                                    <span>سجل التدقيق والرقابة</span>
-                                    <span class="text-[10px] text-slate-400 font-num">أمان</span>
-                                </a>
-                                <a href="<?= url('/dashboard/settings.php') ?>" class="flex items-center justify-between px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-950 transition">
-                                    <span>إعدادات المنصة والهوية</span>
-                                    <span class="text-[10px] text-slate-400 font-num">تخصيص</span>
-                                </a>
-                                <?php endif; ?>
+                            <div class="app-bar-dropdown-menu absolute right-0 top-full pt-1 w-60 bg-white dark:bg-[#161d27] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 py-2 hidden group-hover:block z-50 animate-fadeIn">
+                                <div class="space-y-0.5 px-1.5">
+                                    <a href="<?= url('/dashboard/notifications.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 transition">
+                                        <span>مركز الإشعارات</span>
+                                        <span class="text-[10px] text-slate-400 font-num">تنبيهات</span>
+                                    </a>
+                                    <?php if ($isSuperOrAdmin): ?>
+                                    <a href="<?= url('/dashboard/users.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white transition">
+                                        <span>المستخدمون والصلاحيات</span>
+                                        <span class="text-[10px] text-slate-400 font-num">RBAC</span>
+                                    </a>
+                                    <a href="<?= url('/dashboard/audit_logs.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-orange-50 dark:hover:bg-orange-900/30 hover:text-orange-800 dark:hover:text-orange-300 transition">
+                                        <span>سجل التدقيق والرقابة</span>
+                                        <span class="text-[10px] text-slate-400 font-num">أمان</span>
+                                    </a>
+                                    <a href="<?= url('/dashboard/archive.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                                        <span class="flex items-center gap-1.5">
+                                            <span>🗑️</span>
+                                            <span>سلة المهملات والأرشيف</span>
+                                        </span>
+                                        <span class="text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300 px-1.5 py-0.5 rounded">استرجاع</span>
+                                    </a>
+                                    <a href="<?= url('/dashboard/settings.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white transition">
+                                        <span>إعدادات المنصة والهوية</span>
+                                        <span class="text-[10px] text-slate-400 font-num">تخصيص</span>
+                                    </a>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
 
@@ -462,7 +495,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     <!-- Notification Bell Dropdown -->
                     <div class="relative">
                         <button id="notifBellBtn" onclick="document.getElementById('notifDropdown').classList.toggle('hidden')" 
-                                class="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition flex items-center justify-center" 
+                                class="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center min-w-[38px] min-h-[38px] cursor-pointer" 
                                 title="مركز الإشعارات">
                             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
@@ -536,20 +569,22 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     <div class="h-6 w-px bg-slate-200"></div>
 
                     <!-- User Status Pill -->
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-lg bg-slate-900 text-white font-black flex items-center justify-center text-xs shadow-2xs font-num shrink-0">
+                    <a href="<?= $isTaxiDriver ? url('/dashboard/driver_fiche.php?id=' . $user['id']) : ($isSuperOrAdmin ? url('/dashboard/users.php') : url('/dashboard/index.php')) ?>" 
+                       class="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition group cursor-pointer" 
+                       title="<?= $isTaxiDriver ? 'عرض حسابي المهني' : 'إدارة الحساب' ?>">
+                        <div class="w-8 h-8 rounded-lg bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-black flex items-center justify-center text-xs shadow-2xs font-num shrink-0 group-hover:scale-105 transition-transform">
                             <?= mb_substr($user['name'], 0, 1) ?>
                         </div>
                         <div class="hidden md:block text-right">
-                            <div class="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]"><?= htmlspecialchars($user['name']) ?></div>
-                            <span class="text-[10px] font-bold <?= $isSuperOrAdmin ? 'text-amber-700' : ($isFleetOwner ? 'text-blue-700' : 'text-emerald-700') ?>">
-                                <?= $isSuperOrAdmin ? 'مدير المنصة' : ($isFleetOwner ? 'مالك أسطول' : 'سائق تاكسي') ?>
+                            <div class="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight truncate max-w-[120px] group-hover:text-amber-600 transition-colors"><?= htmlspecialchars($user['name']) ?></div>
+                            <span class="text-[10px] font-bold <?= $isSuperOrAdmin ? 'text-amber-700 dark:text-amber-400' : ($isFleetOwner ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400') ?>">
+                                <?= $isSuperOrAdmin ? 'مدير المنصة' : ($isFleetOwner ? 'مالك أسطول' : 'سائق تاكسي ↗') ?>
                             </span>
                         </div>
-                    </div>
+                    </a>
 
                     <!-- Direct Logout Button -->
-                    <a href="<?= url('/auth/logout.php') ?>" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition" title="تسجيل الخروج">
+                    <a href="<?= url('/auth/logout.php') ?>" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition" title="تسجيل الخروج">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
                         </svg>
@@ -557,7 +592,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
 
                     <!-- Mobile Menu Button -->
                     <button id="mobileNavBtn" onclick="document.getElementById('mobileNavDrawer').classList.toggle('hidden')" 
-                            class="xl:hidden p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                            class="xl:hidden p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition min-w-[38px] min-h-[38px] flex items-center justify-center cursor-pointer">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                         </svg>
@@ -569,13 +604,13 @@ foreach ($erpNavCategories as $catKey => $catData) {
         </header>
 
         <!-- Mobile Navigation Drawer / Dropdown -->
-        <div id="mobileNavDrawer" class="hidden xl:hidden bg-white border-b border-slate-200/90 px-4 py-3 shadow-lg z-40 space-y-3">
+        <div id="mobileNavDrawer" class="hidden xl:hidden bg-white dark:bg-[#161d27] border-b border-slate-200/90 dark:border-slate-800 px-4 py-3 shadow-lg z-40 space-y-3 no-print">
             <div class="grid grid-cols-2 gap-2 text-xs font-bold">
                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/drivers.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-700">👤 سجل السائقين</a>
                 <?php endif; ?>
-                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 <?= $isTaxiDriver ? 'بطاقتي الفنية' : 'البطاقة الفنية' ?></a>
+                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 <?= $isTaxiDriver ? 'حسابي المهني' : 'البطاقة الفنية' ?></a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/contracts.php') ?>" class="p-2 rounded-lg bg-teal-50 text-teal-700">📄 عقود 90-11</a>
                 <a href="<?= url('/dashboard/insurance.php') ?>" class="p-2 rounded-lg bg-emerald-50 text-emerald-700">🛡️ التأمين والفحص</a>
@@ -599,14 +634,15 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <a href="<?= url('/dashboard/leaves.php') ?>" class="p-2 rounded-lg bg-indigo-50 text-indigo-700">🌴 العطل والبديل</a>
                 <?php endif; ?>
                 <?php if ($isSuperOrAdmin): ?>
+                <a href="<?= url('/dashboard/archive.php') ?>" class="p-2 rounded-lg bg-rose-50 text-rose-700">🗑️ سلة المهملات والأرشيف</a>
                 <a href="<?= url('/dashboard/users.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">👥 المستخدمون</a>
                 <a href="<?= url('/dashboard/settings.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">⚙️ الإعدادات</a>
                 <?php endif; ?>
             </div>
-            <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
                 <div class="flex items-center gap-2">
                     <?= render_theme_toggle_btn() ?>
-                    <span class="theme-toggle-label font-bold text-slate-700">الوضع الليلي</span>
+                    <span class="theme-toggle-label font-bold text-slate-700 dark:text-slate-300">الوضع الليلي</span>
                 </div>
                 <div class="flex items-center gap-3">
                     <span>المستخدم: <?= htmlspecialchars($user['name']) ?></span>
@@ -616,7 +652,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
         </div>
 
         <!-- 3. Contextual Sub-Ribbon Bar (Category Filter on Index / Sibling Modules on Inner Pages) -->
-        <section class="bg-white border-b border-slate-200/90 shadow-2xs">
+        <section class="bg-white dark:bg-[#161d27] border-b border-slate-200/90 dark:border-slate-800 shadow-2xs no-print">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 overflow-x-auto">
                 
                 <?php if ($currentPage === 'index'): ?>

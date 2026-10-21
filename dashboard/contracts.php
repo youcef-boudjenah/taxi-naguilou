@@ -113,12 +113,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $contractId = intval($_POST['contract_id'] ?? 0);
     if ($contractId > 0) {
         try {
-            $stmt = $pdo->prepare("DELETE FROM contracts WHERE id = ?");
-            $stmt->execute([$contractId]);
-            log_audit($pdo, 'contract_deleted', 'contracts', $contractId, "حذف العقد رقم $contractId");
-            set_flash('success', "تم حذف العقد بنجاح من السجل");
+            soft_delete_entity($pdo, 'contracts', $contractId, 'حذف ونقل لسلة المهملات');
+            set_flash('success', "تم نقل العقد بنجاح إلى سلة المهملات والأرشيف. يمكنك استرجاعه في أي وقت.");
         } catch (\Throwable $e) {
-            set_flash('error', 'حدث خطأ أثناء حذف العقد: ' . $e->getMessage());
+            set_flash('error', 'حدث خطأ أثناء نقل العقد لسلة المهملات: ' . $e->getMessage());
         }
     }
     redirect('/dashboard/contracts.php');
@@ -128,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $search = trim($_GET['search'] ?? '');
 $filter = $_GET['filter'] ?? 'all'; // all, active, expired
 
-$where = ["1=1"];
+$where = ["1=1", "c.deleted_at IS NULL"];
 $params = [];
 
 if (!empty($search)) {
@@ -386,17 +384,17 @@ if ($pdo) {
             <div class="text-xs text-slate-500 font-num">SARL NAGUILOU TAXI • Date d'édition: <?= date('d/m/Y') ?></div>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                     <tr>
-                        <th class="p-3.5 whitespace-nowrap text-center w-12">N°</th>
-                        <th class="p-3.5 whitespace-nowrap">رقم العقد</th>
-                        <th class="p-3.5 whitespace-nowrap">السائق المكلف</th>
-                        <th class="p-3.5 whitespace-nowrap">المركبة ولوحة الترقيم</th>
-                        <th class="p-3.5 whitespace-nowrap">فترة الصلاحية</th>
-                        <th class="p-3.5 whitespace-nowrap text-center">الوضعية القانونية</th>
-                        <th class="p-3.5 text-center whitespace-nowrap print:hidden">الإجراءات</th>
+                        <th class="py-3 px-2 text-center whitespace-nowrap w-10">N°</th>
+                        <th class="py-3 px-3 whitespace-nowrap sticky-col-start">رقم العقد</th>
+                        <th class="py-3 px-2.5 whitespace-nowrap">السائق المكلف</th>
+                        <th class="py-3 px-2.5 whitespace-nowrap">المركبة ولوحة الترقيم</th>
+                        <th class="py-3 px-2.5 whitespace-nowrap">فترة الصلاحية</th>
+                        <th class="py-3 px-2.5 whitespace-nowrap text-center">الوضعية القانونية</th>
+                        <th class="py-3 px-2 text-center whitespace-nowrap sticky-col-end w-12 print:hidden">الإجراءات</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium">
@@ -421,18 +419,23 @@ if ($pdo) {
                                 </td>
 
                                 <!-- Contract Number -->
-                                <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold text-slate-900 dark:text-slate-100 text-sm font-mono tracking-wide">
-                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($c['contract_number']) ?></span>
+                                <td class="py-2.5 px-3 whitespace-nowrap sticky-col-start">
+                                    <div>
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold font-num bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800 shadow-2xs font-mono tracking-wide" dir="ltr">
+                                            <span>📄</span>
+                                            <span><?= htmlspecialchars($c['contract_number']) ?></span>
+                                        </span>
                                     </div>
-                                    <span class="text-[10px] text-slate-400">Loi 90-11 • Conforme DTW</span>
+                                    <span class="text-[10px] text-slate-400 mt-1 block">Loi 90-11 • Conforme DTW</span>
                                 </td>
 
                                 <!-- Driver -->
                                 <td class="p-3.5 whitespace-nowrap">
                                     <div class="font-bold text-slate-900 dark:text-slate-100 text-[13px]"><?= htmlspecialchars($c['driver_name']) ?></div>
-                                    <div class="text-[11px] text-slate-400 font-num" dir="ltr">
-                                        <?= htmlspecialchars($c['driver_phone']) ?>
+                                    <div class="mt-1" dir="ltr">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold font-num bg-slate-100/90 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
+                                            <?= htmlspecialchars($c['driver_phone']) ?>
+                                        </span>
                                     </div>
                                 </td>
 
@@ -442,9 +445,13 @@ if ($pdo) {
                                         <div class="font-semibold text-slate-900 dark:text-slate-100">
                                             <?= htmlspecialchars($c['brand'] . ' ' . $c['model']) ?>
                                         </div>
-                                        <div class="font-num font-semibold text-slate-700 dark:text-slate-300 text-[11px]" dir="ltr">
-                                            <?= htmlspecialchars($c['plate_number']) ?>
-                                            <span class="text-slate-400 font-normal">(باب: <?= htmlspecialchars($c['door_number']) ?>)</span>
+                                        <div class="mt-1 flex items-center gap-1.5" dir="ltr">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold font-num bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/80">
+                                                🚗 <?= htmlspecialchars($c['plate_number']) ?>
+                                            </span>
+                                            <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold font-num bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                باب: <?= htmlspecialchars($c['door_number']) ?>
+                                            </span>
                                         </div>
                                     <?php else: ?>
                                         <span class="text-slate-400 text-xs italic">سائق بدون تعيين مركبة</span>
@@ -453,10 +460,15 @@ if ($pdo) {
 
                                 <!-- Duration / Validity -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num text-slate-800 dark:text-slate-200 font-semibold" dir="ltr">
-                                        <?= htmlspecialchars($c['start_date']) ?> → <?= htmlspecialchars($c['end_date']) ?>
+                                    <div>
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800 font-num" dir="ltr">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                            <span><?= htmlspecialchars($c['start_date']) ?></span>
+                                            <span class="text-emerald-400">→</span>
+                                            <span><?= htmlspecialchars($c['end_date']) ?></span>
+                                        </span>
                                     </div>
-                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                    <div class="flex items-center gap-1.5 mt-1">
                                         <span class="px-2 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
                                             <?= $durYears ?> <?= $durYears > 1 ? 'سنوات' : 'سنة' ?>
                                         </span>
@@ -496,7 +508,7 @@ if ($pdo) {
                                 </td>
 
                                 <!-- Actions (3-Dots Dropdown Menu) -->
-                                <td class="p-3.5 whitespace-nowrap text-center print:hidden">
+                                <td class="py-2.5 px-2 whitespace-nowrap text-center sticky-col-end print:hidden">
                                     <div class="relative inline-block text-right">
                                         <button type="button"
                                                 onclick="toggleTableDropdown(event, this)"
@@ -507,7 +519,7 @@ if ($pdo) {
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <?php if ($isExpiringSoon || $isExpired): ?>
                                             <button type="button"
                                                     onclick='openEditContractModal(<?= json_encode([

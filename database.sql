@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS `users` (
     `next_medical_end` DATE NULL,
     `taxi_contract_start` DATE NULL,
     `taxi_contract_end` DATE NULL,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. المركبات وسيارات الأجرة
@@ -59,10 +60,11 @@ CREATE TABLE IF NOT EXISTS `vehicles` (
     `gpl_expiry` DATE NULL,
     `gpl_text` VARCHAR(100) NULL,
     `saccuriometre_expiry` DATE NULL,
-    `saccuriometre_text` VARCHAR(100) DEFAULT 'معاير ومختوم',
+    `saccuriometre_text` VARCHAR(100) DEFAULT NULL,
     `status` ENUM('active', 'suspended', 'in_maintenance') DEFAULT 'active',
     `suspended_reason` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`current_driver_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`replacement_driver_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS `contracts` (
     `signed_at` TIMESTAMP NULL,
     `notes` TEXT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`owner_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
@@ -98,6 +101,7 @@ CREATE TABLE IF NOT EXISTS `leaves` (
     `reason` VARCHAR(255) NOT NULL,
     `status` ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'approved',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`replacement_driver_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
@@ -130,6 +134,7 @@ CREATE TABLE IF NOT EXISTS `transmission_slips` (
     `valid_until` DATE NOT NULL,
     `status` ENUM('active', 'expired', 'cancelled') DEFAULT 'active',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -161,6 +166,7 @@ CREATE TABLE IF NOT EXISTS `driver_debts` (
     `notes` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -173,6 +179,7 @@ CREATE TABLE IF NOT EXISTS `versements` (
     `receipt_ref` VARCHAR(100) NULL,
     `notes` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`debt_id`) REFERENCES `driver_debts`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -217,6 +224,7 @@ CREATE TABLE IF NOT EXISTS `insurance_policies` (
     `attestation_number` VARCHAR(100) NULL,
     `status` ENUM('active', 'expired', 'renewed') DEFAULT 'active',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -236,6 +244,7 @@ CREATE TABLE IF NOT EXISTS `driver_subscriptions` (
     `notes` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -291,6 +300,7 @@ CREATE TABLE IF NOT EXISTS `cnas_declarations` (
     `attestation_expiry` DATE NULL,
     `notes` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -311,6 +321,7 @@ CREATE TABLE IF NOT EXISTS `traveler_reports` (
     `status` ENUM('completed', 'in_transit', 'scheduled', 'cancelled') DEFAULT 'completed',
     `notes` TEXT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`vehicle_id`) REFERENCES `vehicles`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`driver_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

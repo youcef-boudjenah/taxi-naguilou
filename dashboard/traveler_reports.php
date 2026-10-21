@@ -221,12 +221,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
         $repId = intval($_POST['report_id'] ?? 0);
         if ($repId > 0) {
             try {
-                $pdo->beginTransaction();
-                $pdo->prepare("DELETE FROM traveler_passengers WHERE report_id = ?")->execute([$repId]);
-                $pdo->prepare("DELETE FROM traveler_reports WHERE id = ?")->execute([$repId]);
-                $pdo->commit();
-                log_audit($pdo, 'traveler_report_deleted', 'traveler_reports', $repId, "حذف محضر المسافرين رقم $repId وسجل ركابه");
-                $message = "تم حذف محضر السفر وسجل المسافرين التابع له بنجاح.";
+                $pdo->prepare("UPDATE traveler_reports SET deleted_at = NOW() WHERE id = ?")->execute([$repId]);
+                log_audit($pdo, 'traveler_report_deleted', 'traveler_reports', $repId, "نقل محضر المسافرين رقم $repId وسجل ركابه إلى سلة المهملات");
+                $message = "تم نقل محضر السفر إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت.";
                 $messageType = 'success';
             } catch (Exception $e) {
                 if ($pdo->inTransaction()) {
@@ -309,7 +306,7 @@ $driversList = [];
 
 if ($pdo) {
     try {
-        $whereRep = ["1=1"];
+        $whereRep = ["1=1", "r.deleted_at IS NULL"];
         $paramsRep = [];
         if (is_driver()) {
             $whereRep[] = "r.driver_id = ?";
@@ -372,10 +369,10 @@ if ($pdo) {
             <span class="text-[11px] text-slate-400">دفتر شروط النقل العمومي للأشخاص</span>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold uppercase tracking-wider">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 font-extrabold uppercase tracking-wider">
                         <th class="p-4">رقم المحضر</th>
                         <th class="p-4">خط السير والمحطة</th>
                         <th class="p-4">المركبة والسائق</th>
@@ -409,27 +406,38 @@ if ($pdo) {
                                 'cancelled' => 'ملغاة'
                             ][$r['status']] ?? $r['status'];
                         ?>
-                            <tr class="hover:bg-slate-50/80 transition">
-                                <td class="p-4 font-mono font-bold text-slate-900">
-                                    <span class="inline-block" dir="ltr"><?= htmlspecialchars($r['report_number']) ?></span>
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                                <td class="p-4">
+                                    <span class="table-num-badge table-num-sky font-bold font-mono text-[11px]" dir="ltr">📄 <?= htmlspecialchars($r['report_number']) ?></span>
                                 </td>
                                 <td class="p-4">
-                                    <div class="font-bold text-slate-900"><?= htmlspecialchars($r['line_name']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($r['line_name']) ?></div>
                                     <div class="text-[10px] text-slate-400">من: <?= htmlspecialchars($r['departure_station']) ?></div>
                                 </td>
                                 <td class="p-4">
-                                    <div class="font-bold text-slate-800"><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?> (<span class="font-mono text-[10px] inline-block font-bold" dir="ltr"><?= htmlspecialchars($r['plate_number']) ?></span>)</div>
-                                    <div class="text-[10px] text-slate-500">السائق: <?= htmlspecialchars($r['driver_name']) ?></div>
+                                    <div class="font-bold text-slate-800 dark:text-slate-100"><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?></div>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        <span class="table-num-badge bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 text-[10px] font-bold" dir="ltr">🚗 <?= htmlspecialchars($r['plate_number']) ?></span>
+                                        <span class="text-[10px] text-slate-500">السائق: <?= htmlspecialchars($r['driver_name']) ?></span>
+                                    </div>
                                 </td>
-                                <td class="p-4 font-num text-slate-700">
-                                    <div class="font-bold inline-block" dir="ltr"><?= htmlspecialchars($r['departure_date']) ?></div>
-                                    <div class="text-[10px] text-slate-400" dir="ltr"><?= htmlspecialchars($r['departure_time']) ?></div>
+                                <td class="p-4">
+                                    <span class="table-num-badge table-num-slate text-[11px]" dir="ltr">
+                                        <?= htmlspecialchars($r['departure_date']) ?>
+                                        <span class="opacity-60 text-[10px]"><?= htmlspecialchars($r['departure_time']) ?></span>
+                                    </span>
                                 </td>
-                                <td class="p-4 font-bold text-slate-800">
-                                    <span class="font-num text-amber-700 inline-block" dir="ltr"><?= $r['registered_passengers'] ?> / <?= $r['seats_count'] ?></span> ركاب
+                                <td class="p-4">
+                                    <span class="table-num-badge table-num-amber text-[11px] font-bold" dir="ltr">
+                                        <span class="table-num-dot-amber"></span>
+                                        <?= $r['registered_passengers'] ?> / <?= $r['seats_count'] ?> ركاب
+                                    </span>
                                 </td>
-                                <td class="p-4 font-num font-bold text-slate-900">
-                                    <span class="inline-block" dir="ltr"><?= number_format($r['total_revenue'], 2, '.', ' ') ?></span> دج
+                                <td class="p-4">
+                                    <span class="table-num-badge table-num-emerald text-xs font-bold" dir="ltr">
+                                        <span class="table-num-dot-emerald"></span>
+                                        <?= number_format($r['total_revenue'], 2, '.', ' ') ?> دج
+                                    </span>
                                 </td>
                                 <td class="p-4">
                                     <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border <?= $statusBadge ?>">

@@ -1,39 +1,226 @@
 <?php
-// dashboard/driver_fiche.php - Fiche Technique Officielle du Chauffeur de Taxi (دفتر المقررة والبطاقة الفنية للسائق)
+// dashboard/driver_fiche.php - Single Unified Driver Dashboard & Professional Account (واجهة السائق الموحدة)
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
 $driverId = intval($_GET['id'] ?? 0);
 $pdo = getDBConnection();
 
+// Fallback: If no ID supplied, default to logged-in user if driver, or first driver for admin
+if ($driverId <= 0 && $pdo) {
+    if (is_driver() && !empty($_SESSION['user_id'])) {
+        $driverId = intval($_SESSION['user_id']);
+    } else {
+        $firstId = (int)$pdo->query("SELECT id FROM users WHERE role = 'driver' AND deleted_at IS NULL ORDER BY id ASC LIMIT 1")->fetchColumn();
+        if ($firstId > 0) $driverId = $firstId;
+    }
+}
+
+// Access Control: A driver can only view his own profile unless Admin/Owner
+if (is_driver() && $driverId !== intval($_SESSION['user_id'])) {
+    set_flash('error', 'عذراً، بصفتك سائقاً يمكنك فقط الاطلاع على ملفك وحسابك المهني الخاص.');
+    redirect('/dashboard/driver_fiche.php?id=' . intval($_SESSION['user_id']));
+    exit;
+}
+
+// 1. Handle Self-Service Profile Update (Phone, Email, Address, Avatar & Password)
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_profile') {
+    require_csrf_token();
+    $targetId = intval($_POST['driver_id'] ?? 0);
+
+    if ($targetId > 0 && (!is_driver() || (int)$_SESSION['user_id'] === $targetId)) {
+        $phone = trim($_POST['phone'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+        $newPass = trim($_POST['new_password'] ?? '');
+        $confirmPass = trim($_POST['confirm_password'] ?? '');
+
+        if (empty($phone)) {
+            set_flash('error', 'رقم الهاتف مطلوب ولا يمكن تركه فارغاً.');
+        } elseif (!empty($newPass) && strlen($newPass) < 6) {
+            set_flash('error', 'يجب أن تتكون كلمة المرور الجديدة من 6 أحرف أو أرقام على الأقل.');
+        } elseif (!empty($newPass) && $newPass !== $confirmPass) {
+            set_flash('error', 'كلمتا المرور غير متطابقتين، يرجى إعادة التأكيد بدقة.');
+        } else {
+            // Handle photo upload
+            $avatarUrl = null;
+            if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+                $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+                $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, $allowedExts)) {
+                    $destDir = __DIR__ . '/../uploads/drivers';
+                    if (!is_dir($destDir)) {
+                        @mkdir($destDir, 0777, true);
+                    }
+                    $fileName = 'driver_' . $targetId . '_' . time() . '.' . $ext;
+                    if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
+                        $avatarUrl = '/uploads/drivers/' . $fileName;
+                    }
+                }
+            }
+
+            try {
+                $params = [$phone, $address];
+                $sql = "UPDATE users SET phone = ?, address = ?";
+                if (!empty($email)) {
+                    $sql .= ", email = ?";
+                    $params[] = $email;
+                }
+                if ($avatarUrl) {
+                    $sql .= ", avatar_url = ?";
+                    $params[] = $avatarUrl;
+                }
+                if (!empty($newPass)) {
+                    $sql .= ", password_hash = ?";
+                    $params[] = password_hash($newPass, PASSWORD_BCRYPT);
+                }
+                $sql .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
+                $params[] = $targetId;
+
+                $stmtUp = $pdo->prepare($sql);
+                $stmtUp->execute($params);
+
+                if ((int)$_SESSION['user_id'] === $targetId) {
+                    $_SESSION['user_phone'] = $phone;
+                    if (!empty($email)) $_SESSION['user_email'] = $email;
+                }
+
+                log_audit($pdo, 'driver_profile_updated', 'users', $targetId, "تحديث الملف الشخصي ومعلومات الأمان للسائق رقم $targetId");
+                set_flash('success', 'تم حفظ وتحديث بيانات حسابك ومعلوماتك بنجاح.');
+            } catch (\Throwable $e) {
+                set_flash('error', 'حدث خطأ أثناء حفظ التعديلات: ' . $e->getMessage());
+            }
+        }
+        redirect('/dashboard/driver_fiche.php?id=' . $targetId);
+        exit;
+    }
+}
+
+// 2. Handle BaridiMob Payment & Receipt Submission by Driver
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'submit_baridimob_payment') {
+    require_csrf_token();
+    $targetDriverId = intval($_POST['driver_id'] ?? 0);
+
+    if ($targetDriverId > 0 && (!is_driver() || (int)$_SESSION['user_id'] === $targetDriverId)) {
+        $amount = floatval($_POST['amount'] ?? 0);
+        $paymentDate = trim($_POST['payment_date'] ?? date('Y-m-d'));
+        if (empty($paymentDate)) $paymentDate = date('Y-m-d');
+        $receiptRef = trim($_POST['receipt_ref'] ?? '');
+        $notes = trim($_POST['notes'] ?? '');
+
+        if ($amount <= 0) {
+            set_flash('error', 'يرجى إدخال مبلغ دفع صالح بالدينار الجزائري.');
+        } else {
+            // Find or create driver_debts record for this driver
+            $stmtDebt = $pdo->prepare("SELECT id FROM driver_debts WHERE user_id = ? AND deleted_at IS NULL LIMIT 1");
+            $stmtDebt->execute([$targetDriverId]);
+            $debtId = (int)$stmtDebt->fetchColumn();
+
+            if ($debtId <= 0) {
+                $uStmt = $pdo->prepare("SELECT full_name, phone FROM users WHERE id = ?");
+                $uStmt->execute([$targetDriverId]);
+                $uData = $uStmt->fetch();
+                $uName = $uData['full_name'] ?? ('سائق #' . $targetDriverId);
+                $uPhone = $uData['phone'] ?? '';
+
+                $stmtNewDebt = $pdo->prepare("
+                    INSERT INTO driver_debts (user_id, chauffeur_name, phone, total_credits, total_versements, driver_type, status, notes)
+                    VALUES (?, ?, ?, 0, 0, 'actif', 'endette', 'سجل مالي منشأ تلقائياً عند أول دفعة')
+                ");
+                $stmtNewDebt->execute([$targetDriverId, $uName, $uPhone]);
+                $debtId = (int)$pdo->lastInsertId();
+            }
+
+            // Handle Receipt Image Upload
+            $receiptImageUrl = null;
+            if (isset($_FILES['receipt_image']) && $_FILES['receipt_image']['error'] === UPLOAD_ERR_OK) {
+                $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+                $ext = strtolower(pathinfo($_FILES['receipt_image']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, $allowedExts)) {
+                    $destDir = __DIR__ . '/../uploads/receipts';
+                    if (!is_dir($destDir)) {
+                        @mkdir($destDir, 0777, true);
+                    }
+                    $fileName = 'recu_bm_' . $targetDriverId . '_' . time() . '.' . $ext;
+                    if (move_uploaded_file($_FILES['receipt_image']['tmp_name'], $destDir . '/' . $fileName)) {
+                        $receiptImageUrl = '/uploads/receipts/' . $fileName;
+                    }
+                }
+            }
+
+            if (empty($receiptRef)) {
+                $receiptRef = 'BM-' . date('ymd') . '-' . rand(100, 999);
+            }
+
+            try {
+                // Insert versement with status = 'pending'
+                $stmtInsV = $pdo->prepare("
+                    INSERT INTO versements (debt_id, amount, payment_method, payment_date, receipt_ref, receipt_image, status, notes)
+                    VALUES (?, ?, 'baridimob', ?, ?, ?, 'pending', ?)
+                ");
+                $stmtInsV->execute([
+                    $debtId,
+                    $amount,
+                    $paymentDate,
+                    $receiptRef,
+                    $receiptImageUrl,
+                    $notes ?: 'دفعة مسددة عبر بريدي موب (بانتظار التأكيد)'
+                ]);
+                $newVId = (int)$pdo->lastInsertId();
+
+                // Send live notification to Admins
+                $adminIds = $pdo->query("SELECT id FROM users WHERE role IN ('super_admin', 'admin') AND deleted_at IS NULL")->fetchAll(PDO::FETCH_COLUMN);
+                if (empty($adminIds)) $adminIds = [1];
+
+                $stmtDName = $pdo->prepare("SELECT full_name FROM users WHERE id = ?");
+                $stmtDName->execute([$targetDriverId]);
+                $driverName = $stmtDName->fetchColumn() ?: ('سائق #' . $targetDriverId);
+                $notifTitle = "💳 دفعة بريدي موب جديدة قيد التأكيد";
+                $notifMsg = "قام السائق {$driverName} بتسجيل دفعة بريدي موب بمبلغ " . number_format($amount, 2) . " دج (وصل: {$receiptRef}). يرجى المراجعة والاعتماد.";
+                $notifLink = "/dashboard/debts.php?open_debt_id={$debtId}&tab=versements";
+
+                $stmtNotif = $pdo->prepare("
+                    INSERT INTO notifications (user_id, type, title, message, link, is_read, created_at)
+                    VALUES (?, 'info', ?, ?, ?, 0, NOW())
+                ");
+                foreach ($adminIds as $aId) {
+                    $stmtNotif->execute([$aId, $notifTitle, $notifMsg, $notifLink]);
+                }
+
+                log_audit($pdo, 'payment_submitted', 'versements', $newVId, "تسجيل دفعة بريدي موب بمبلغ $amount دج للسائق $driverName برقم وصل $receiptRef");
+                set_flash('success', 'تم إرسال وصل الدفعة بنجاح! تم إشعار الإدارة لمراجعة التحويل واعتماد الرصيد فوراً.');
+            } catch (\Throwable $e) {
+                set_flash('error', 'حدث خطأ أثناء حفظ الدفعة: ' . $e->getMessage());
+            }
+        }
+        redirect('/dashboard/driver_fiche.php?id=' . $targetDriverId);
+        exit;
+    }
+}
+
+// 2. Fetch Full Driver Profile with Linked Vehicles & Contract
 $driver = null;
 if ($pdo && $driverId > 0) {
     try {
-        $hasVehReplCol = false;
-        try {
-            $pdo->query("SELECT replacement_driver_id FROM vehicles LIMIT 0");
-            $hasVehReplCol = true;
-        } catch (\Throwable $e) {}
-
-        $joinVehOn = $hasVehReplCol 
-            ? "(v.current_driver_id = u.id OR v.replacement_driver_id = u.id)"
-            : "v.current_driver_id = u.id";
-
         $stmt = $pdo->prepare("
             SELECT u.*, 
                    v.id as vehicle_id, v.brand, v.model, v.plate_number, v.door_number, v.color,
-                   v.insurance_expiry, v.technical_control_expiry,
+                   v.insurance_expiry, v.insurance_company, v.technical_control_expiry,
+                   v.extinguisher_expiry, v.gpl_expiry, v.gpl_text,
+                   v.saccuriometre_expiry, v.saccuriometre_text,
+                   v.status as vehicle_status, v.suspended_reason as vehicle_suspended_reason,
                    (CASE WHEN v.replacement_driver_id = u.id THEN 1 ELSE 0 END) as is_veh_replacement,
-                   (SELECT COUNT(*) FROM vehicles v2 WHERE v2.replacement_driver_id = u.id) as veh_repl_count,
-                   (SELECT COUNT(*) FROM leaves l WHERE l.replacement_driver_id = u.id AND l.status = 'approved' AND l.end_date >= CURDATE()) as act_leave_repl_count,
+                   (SELECT COUNT(*) FROM vehicles v2 WHERE v2.replacement_driver_id = u.id AND v2.deleted_at IS NULL) as veh_repl_count,
+                   (SELECT COUNT(*) FROM leaves l WHERE l.replacement_driver_id = u.id AND l.status = 'approved' AND l.end_date >= CURDATE() AND l.deleted_at IS NULL) as act_leave_repl_count,
                    c.id as contract_id, c.contract_number, c.start_date as contract_start, c.end_date as contract_end, 
-                   c.monthly_wage, c.status as contract_status,
-                   u_owner.full_name as owner_name, u_owner.phone as owner_phone
+                   c.monthly_wage, c.status as contract_status, c.signed_at as contract_signed_at,
+                   u_owner.full_name as owner_name, u_owner.phone as owner_phone, u_owner.email as owner_email
             FROM users u
-            LEFT JOIN vehicles v ON $joinVehOn
-            LEFT JOIN contracts c ON (c.driver_id = u.id AND c.status = 'signed')
-            LEFT JOIN users u_owner ON (c.owner_id = u_owner.id OR v.owner_id = u_owner.id)
-            WHERE u.id = ? AND u.role = 'driver'
+            LEFT JOIN vehicles v ON ((v.current_driver_id = u.id OR v.replacement_driver_id = u.id) AND v.deleted_at IS NULL)
+            LEFT JOIN contracts c ON (c.driver_id = u.id AND (c.status = 'signed' OR c.status = 'active') AND c.deleted_at IS NULL)
+            LEFT JOIN users u_owner ON ((c.owner_id = u_owner.id OR v.owner_id = u_owner.id) AND u_owner.deleted_at IS NULL)
+            WHERE u.id = ? AND (u.role = 'driver' OR u.role = 'owner') AND u.deleted_at IS NULL
+            LIMIT 1
         ");
         $stmt->execute([$driverId]);
         $driver = $stmt->fetch();
@@ -54,724 +241,1024 @@ if ($pdo && $driverId > 0) {
     }
 }
 
-// Handle stage update from driver fiche
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_stage') {
-    $targetId = intval($_POST['driver_id'] ?? 0);
-    $newStage = trim($_POST['probation_stage'] ?? 'trial_1');
-    if ($targetId > 0 && in_array($newStage, ['trial_1', 'trial_2', 'trial_3', 'official']) && !is_driver()) {
-        $stmtUpdate = $pdo->prepare("UPDATE users SET probation_stage = ? WHERE id = ? AND role = 'driver'");
-        $stmtUpdate->execute([$newStage, $targetId]);
-        log_audit($pdo, 'driver_stage_updated', 'users', $targetId, "تحديث مرحلة السائق إلى: $newStage من البطاقة الفنية");
-        set_flash('success', 'تم تحديث المرحلة المهنية للسائق بنجاح');
-        redirect('/dashboard/driver_fiche.php?id=' . $targetId);
-    }
-}
-
-// Fallback: If no ID supplied or not found, select first available driver (or own ID if driver)
-if (!$driver && $pdo) {
-    if (is_driver() && !empty($_SESSION['user_id'])) {
-        redirect('/dashboard/driver_fiche.php?id=' . intval($_SESSION['user_id']));
-    }
-    $firstDriverId = (int)$pdo->query("SELECT id FROM users WHERE role = 'driver' ORDER BY id ASC LIMIT 1")->fetchColumn();
-    if ($firstDriverId > 0) {
-        redirect('/dashboard/driver_fiche.php?id=' . $firstDriverId);
-    }
-}
-
 if (!$driver) {
-    set_flash('error', 'السائق المطلوب غير موجود في النظام.');
-    redirect('/dashboard/drivers.php');
+    set_flash('error', 'السائق المطلوب غير موجود في النظام أو تم نقله للأرشيف.');
+    redirect(is_driver() ? '/dashboard/index.php' : '/dashboard/drivers.php');
+    exit;
 }
 
-// Access Control: A driver can only view his own profile unless Admin/Owner
-if (is_driver() && (int)$driver['id'] !== (int)$_SESSION['user_id']) {
-    set_flash('error', 'عذراً، لا يمكنك الاطلاع على البطاقات الفنية للسائقين الآخرين.');
-    redirect('/dashboard/index.php');
-}
-
-// Load Yearly Breakdown & Subscriptions for this driver (Feature from Old Website)
-$driverSubs = [];
-$driverVersements = [];
-$debtSummary = null;
-$totalSubDue = 0;
-$totalSubPaid = 0;
+// 3. Fetch Financial Status (الديون، الدفعات، الرصيد المتبقي)
+$driverDebt = null;
+$totalDebts = 0.0;
+$totalVersements = 0.0;
+$remainingBalance = 0.0;
+$recentVersements = [];
 
 if ($driver && $pdo) {
     try {
-        $stmtSubs = $pdo->prepare("SELECT * FROM driver_subscriptions WHERE driver_id = ? ORDER BY period_month ASC");
-        $stmtSubs->execute([$driver['id']]);
-        $rows = $stmtSubs->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        foreach ($rows as $r) {
-            $driverSubs[$r['period_month']] = $r;
-            $totalSubDue += floatval($r['total_due'] ?? 0);
-            $totalSubPaid += floatval($r['paid_amount'] ?? 0);
+        $stmtD = $pdo->prepare("SELECT * FROM driver_debts WHERE user_id = ? AND deleted_at IS NULL LIMIT 1");
+        $stmtD->execute([$driver['id']]);
+        $driverDebt = $stmtD->fetch(PDO::FETCH_ASSOC);
+
+        if ($driverDebt) {
+            $totalDebts = floatval($driverDebt['total_credits'] ?? 0);
+            $totalVersements = floatval($driverDebt['total_versements'] ?? 0);
+            $remainingBalance = $totalDebts - $totalVersements;
+
+            $stmtV = $pdo->prepare("SELECT * FROM versements WHERE debt_id = ? AND deleted_at IS NULL ORDER BY payment_date DESC, id DESC LIMIT 8");
+            $stmtV->execute([$driverDebt['id']]);
+            $recentVersements = $stmtV->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } else {
+            // Fallback from driver_subscriptions
+            $stmtSubs = $pdo->prepare("SELECT SUM(total_due) as due, SUM(paid_amount) as paid FROM driver_subscriptions WHERE driver_id = ? AND deleted_at IS NULL");
+            $stmtSubs->execute([$driver['id']]);
+            $subTotals = $stmtSubs->fetch(PDO::FETCH_ASSOC);
+            $totalDebts = floatval($subTotals['due'] ?? 0);
+            $totalVersements = floatval($subTotals['paid'] ?? 0);
+            $remainingBalance = $totalDebts - $totalVersements;
         }
-    } catch (\Throwable $e) {}
-
-    try {
-        $stmtV = $pdo->prepare("SELECT * FROM versements WHERE driver_id = ? ORDER BY payment_date DESC LIMIT 8");
-        $stmtV->execute([$driver['id']]);
-        $driverVersements = $stmtV->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (\Throwable $e) {}
-
-    try {
-        $stmtDebt = $pdo->prepare("SELECT * FROM driver_debts WHERE user_id = ? LIMIT 1");
-        $stmtDebt->execute([$driver['id']]);
-        $debtSummary = $stmtDebt->fetch(PDO::FETCH_ASSOC);
     } catch (\Throwable $e) {}
 }
 
-// Calculate Probation info according to the 3-month cycle rule
-$probInfo = resolve_driver_probation_info($driver);
+// Fetch Platform Bank / CCP / BaridiMob Settings (Configured by Admin)
+$bankCcp = get_setting($pdo, 'bank_ccp', '0021458796');
+$bankRip = get_setting($pdo, 'bank_rip', '00799999002145879624');
+$baridimobNumber = get_setting($pdo, 'baridimob_number', '0663.55.00.42');
+$bankAccountHolder = get_setting($pdo, 'bank_account_holder', 'EURL TAXI NAGUILOU Services');
+$bankName = get_setting($pdo, 'bank_name', 'بريد الجزائر (Algérie Poste)');
 
-// Calculate accurate document statuses
+// 4. Fetch Active / Signed Contract
+$driverContract = null;
+if ($driver && $pdo) {
+    try {
+        $stmtC = $pdo->prepare("
+            SELECT c.*, 
+                   u_owner.full_name as owner_name, u_owner.phone as owner_phone, u_owner.email as owner_email,
+                   v.plate_number, v.door_number, v.brand, v.model
+            FROM contracts c
+            LEFT JOIN users u_owner ON c.owner_id = u_owner.id
+            LEFT JOIN vehicles v ON (v.current_driver_id = c.driver_id OR v.replacement_driver_id = c.driver_id)
+            WHERE c.driver_id = ? AND c.deleted_at IS NULL
+            ORDER BY CASE WHEN c.status = 'signed' THEN 1 WHEN c.status = 'active' THEN 2 ELSE 3 END, c.id DESC
+            LIMIT 1
+        ");
+        $stmtC->execute([$driver['id']]);
+        $driverContract = $stmtC->fetch(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {}
+}
+
+// 5. Build Document Expiry Alerts (إشعارات الوثائق وخاناتها)
 $today = strtotime(date('Y-m-d'));
 
-// License
-$lic = !empty($driver['license_expiry']) && $driver['license_expiry'] !== '0000-00-00' ? $driver['license_expiry'] : null;
-$licDays = $lic ? (int)round((strtotime($lic) - $today) / 86400) : null;
-$licExpired = ($licDays !== null && $licDays < 0);
-$licExpiringSoon = ($licDays !== null && $licDays >= 0 && $licDays <= 30);
-$licMissing = empty($lic);
+$documents = [
+    [
+        'id' => 'license',
+        'name' => 'رخصة السياقة المهنية',
+        'icon' => '🪪',
+        'type_label' => 'وثيقة شخصية',
+        'doc_number' => $driver['license_number'] ?? null,
+        'doc_number_label' => 'رقم الرخصة',
+        'expiry_date' => (!empty($driver['license_expiry']) && $driver['license_expiry'] !== '0000-00-00') ? $driver['license_expiry'] : null,
+        'details' => 'صنف ب / رخصة مهنية'
+    ],
+    [
+        'id' => 'medical',
+        'name' => 'الفحص الطبي الدوري',
+        'icon' => '🩺',
+        'type_label' => 'شهادة صحية',
+        'doc_number' => null,
+        'doc_number_label' => '',
+        'expiry_date' => (!empty($driver['medical_cert_expiry']) && $driver['medical_cert_expiry'] !== '0000-00-00') 
+            ? $driver['medical_cert_expiry'] 
+            : ((!empty($driver['medical_exam_end']) && $driver['medical_exam_end'] !== '0000-00-00') ? $driver['medical_exam_end'] : null),
+        'details' => 'شهادة اللياقة الطبية للقيادة'
+    ],
+    [
+        'id' => 'tech_control',
+        'name' => 'المراقبة التقنية للمركبة',
+        'icon' => '🔍',
+        'type_label' => 'فحص المركبة',
+        'doc_number' => $driver['plate_number'] ?? null,
+        'doc_number_label' => 'رقم التسجيل',
+        'expiry_date' => (!empty($driver['technical_control_expiry']) && $driver['technical_control_expiry'] !== '0000-00-00') ? $driver['technical_control_expiry'] : null,
+        'details' => 'محضر المراقبة التقنية الدورية'
+    ],
+    [
+        'id' => 'insurance',
+        'name' => 'تأمين سيارة الأجرة',
+        'icon' => '🛡️',
+        'type_label' => 'بوليصة تأمين',
+        'doc_number' => $driver['insurance_company'] ?? null,
+        'doc_number_label' => 'الشركة',
+        'expiry_date' => (!empty($driver['insurance_expiry']) && $driver['insurance_expiry'] !== '0000-00-00') ? $driver['insurance_expiry'] : null,
+        'details' => 'تأمين نقل الأشخاص والمسؤولية'
+    ],
+    [
+        'id' => 'extinguisher',
+        'name' => 'قارورة الإطفاء',
+        'icon' => '🧯',
+        'type_label' => 'تجهيزات الأمان',
+        'doc_number' => null,
+        'doc_number_label' => '',
+        'expiry_date' => (!empty($driver['extinguisher_expiry']) && $driver['extinguisher_expiry'] !== '0000-00-00') ? $driver['extinguisher_expiry'] : null,
+        'details' => 'مطفأة أمان معتمدة 1-2 كغ'
+    ],
+    [
+        'id' => 'gpl',
+        'name' => 'فحص خزان غاز الوقود GPL',
+        'icon' => '⛽',
+        'type_label' => 'سلامة الوقود',
+        'doc_number' => $driver['gpl_text'] ?? null,
+        'doc_number_label' => 'الرقم التسلسلي',
+        'expiry_date' => (!empty($driver['gpl_expiry']) && $driver['gpl_expiry'] !== '0000-00-00') ? $driver['gpl_expiry'] : null,
+        'details' => 'شهادة مطابقة خزان سيرغاز'
+    ],
+    [
+        'id' => 'taximeter',
+        'name' => 'معايرة عداد التاكسي',
+        'icon' => '⏱️',
+        'type_label' => 'القياسة القانونية',
+        'doc_number' => $driver['saccuriometre_text'] ?? null,
+        'doc_number_label' => 'رقم الختم',
+        'expiry_date' => (!empty($driver['saccuriometre_expiry']) && $driver['saccuriometre_expiry'] !== '0000-00-00') ? $driver['saccuriometre_expiry'] : null,
+        'details' => 'شهادة المطابقة والختم الرصاصي (ONML)'
+    ],
+];
 
-// Medical Exam & Certificate
-$med = !empty($driver['medical_cert_expiry']) && $driver['medical_cert_expiry'] !== '0000-00-00' 
-    ? $driver['medical_cert_expiry'] 
-    : (!empty($driver['medical_exam_end']) && $driver['medical_exam_end'] !== '0000-00-00' ? $driver['medical_exam_end'] : null);
-$medDays = $med ? (int)round((strtotime($med) - $today) / 86400) : null;
-$medExpired = ($medDays !== null && $medDays < 0);
-$medExpiringSoon = ($medDays !== null && $medDays >= 0 && $medDays <= 30);
-$medMissing = empty($med);
+// Evaluate each document's status
+$expiredDocsCount = 0;
+$expiringDocsCount = 0;
+$validDocsCount = 0;
 
-// Taxi Exploitation Contract
-$taxiCont = !empty($driver['taxi_contract_end']) && $driver['taxi_contract_end'] !== '0000-00-00' ? $driver['taxi_contract_end'] : null;
-$taxiContDays = $taxiCont ? (int)round((strtotime($taxiCont) - $today) / 86400) : null;
-$taxiContExpired = ($taxiContDays !== null && $taxiContDays < 0);
-$taxiContExpiringSoon = ($taxiContDays !== null && $taxiContDays >= 0 && $taxiContDays <= 30);
+foreach ($documents as &$doc) {
+    if (empty($doc['expiry_date'])) {
+        $doc['status'] = 'missing';
+        $doc['status_label'] = 'غير محددة';
+        $doc['status_class'] = 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+        $doc['card_border'] = 'border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#161d27]';
+        $doc['days'] = null;
+        $doc['days_label'] = 'التاريخ غير مسجل بالنظام';
+    } else {
+        $expTime = strtotime($doc['expiry_date']);
+        $days = (int)round(($expTime - $today) / 86400);
+        $doc['days'] = $days;
+        if ($days < 0) {
+            $doc['status'] = 'expired';
+            $doc['status_label'] = 'منتهية الصلاحية ❌';
+            $doc['status_class'] = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 font-black';
+            $doc['card_border'] = 'border-rose-300 dark:border-rose-800 bg-rose-50/20 dark:bg-rose-950/10 shadow-xs ring-1 ring-rose-200 dark:ring-rose-900/40';
+            $doc['days_label'] = 'انتهت منذ ' . abs($days) . ' يوم (مطلوب التجديد)';
+            $expiredDocsCount++;
+        } elseif ($days <= 30) {
+            $doc['status'] = 'expiring';
+            $doc['status_label'] = 'مقبلة على الانتهاء ⚠️';
+            $doc['status_class'] = 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700 font-black';
+            $doc['card_border'] = 'border-amber-300 dark:border-amber-700 bg-amber-50/20 dark:bg-amber-950/10 shadow-xs ring-1 ring-amber-200 dark:ring-amber-900/40';
+            $doc['days_label'] = 'متبقي ' . $days . ' يوم على الانتهاء';
+            $expiringDocsCount++;
+        } else {
+            $doc['status'] = 'valid';
+            $doc['status_label'] = 'سارية الصلاحية ✓';
+            $doc['status_class'] = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+            $doc['card_border'] = 'border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#161d27]';
+            $doc['days_label'] = 'صالحة حتى ' . date('d/m/Y', $expTime) . ' (' . $days . ' يوم)';
+            $validDocsCount++;
+        }
+    }
+}
+unset($doc);
 
-$pageTitle = 'البطاقة الفنية: ' . htmlspecialchars($driver['full_name']);
+// Probation info
+$probInfo = resolve_driver_probation_info($driver);
+
+$pageTitle = is_driver() ? 'حسابي المهني' : ('الملف المهني: ' . htmlspecialchars($driver['full_name']));
+require_once __DIR__ . '/../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>البطاقة الفنية للسائق <?= htmlspecialchars($driver['full_name']) ?> | تاكسي نقيلو</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        amber: {
-                            50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d',
-                            400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309',
-                            800: '#92400e', 900: '#78350f', 950: '#451a03',
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Cairo', 'Tajawal', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
-                    }
-                }
-            }
-        };
-    </script>
-    <?= render_theme_head() ?>
-    <style>
-        html, body, input, button, select, textarea { 
-            font-family: 'Cairo', 'Tajawal', sans-serif !important; 
-            font-weight: 400;
-            text-rendering: optimizeLegibility; 
-            -webkit-font-smoothing: antialiased; 
-            -moz-osx-font-smoothing: grayscale;
-        }
-        .font-black { font-weight: 700 !important; }
-        .font-extrabold { font-weight: 650 !important; }
-        .font-bold { font-weight: 600 !important; }
-        html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
-            letter-spacing: normal !important;
-        }
-        .font-num, .font-mono, [dir="ltr"] { 
-            font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif !important; 
-            font-feature-settings: "tnum" 1; 
-            font-variant-numeric: tabular-nums; 
-            unicode-bidi: isolate; 
-        }
-        @media print {
-            .no-print { display: none !important; }
-            body { background: white !important; padding: 0 !important; color: black !important; }
-            .fiche-paper { border: none !important; box-shadow: none !important; padding: 0 !important; max-width: 100% !important; }
-            .page-break { page-break-before: always; }
-        }
-    </style>
-</head>
-<body class="bg-slate-100 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 min-h-screen py-6 px-3 sm:px-6 transition-colors">
 
-    <!-- Top Action Toolbar (Hidden in Print) -->
-    <div class="max-w-5xl mx-auto mb-6 flex flex-wrap items-center justify-between gap-3 no-print bg-white dark:bg-[#161d27] p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+<div class="space-y-6 max-w-7xl mx-auto pb-12">
+
+    <!-- ==============================================
+         Top Navigation / Header Actions (No Print)
+         ============================================== -->
+    <div class="flex flex-wrap items-center justify-between gap-3 no-print bg-white dark:bg-[#161d27] p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
         <div class="flex items-center gap-3 flex-wrap">
             <?php if (!is_driver()): ?>
-            <a href="drivers.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
-                <svg class="w-4 h-4 shrink-0 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                </svg>
-                <span>سجل السائقين</span>
-            </a>
+                <a href="drivers.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
+                    <svg class="w-4 h-4 shrink-0 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                    </svg>
+                    <span>سجل السائقين</span>
+                </a>
             <?php else: ?>
-            <a href="index.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-                </svg>
-                <span>لوحة التحكم</span>
-            </a>
+                <a href="index.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
+                    <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                    </svg>
+                    <span>الرئيسية</span>
+                </a>
             <?php endif; ?>
+
             <div class="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-800"></div>
+
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-bold text-slate-600 dark:text-slate-400">البطاقة الفنية:</span>
-                <span class="font-extrabold text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?> <?= !empty($driver['is_replacement']) ? '<span class="text-amber-600 dark:text-amber-400 font-bold text-xs mr-1">(بديل)</span>' : '' ?></span>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">
-                    <?= htmlspecialchars($driver['card_number'] ?? 'دفتر المقررة رقم 4') ?>
-                </span>
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">حساب السائق:</span>
+                <span class="font-black text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?></span>
+                <?php if (!empty($driver['is_replacement'])): ?>
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200">
+                        سائق بديل معتمد
+                    </span>
+                <?php endif; ?>
             </div>
         </div>
 
         <div class="flex items-center gap-2 flex-wrap justify-end">
-            <?php if (!is_driver()): ?>
-                <a href="drivers.php?filter=alerts&open_docs_id=<?= $driver['id'] ?>" 
-                   class="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs"
-                   title="تحديث وتجديد رخصة السياقة، الفحص الطبي، وعقد رخصة الأجرة مباشرة">
-                    <svg class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                    </svg>
-                    <span>⚡ إدارة وتجديد الوثائق</span>
-                </a>
-                <?php if (!empty($probInfo['is_ready_for_promotion'])): ?>
-                    <form method="POST" action="" class="inline-flex items-center m-0">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="update_driver_stage">
-                        <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
-                        <input type="hidden" name="probation_stage" value="official">
-                        <button type="submit" 
-                                class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs shadow-xs transition inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-                                title="اكتملت 9 أشهر (3 فترات تجريبية) - انقر هنا للتثبيت كسائق رسمي فوراً">
-                            <svg class="w-3.5 h-3.5 text-amber-300 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                            </svg>
-                            <span>⭐ تثبيت كسائق رسمي (اكتملت 9 أشهر)</span>
-                        </button>
-                    </form>
-                <?php endif; ?>
-                <form method="POST" action="" class="inline-flex items-center m-0">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="update_driver_stage">
-                    <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
-                    <select name="probation_stage" onchange="this.form.submit()" 
-                            class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer shadow-2xs"
-                            title="ترقية وتعديل المرحلة المهنية للسائق">
-                        <option value="trial_1" <?= ($driver['probation_stage'] ?? 'trial_1') === 'trial_1' ? 'selected' : '' ?>>فترة تجريبية 1 (3 أشهر)</option>
-                        <option value="trial_2" <?= ($driver['probation_stage'] ?? '') === 'trial_2' ? 'selected' : '' ?>>فترة تجريبية 2 (3 أشهر)</option>
-                        <option value="trial_3" <?= ($driver['probation_stage'] ?? '') === 'trial_3' ? 'selected' : '' ?>>فترة تجريبية 3 (3 أشهر)</option>
-                        <option value="official" <?= ($driver['probation_stage'] ?? '') === 'official' ? 'selected' : '' ?>>سائق رسمي (تثبيت دائم يدوي)</option>
-                    </select>
-                </form>
-            <?php endif; ?>
-            <?php if (!empty($driver['contract_id'])): ?>
-                <a href="contract_view.php?id=<?= $driver['contract_id'] ?>" target="_blank" 
-                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
-                    <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                    </svg>
-                    <span>معاينة العقد <bdi dir="ltr">(90-11)</bdi></span>
-                </a>
-            <?php elseif (is_admin() || is_owner()): ?>
-                <a href="contracts.php?action=new&driver_id=<?= $driver['id'] ?>" 
-                   class="px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 border border-teal-200">
-                    <svg class="w-3.5 h-3.5 text-teal-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    <span>إصدار عقد <bdi dir="ltr">(90-11)</bdi></span>
-                </a>
-            <?php endif; ?>
-                <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
-                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="كشف الحساب المالي الرسمي للسائق">
-                    <svg class="w-3.5 h-3.5 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>كشف الحساب <bdi dir="ltr">(Solde)</bdi></span>
-                </a>
-            <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer">
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
+            <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
+               class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                <svg class="w-3.5 h-3.5 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>طباعة البطاقة الفنية (PDF)</span>
+                <span>كشف الحساب الكامل (Solde)</span>
+            </a>
+
+            <!-- Edit Profile Modal Trigger -->
+            <button onclick="document.getElementById('editProfileModal').classList.remove('hidden')" 
+                    class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                </svg>
+                <span>تعديل بياناتي وكلمة المرور</span>
             </button>
-            <?= render_theme_toggle_btn('p-2') ?>
         </div>
     </div>
 
-    <!-- Official Document Container (Fiche Technique Paper) -->
-    <div class="fiche-paper max-w-5xl mx-auto bg-white dark:bg-[#161d27] p-6 sm:p-10 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-
-        <!-- Header: Official Republic & Ministry Banner -->
-        <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-2 text-center">
-            <div class="flex items-center justify-between">
-                <div class="w-28 text-right text-[11px] font-bold text-slate-600 dark:text-slate-300 leading-tight">
-                    <div>الجمهورية الجزائرية</div>
-                    <div>الديمقراطية الشعبية</div>
-                    <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">مديرية النقل لولاية <?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></div>
-                </div>
-                <div class="text-center space-y-1">
-                    <div class="w-12 h-12 mx-auto rounded-2xl bg-amber-500/10 border border-amber-300 dark:border-amber-600/40 flex items-center justify-center p-1.5 shadow-2xs">
-                        <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-full h-full object-contain">
-                    </div>
-                    <h1 class="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">البطاقة الفنية للسائق المهني ودفتر المقررة</h1>
-                    <h2 class="text-xs font-bold text-amber-700 dark:text-amber-400 tracking-wide font-num">FICHE TECHNIQUE DU CHAUFFEUR DE TAXI • LIVRET DE BORD</h2>
-                </div>
-                <div class="w-28 text-left text-[10px] text-slate-600 dark:text-slate-400 font-num">
-                    <div class="font-bold text-slate-900 dark:text-white text-xs" dir="ltr"><?= htmlspecialchars($driver['card_number'] ?? 'LIV-01-2024') ?></div>
-                    <div class="text-slate-600 dark:text-slate-300">اعتماد رسمي</div>
-                    <div class="text-emerald-700 dark:text-emerald-400 font-bold">مطابق 90-11</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Identity & Photo Card (Hero Strip) -->
-        <div class="bg-slate-50/80 dark:bg-[#1a2332] p-5 rounded-2xl border border-amber-300/80 dark:border-amber-500/30 flex flex-col sm:flex-row items-center sm:items-start gap-6 shadow-2xs">
+    <!-- ==============================================
+         Hero Strip: Identity & Current Taxi
+         ============================================== -->
+    <div class="no-print bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-2xs">
+        <div class="flex flex-col md:flex-row items-center md:items-start gap-6">
             
-            <!-- Driver Photo with Seal & Stamp effect -->
-            <div class="relative shrink-0">
-                <div class="w-32 h-40 rounded-xl overflow-hidden border-2 border-amber-400 dark:border-amber-500 shadow-md bg-white dark:bg-slate-800 flex flex-col items-center justify-center relative">
+            <!-- Driver Avatar with Beacon -->
+            <div class="relative shrink-0 group">
+                <div class="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-amber-400 dark:border-amber-500 shadow-md bg-white dark:bg-slate-800 flex items-center justify-center relative">
                     <?php if (!empty($driver['avatar_url']) && file_exists(__DIR__ . '/../' . ltrim($driver['avatar_url'], '/'))): ?>
                         <img src="<?= url($driver['avatar_url']) ?>" alt="<?= htmlspecialchars($driver['full_name']) ?>" class="w-full h-full object-cover">
                     <?php else: ?>
-                        <!-- Sleek Driver Silhouette Avatar with Initials -->
-                        <div class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-amber-50/60 to-slate-100 dark:from-slate-800 dark:to-slate-900 text-slate-700 dark:text-slate-200 p-2">
-                            <div class="w-16 h-16 rounded-full bg-amber-500/20 dark:bg-amber-400/20 border-2 border-amber-400/50 flex items-center justify-center text-amber-700 dark:text-amber-300 font-black text-2xl mb-1 shadow-inner">
+                        <div class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-amber-50/60 to-slate-100 dark:from-slate-800 dark:to-slate-900 text-slate-700 dark:text-slate-200">
+                            <div class="w-14 h-14 rounded-full bg-amber-500/20 border-2 border-amber-400/50 flex items-center justify-center text-amber-700 dark:text-amber-300 font-black text-2xl mb-1 shadow-inner font-num">
                                 <?= mb_substr($driver['full_name'], 0, 1) ?>
                             </div>
-                            <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-num">سائق معتمد</span>
+                            <span class="text-[10px] font-bold text-slate-400">سائق معتمد</span>
                         </div>
                     <?php endif; ?>
                 </div>
-                <div class="absolute -bottom-2.5 inset-x-0 mx-auto w-max px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-sm flex items-center gap-1">
-                    <span>✓</span><span>مصدق رسمياً</span>
-                </div>
+                
+                <button type="button" 
+                        onclick="document.getElementById('editProfileModal').classList.remove('hidden')" 
+                        class="absolute -bottom-2 -left-2 p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 shadow-xs hover:bg-amber-50 dark:hover:bg-slate-700 transition" 
+                        title="تغيير الصورة الشخصية">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                    </svg>
+                </button>
             </div>
 
-            <!-- Core Identity Info -->
-            <div class="flex-1 space-y-3 text-right w-full">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-3">
+            <!-- Driver Info -->
+            <div class="flex-1 space-y-3 text-right">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                     <div>
-                        <div class="text-xs font-bold text-slate-600 dark:text-slate-400">الاسم واللقب الكامل:</div>
-                        <h3 class="text-xl sm:text-2xl font-black text-slate-950 dark:text-white tracking-tight flex items-center gap-2 flex-wrap">
-                            <span><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?></span>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                                <?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?>
+                            </h2>
                             <?php if (!empty($driver['is_replacement'])): ?>
-                                <span class="text-amber-600 dark:text-amber-400 font-extrabold text-lg mr-1">(بديل)</span>
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-black bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200">
+                                    (سائق بديل)
+                                </span>
                             <?php endif; ?>
-                        </h3>
+                        </div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                            <span>الولاية: <strong class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($driver['wilaya'] ?? '16 - الجزائر العاصمة') ?></strong></span>
+                            <?php if (!empty($driver['phone'])): ?>
+                                <span>•</span>
+                                <span>الهاتف: <strong class="text-slate-800 dark:text-slate-200 font-num" dir="ltr"><?= htmlspecialchars($driver['phone']) ?></strong></span>
+                            <?php endif; ?>
+                        </div>
                     </div>
+
+                    <!-- Status Badges -->
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold <?= !empty($driver['is_replacement']) ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-amber-500 text-slate-950' ?> shadow-2xs">
-                            سائق <?= !empty($driver['is_replacement']) ? 'بديل (Remplaçant)' : ($driver['driver_type'] === 'ajir' ? 'أجير (Salarié)' : 'مؤجر / مهني') ?>
+                        <span class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold <?= !empty($driver['is_replacement']) ? 'bg-violet-50 text-violet-800 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300' : 'bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300' ?>">
+                            <?= !empty($driver['is_replacement']) ? 'سائق بديل (Remplaçant)' : ($driver['driver_type'] === 'ajir' ? 'سائق أجير (قانون 90-11)' : 'مؤجر / مستقل') ?>
                         </span>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border <?= $probInfo['cls'] ?>">
-                            <span><?= $probInfo['label'] ?></span>
-                            <?php if (!empty($probInfo['sub_label'])): ?>
-                                <span class="opacity-75 text-[10px] font-normal mr-1 font-num">(<?= $probInfo['sub_label'] ?>)</span>
-                            <?php endif; ?>
-                        </span>
-                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                            نشط ميدانياً
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>نشط ميدانياً</span>
                         </span>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 text-xs">
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">اللقب (Nom):</span>
-                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= !empty($driver['last_name']) ? htmlspecialchars($driver['last_name']) : '—' ?></strong>
-                    </div>
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">الاسم (Prénom):</span>
-                        <strong class="text-slate-950 dark:text-white text-sm font-bold"><?= !empty($driver['first_name']) ? htmlspecialchars($driver['first_name']) : '—' ?></strong>
-                    </div>
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">تاريخ ومكان الازدياد:</span>
-                        <strong class="text-slate-950 dark:text-white font-bold flex items-center gap-1">
-                            <span class="font-num" dir="ltr"><?= !empty($driver['birth_date']) ? htmlspecialchars($driver['birth_date']) : '—' ?></span> 
-                            <?php if (!empty($driver['birth_place'])): ?>
-                                <span>(<?= htmlspecialchars($driver['birth_place']) ?>)</span>
-                            <?php endif; ?>
-                        </strong>
-                    </div>
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">ابن (Fils de):</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= !empty($driver['father_name']) ? htmlspecialchars($driver['father_name']) : '—' ?></strong>
-                    </div>
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">و (Et de):</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold"><?= !empty($driver['mother_name']) ? htmlspecialchars($driver['mother_name']) : '—' ?></strong>
-                    </div>
-                    <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800">
-                        <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-0.5">العنوان:</span>
-                        <strong class="text-slate-900 dark:text-slate-100 font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>"><?= !empty($driver['address']) ? htmlspecialchars($driver['address']) : '—' ?></strong>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Section 1 & 2: License Details & Assigned Vehicle -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-            
-            <!-- Box A: رخصة السياقة والكفاءة المهنية -->
-            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full <?= $licExpired ? 'bg-rose-500' : ($licExpiringSoon ? 'bg-amber-500' : ($licMissing ? 'bg-slate-400' : 'bg-emerald-500')) ?>"></span>
-                        <h4 class="font-black text-slate-900 dark:text-white text-sm">بيانات رخصة السياقة والمهنة</h4>
-                    </div>
-                    <?php if ($licExpired): ?>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 font-num">منتهية الصلاحية</span>
-                    <?php elseif ($licExpiringSoon): ?>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">تجديد وشيك</span>
-                    <?php elseif ($licMissing): ?>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-num">غير مسجلة</span>
-                    <?php else: ?>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">سارية المفعول</span>
-                    <?php endif; ?>
-                </div>
-                <div class="space-y-2 text-xs">
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">رقم رخصة السياقة:</span>
-                        <span class="font-num font-bold text-slate-950 dark:text-white text-sm" dir="ltr"><?= !empty($driver['license_number']) ? htmlspecialchars($driver['license_number']) : '<span class="text-slate-400 font-normal">غير مسجل</span>' ?></span>
-                    </div>
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">تاريخ الإصدار:</span>
-                        <span class="font-num font-bold text-slate-900 dark:text-slate-200" dir="ltr"><?= !empty($driver['license_issue_date']) ? htmlspecialchars($driver['license_issue_date']) : '<span class="text-slate-400 font-normal">—</span>' ?></span>
-                    </div>
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">جهة الإصدار الرسمية:</span>
-                        <span class="font-bold text-slate-900 dark:text-slate-200"><?= !empty($driver['license_issue_place']) ? htmlspecialchars($driver['license_issue_place']) : '<span class="text-slate-400 font-normal">—</span>' ?></span>
-                    </div>
-                    <div class="flex justify-between items-center py-1">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">صلاحية رخصة السياقة:</span>
-                        <?php if ($licExpired): ?>
-                            <span class="font-num font-bold text-rose-700 dark:text-rose-400 flex items-center gap-1.5" dir="ltr">
-                                <span><?= htmlspecialchars($lic) ?></span>
-                                <span class="text-[10px] bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-300 dark:border-rose-700 font-semibold">(منتهية منذ <?= abs($licDays) ?> يوم)</span>
-                            </span>
-                        <?php elseif ($licExpiringSoon): ?>
-                            <span class="font-num font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5" dir="ltr">
-                                <span><?= htmlspecialchars($lic) ?></span>
-                                <span class="text-[10px] bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-700 font-semibold">(متبقي <?= $licDays ?> يوم)</span>
-                            </span>
-                        <?php elseif ($licMissing): ?>
-                            <span class="font-bold text-slate-400">غير مسجلة بالنظام</span>
-                        <?php else: ?>
-                            <span class="font-num font-bold text-emerald-700 dark:text-emerald-400" dir="ltr"><?= htmlspecialchars($lic) ?> (سارية)</span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Box B: المركبة ورقم التسجيل المعتمد -->
-            <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                        <h4 class="font-black text-slate-900 dark:text-white text-sm">المركبة المستغلة ورخصة سيارة الأجرة</h4>
-                    </div>
-                    <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Véhicule Assigné</span>
-                </div>
-                <div class="space-y-2 text-xs">
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">رقم تسجيل المركبة (اللوحة الحالية):</span>
+                <!-- Car & Quick Identifiers -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div class="p-3 rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-200/80 dark:border-amber-700/50">
+                        <span class="text-amber-800 dark:text-amber-300 block text-[10px] font-black mb-0.5">المركبة المستغلة حالياً:</span>
                         <?php if (!empty($driver['plate_number'])): ?>
-                            <span class="font-num font-black text-slate-950 dark:text-white bg-amber-500/10 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-600/40 text-sm" dir="ltr">
+                            <span class="font-num font-black text-slate-900 dark:text-white text-sm" dir="ltr">
                                 <?= htmlspecialchars($driver['plate_number']) ?>
                             </span>
+                            <?php if (!empty($driver['door_number'])): ?>
+                                <span class="text-[11px] font-bold text-amber-700 dark:text-amber-400 mr-1.5">(باب: <?= htmlspecialchars($driver['door_number']) ?>)</span>
+                            <?php endif; ?>
                         <?php else: ?>
-                            <span class="font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs">
-                                بدون مركبة حالياً (احتياطي)
-                            </span>
+                            <span class="text-slate-400 font-bold">غير مرتبطة بمركبة</span>
                         <?php endif; ?>
                     </div>
-                    <div class="flex justify-between items-center py-1 border-b border-slate-50 dark:border-slate-800/60">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">صنف وطراز المركبة:</span>
-                        <?php if (!empty($driver['brand']) || !empty($driver['model'])): ?>
-                            <span class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                <span><?= htmlspecialchars(($driver['brand'] ?? '') . ' ' . ($driver['model'] ?? '')) ?></span>
-                                <?php if (!empty($driver['door_number'])): ?>
-                                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num text-[11px] font-bold" dir="ltr">(باب: <?= htmlspecialchars($driver['door_number']) ?>)</span>
-                                <?php endif; ?>
-                            </span>
-                        <?php else: ?>
-                            <span class="text-slate-400 font-normal">—</span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="flex justify-between items-center py-1">
-                        <span class="text-slate-600 dark:text-slate-400 font-medium">مدة صلاحية عقد رخصة الأجرة:</span>
-                        <?php if (!empty($driver['taxi_contract_start']) || !empty($taxiCont)): ?>
-                            <span class="font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1 flex-wrap">
-                                <span>من</span>
-                                <span class="font-num" dir="ltr"><?= htmlspecialchars($driver['taxi_contract_start'] ?? '—') ?></span>
-                                <span>إلى</span>
-                                <span class="font-num font-black <?= $taxiContExpired ? 'text-rose-600' : ($taxiContExpiringSoon ? 'text-amber-600' : '') ?>" dir="ltr"><?= htmlspecialchars($taxiCont ?? '—') ?></span>
-                                <?php if ($taxiContExpired): ?>
-                                    <span class="text-[9px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-num font-bold">منتهي</span>
-                                <?php elseif ($taxiContExpiringSoon): ?>
-                                    <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-num font-bold"><?= $taxiContDays ?> يوم</span>
-                                <?php endif; ?>
-                            </span>
-                        <?php else: ?>
-                            <span class="text-slate-400 font-medium">غير محدد</span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
 
-        </div>
-
-        <!-- Section 3: الفحوصات الطبية الدورية (Visites Médicales) -->
-        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                <div class="flex items-center gap-2">
-                    <span class="w-2.5 h-2.5 rounded-full <?= $medExpired ? 'bg-rose-500' : ($medExpiringSoon ? 'bg-amber-500' : ($medMissing ? 'bg-slate-400' : 'bg-emerald-500')) ?>"></span>
-                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الفحوصات الطبية الدورية (Visites Médicales)</h4>
-                </div>
-                <?php if ($medExpired): ?>
-                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700/60 font-num">
-                        ⚠️ منتهي الصلاحية (بحاجة لتجديد فوري)
-                    </span>
-                <?php elseif ($medExpiringSoon): ?>
-                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-num">
-                        ⏳ وشيك الانتهاء (متبقي <?= $medDays ?> يوم)
-                    </span>
-                <?php elseif ($medMissing): ?>
-                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-num">
-                        فحص طبي غير مسجل
-                    </span>
-                <?php else: ?>
-                    <span class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 font-num">
-                        ✓ ساري المفعول (لائق صحياً)
-                    </span>
-                <?php endif; ?>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <span class="text-slate-500 dark:text-slate-400 block font-semibold text-xs">بداية الفحص الطبي:</span>
-                    <div class="font-num font-bold text-slate-900 dark:text-white text-base" dir="ltr">
-                        <?= !empty($driver['medical_exam_start']) ? htmlspecialchars($driver['medical_exam_start']) : '—' ?>
-                    </div>
-                </div>
-                <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <span class="text-slate-500 dark:text-slate-400 block font-semibold text-xs">نهاية صلاحية الفحص:</span>
-                    <div class="flex items-center gap-2">
-                        <span class="font-num font-black <?= $medExpired ? 'text-rose-600 dark:text-rose-400' : ($medExpiringSoon ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400') ?> text-base" dir="ltr">
-                            <?= !empty($med) ? htmlspecialchars($med) : '—' ?>
+                    <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-0.5">نوع وطراز السيارة:</span>
+                        <span class="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                            <?= !empty($driver['brand']) ? htmlspecialchars($driver['brand'] . ' ' . ($driver['model'] ?? '')) : 'غير محدد' ?>
                         </span>
-                        <?php if ($medExpired): ?>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700 font-num">منتهي منذ <?= abs($medDays) ?> يوم</span>
-                        <?php elseif ($medExpiringSoon): ?>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-num">متبقي <?= $medDays ?> يوم</span>
-                        <?php endif; ?>
+                    </div>
+
+                    <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-0.5">رقم رخصة السياقة:</span>
+                        <span class="font-num font-bold text-slate-900 dark:text-white text-xs" dir="ltr">
+                            <?= !empty($driver['license_number']) ? htmlspecialchars($driver['license_number']) : '—' ?>
+                        </span>
                     </div>
                 </div>
+
+            </div>
+
+        </div>
+    </div>
+
+
+    <!-- ==============================================
+         1. القسم المالي المباشر: الديون، الدفعات، والرصيد المتبقي
+         ============================================== -->
+    <div class="space-y-4">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+                <span class="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-lg">💰</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">الوضعية المالية والاشتراكات</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">متابعة إجمالي الديون، الدفعات المسددة، والرصيد المتبقي بذمة السائق</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- BaridiMob Add Versement Button -->
+                <button type="button" 
+                        onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
+                        class="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition inline-flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                    <span class="text-base">💳</span>
+                    <span>تسديد دفعة عبر بريدي موب (BaridiMob)</span>
+                </button>
+
+                <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
+                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1 font-num">
+                    <span>كشف الحساب الرسمي</span>
+                    <span>←</span>
+                </a>
             </div>
         </div>
 
-        <!-- Section 4: بداية النشاط (Début d'Activité) -->
-        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                <div class="flex items-center gap-2">
-                    <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-                    <h4 class="font-black text-slate-900 dark:text-white text-sm">سريان النشاط المهني (Début d'Activité)</h4>
+        <!-- 3 KPI Cards: الديون - الدفعات - الرصيد المتبقي -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            
+            <!-- 1. إجمالي الديون والمستحقات -->
+            <div class="p-5 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-bold text-slate-500 dark:text-slate-400">إجمالي الديون والمستحقات</span>
+                    <span class="p-2 rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 text-sm">💳</span>
                 </div>
-                <span class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider font-num">Activité Professionnelle</span>
+                <div class="space-y-0.5">
+                    <div class="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-num" dir="ltr">
+                        <?= number_format($totalDebts, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400">مجموع الاشتراكات والواجبات المقيدة على السائق</p>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
-                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">تاريخ بداية النشاط:</span>
-                    <strong class="text-slate-950 dark:text-white text-sm font-num font-black" dir="ltr"><?= !empty($driver['activity_start_date']) ? htmlspecialchars($driver['activity_start_date']) : '—' ?></strong>
+            <!-- 2. إجمالي الدفعات المسددة -->
+            <div class="p-5 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-bold text-slate-500 dark:text-slate-400">إجمالي الدفعات المسددة</span>
+                    <span class="p-2 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 text-sm">💵</span>
                 </div>
-                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
-                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">دفتر المقررة / البطاقة:</span>
-                    <strong class="text-slate-950 dark:text-white text-sm font-num font-bold" dir="ltr"><?= !empty($driver['card_number']) ? htmlspecialchars($driver['card_number']) : '—' ?></strong>
-                </div>
-                <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800">
-                    <span class="text-slate-600 dark:text-slate-400 block font-semibold mb-1">حالة النشاط والتوقف:</span>
-                    <strong class="text-emerald-700 dark:text-emerald-400 text-sm font-bold">مستمر ميدانياً (دون توقف)</strong>
+                <div class="space-y-0.5">
+                    <div class="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 font-num" dir="ltr">
+                        <?= number_format($totalVersements, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400">المبالغ المدفوعة والمثبتة بوصولات إيداع رسمية</p>
                 </div>
             </div>
+
+            <!-- 3. الرصيد المتبقي (Solde) -->
+            <div class="p-5 rounded-3xl <?= $remainingBalance > 0 ? 'bg-gradient-to-br from-rose-50/50 to-white dark:from-rose-950/20 dark:to-[#161d27] border-rose-200 dark:border-rose-900/60' : 'bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-950/20 dark:to-[#161d27] border-emerald-200 dark:border-emerald-900/60' ?> border shadow-2xs space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-bold <?= $remainingBalance > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300' ?>">
+                        الرصيد المتبقي (Solde)
+                    </span>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black font-num <?= $remainingBalance > 0 ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 animate-pulse' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' ?>">
+                        <?= $remainingBalance > 0 ? 'متبقي للذمة ⚠️' : 'الحساب خالص ✓' ?>
+                    </span>
+                </div>
+                <div class="space-y-0.5">
+                    <div class="text-2xl sm:text-3xl font-black <?= $remainingBalance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400' ?> font-num" dir="ltr">
+                        <?= number_format($remainingBalance, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
+                    </div>
+                    <p class="text-[11px] <?= $remainingBalance > 0 ? 'text-rose-600/80 dark:text-rose-400/80 font-bold' : 'text-slate-400' ?>">
+                        <?= $remainingBalance > 0 ? 'يتوجب تسوية المبلغ المتبقي عبر الدفع النقدي أو بريدي موب' : 'تم استيفاء كامل المبالغ المستحقة ولا توجد أي ديون متأخرة' ?>
+                    </p>
+                </div>
+            </div>
+
         </div>
 
-        <!-- Section 4.5: الجدول المالي السنوي للاشتراكات والديون (Décomposition Financière Annuelle) -->
-        <div class="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a2332] space-y-4">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div class="flex items-center gap-2">
-                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    <h4 class="font-black text-slate-900 dark:text-white text-sm">الجدول المالي السنوي للاشتراكات والديون (2026)</h4>
-                    <span class="text-[10px] text-slate-400 font-num font-bold">12 MOIS</span>
+        <!-- Recent Payments History Strip -->
+        <?php if (!empty($recentVersements)): ?>
+            <div class="bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-3">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <span>🧾</span>
+                        <span>آخر الدفعات والوصولات المسددة مؤخراً</span>
+                    </span>
+                    <span class="text-slate-400 text-[11px] font-num"><?= count($recentVersements) ?> دفعات مقيدة</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-num" dir="ltr">
-                        المستحق السنوي: <?= number_format($totalSubDue > 0 ? $totalSubDue : 48000, 2) ?> DZD
-                    </span>
-                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-num border border-emerald-200/60" dir="ltr">
-                        المحصل: <?= number_format($totalSubPaid, 2) ?> DZD
-                    </span>
-                    <?php 
-                        $resteDette = max(0, ($totalSubDue > 0 ? $totalSubDue : 48000) - $totalSubPaid);
-                    ?>
-                    <span class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $resteDette > 0 ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-500' ?> font-num" dir="ltr">
-                        الذمة: <?= number_format($resteDette, 2) ?> DZD
-                    </span>
-                </div>
-            </div>
 
-            <!-- 12-Month Table -->
-            <div class="overflow-x-auto">
-                <table class="w-full text-right text-xs">
-                    <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
-                        <tr>
-                            <th class="p-2.5">الشهر (Mois)</th>
-                            <th class="p-2.5 text-center">اشتراك المركبة</th>
-                            <th class="p-2.5 text-center">رسوم الحيز</th>
-                            <th class="p-2.5 text-center">المستحق الإجمالي</th>
-                            <th class="p-2.5 text-center">المسدد (Versé)</th>
-                            <th class="p-2.5 text-center">المتبقي (Reste)</th>
-                            <th class="p-2.5 text-center">الوضعية المالية</th>
-                            <th class="p-2.5 text-center">الوصل الرسمي</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                        <?php
-                        $arabicMonths = [
-                            1 => 'جانفي (Jan)', 2 => 'فيفري (Fév)', 3 => 'مارس (Mar)', 4 => 'أفريل (Avr)',
-                            5 => 'ماي (Mai)', 6 => 'جوان (Juin)', 7 => 'جويلية (Juil)', 8 => 'أوت (Août)',
-                            9 => 'سبتمبر (Sep)', 10 => 'أكتوبر (Oct)', 11 => 'نوفمبر (Nov)', 12 => 'ديسمبر (Déc)'
-                        ];
-                        $curMonthNum = intval(date('n'));
-
-                        for ($m = 1; $m <= 12; $m++):
-                            $mKey = '2026-' . str_pad($m, 2, '0', STR_PAD_LEFT);
-                            $subItem = $driverSubs[$mKey] ?? null;
-
-                            $vFee = $subItem ? floatval($subItem['vehicle_fee']) : 4000.00;
-                            $sFee = $subItem ? floatval($subItem['space_fee']) : 350.00;
-                            $totDue = $subItem ? floatval($subItem['total_due']) : 4350.00;
-                            $paid = $subItem ? floatval($subItem['paid_amount']) : 0.00;
-                            $rem = max(0, $totDue - $paid);
-
-                            $isPast = ($m < $curMonthNum);
-                            $isCur = ($m === $curMonthNum);
-                            $isUpcoming = ($m > $curMonthNum);
-
-                            $isRegle = ($subItem && $subItem['status'] === 'regle') || ($paid >= $totDue && $totDue > 0);
-                            $isPartiel = ($subItem && $subItem['status'] === 'partiel') || ($paid > 0 && $paid < $totDue);
-                        ?>
-                            <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition <?= $isCur ? 'bg-amber-50/30 dark:bg-amber-950/20' : '' ?>">
-                                <td class="p-2.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                        <?php if ($isCur): ?>
-                                            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                                        <?php endif; ?>
-                                        <span><?= $arabicMonths[$m] ?></span>
-                                    </div>
-                                    <span class="text-[10px] text-slate-400 font-num" dir="ltr"><?= $mKey ?></span>
-                                </td>
-                                <td class="p-2.5 text-center font-num text-slate-700 dark:text-slate-300" dir="ltr"><?= number_format($vFee, 0) ?> دج</td>
-                                <td class="p-2.5 text-center font-num text-slate-500 dark:text-slate-400" dir="ltr"><?= number_format($sFee, 0) ?> دج</td>
-                                <td class="p-2.5 text-center font-num font-bold text-slate-900 dark:text-white" dir="ltr"><?= number_format($totDue, 0) ?> دج</td>
-                                <td class="p-2.5 text-center font-num font-bold text-emerald-600 dark:text-emerald-400" dir="ltr"><?= number_format($paid, 0) ?> دج</td>
-                                <td class="p-2.5 text-center font-num font-bold <?= $rem > 0 && !$isUpcoming ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400' ?>" dir="ltr">
-                                    <?= $isUpcoming && $rem == $totDue ? '-' : number_format($rem, 0) . ' دج' ?>
-                                </td>
-                                <td class="p-2.5 text-center whitespace-nowrap">
-                                    <?php if ($isRegle): ?>
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                            مسدد بالكامل ✓
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+                    <?php foreach ($recentVersements as $v): ?>
+                        <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/70 dark:border-slate-800 space-y-2 flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between text-[11px] mb-1">
+                                    <span class="font-bold font-num text-slate-800 dark:text-slate-200 truncate max-w-[130px]" dir="ltr" title="<?= htmlspecialchars($v['receipt_ref'] ?? '') ?>">
+                                        <?= htmlspecialchars($v['receipt_ref'] ?: ('REC-#' . $v['id'])) ?>
+                                    </span>
+                                    <?php if (($v['status'] ?? 'approved') === 'pending'): ?>
+                                        <span class="text-[9px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-700 font-num animate-pulse">
+                                            قيد التأكيد ⏳
                                         </span>
-                                    <?php elseif ($isPartiel): ?>
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                            تسوية جزئية
-                                        </span>
-                                    <?php elseif ($isUpcoming): ?>
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                                            استحقاق قادم
+                                    <?php elseif (($v['status'] ?? '') === 'rejected'): ?>
+                                        <span class="text-[9px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 font-bold font-num">
+                                            مرفوض ✕
                                         </span>
                                     <?php else: ?>
-                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
-                                            معلق (ذمة)
+                                        <span class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 font-bold font-num">
+                                            معتمد ومسدد ✓
                                         </span>
                                     <?php endif; ?>
-                                </td>
-                                <td class="p-2.5 text-center whitespace-nowrap">
-                                    <?php if ($subItem): ?>
-                                        <a href="/dashboard/invoice.php?type=subscription&id=<?= $subItem['id'] ?>" target="_blank"
-                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition shadow-2xs">
-                                            <span>فاتورة</span>
-                                            <span class="font-num">🖨️</span>
-                                        </a>
-                                    <?php else: ?>
-                                        <span class="text-[10px] text-slate-400 font-num">-</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endfor; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Versements History for this driver -->
-            <?php if (!empty($driverVersements)): ?>
-            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                <span class="block font-bold text-xs text-slate-700 dark:text-slate-300">سجل الوصولات والدفعات المباشرة (Derniers Versements):</span>
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
-                    <?php foreach ($driverVersements as $vr): ?>
-                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <div>
-                            <div class="font-num font-black text-emerald-600 dark:text-emerald-400" dir="ltr"><?= number_format($vr['amount'] ?? 0, 2) ?> DZD</div>
-                            <div class="text-[10px] text-slate-400 font-num" dir="ltr"><?= substr($vr['payment_date'] ?? '', 0, 10) ?> • <?= htmlspecialchars($vr['payment_method'] ?? 'Espèces') ?></div>
+                                </div>
+                                <div class="flex items-baseline justify-between">
+                                    <span class="text-base font-black text-emerald-600 dark:text-emerald-400 font-num" dir="ltr">
+                                        <?= number_format($v['amount'], 2) ?> دج
+                                    </span>
+                                    <span class="text-[10px] text-slate-400 font-num" dir="ltr">
+                                        <?= date('d/m/Y', strtotime($v['payment_date'])) ?>
+                                    </span>
+                                </div>
+                                <?php if (!empty($v['notes'])): ?>
+                                    <p class="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-1"><?= htmlspecialchars($v['notes']) ?></p>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <?php if (!empty($v['receipt_image'])): ?>
+                                <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
+                                    <button type="button" 
+                                            onclick="viewReceiptImage('<?= url($v['receipt_image']) ?>', '<?= htmlspecialchars($v['receipt_ref'] ?: ('REC-#' . $v['id']), ENT_QUOTES) ?>')"
+                                            class="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 inline-flex items-center gap-1 cursor-pointer">
+                                        <span>👁️</span>
+                                        <span>معاينة صورة الوصل (Reçu)</span>
+                                    </button>
+                                </div>
+                            <?php endif; ?>
                         </div>
-                        <a href="/dashboard/invoice.php?type=versement&id=<?= $vr['id'] ?>" target="_blank" 
-                           class="px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold text-[10px] hover:bg-amber-500 hover:text-slate-950 transition">
-                            وصل 🖨️
-                        </a>
-                    </div>
                     <?php endforeach; ?>
                 </div>
             </div>
-            <?php endif; ?>
+        <?php endif; ?>
+
+    </div>
+
+
+    <!-- ==============================================
+         2. إشعارات الوثائق: خانات عندما تكون منتهية أو مقبلة على الانتهاء
+         (اسم الوثيقة وتواريخها وحالتها)
+         ============================================== -->
+    <div class="space-y-4">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+                <span class="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-lg">📑</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">إشعارات وحالة الوثائق</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">خانات لمتابعة رخصة السياقة، الفحص الطبي، المراقبة، والتأمين مع تنبيهات الانتهاء</p>
+                </div>
+            </div>
+
+            <!-- Quick Filter Pills -->
+            <div class="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 text-xs font-bold" id="docFilterGroup">
+                <button type="button" onclick="filterDocs('all')" id="btnFilterAll" class="px-3 py-1 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs cursor-pointer">
+                    الكل (<?= count($documents) ?>)
+                </button>
+                <button type="button" onclick="filterDocs('alerts')" id="btnFilterAlerts" class="px-3 py-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer <?= ($expiredDocsCount + $expiringDocsCount > 0) ? 'text-rose-600 dark:text-rose-400 font-black' : '' ?>">
+                    المنتهية والقريبة (<?= $expiredDocsCount + $expiringDocsCount ?>)
+                </button>
+                <button type="button" onclick="filterDocs('valid')" id="btnFilterValid" class="px-3 py-1 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
+                    السارية (<?= $validDocsCount ?>)
+                </button>
+            </div>
         </div>
 
+        <!-- Global Alert Banner if any document is expired or expiring -->
+        <?php if ($expiredDocsCount > 0): ?>
+            <div class="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center justify-between gap-3 text-xs text-rose-800 dark:text-rose-200">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-lg animate-bounce">🚨</span>
+                    <div>
+                        <strong class="font-black text-sm block">تنبيه قانوني: يوجد <?= $expiredDocsCount ?> وثيقة منتهية الصلاحية!</strong>
+                        <span>المركبة أو السائق غير مؤهلين قانونياً لممارسة النشاط حتى يتم تجديد الوثائق المنتهية فوراً.</span>
+                    </div>
+                </div>
+                <span class="px-3 py-1 rounded-xl bg-rose-600 text-white font-bold text-xs shrink-0 font-num">
+                    <?= $expiredDocsCount ?> منتهية
+                </span>
+            </div>
+        <?php elseif ($expiringDocsCount > 0): ?>
+            <div class="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between gap-3 text-xs text-amber-800 dark:text-amber-200">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-lg">⚠️</span>
+                    <div>
+                        <strong class="font-black text-sm block">تنبيه تجديد: يوجد <?= $expiringDocsCount ?> وثيقة مقبلة على الانتهاء خلال 30 يوماً</strong>
+                        <span>يرجى اتخاذ الإجراءات اللازمة لتجديدها قبل تاريخ الانتهاء لتفادي تعليق النشاط.</span>
+                    </div>
+                </div>
+                <span class="px-3 py-1 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs shrink-0 font-num">
+                    <?= $expiringDocsCount ?> قريبة
+                </span>
+            </div>
+        <?php else: ?>
+            <div class="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-200">
+                <span class="text-base">✓</span>
+                <span>جميع الوثائق والتجهيزات سارية الصلاحية ومطابقة قانونياً.</span>
+            </div>
+        <?php endif; ?>
 
-        <!-- Official Signatures & Seal Area (For Print & Authority Checks) -->
-        <div class="pt-6 border-t-2 border-slate-900 dark:border-slate-700 grid grid-cols-3 gap-6 text-center text-xs">
-            <div class="space-y-10">
-                <span class="font-bold text-slate-800 dark:text-slate-200 block">إمضاء وبصمة السائق المهني</span>
-                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold"><?= htmlspecialchars($driver['full_name']) ?></div>
-            </div>
-            <div class="space-y-10">
-                <span class="font-bold text-slate-800 dark:text-slate-200 block">ختم وتأشيرة مؤسسة تاكسي نقيلو</span>
-                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold font-num">EURL TAXI NAGUILOU</div>
-            </div>
-            <div class="space-y-10">
-                <span class="font-bold text-slate-800 dark:text-slate-200 block">تأشيرة مديرية النقل لولاية <?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></span>
-                <div class="text-slate-600 dark:text-slate-400 text-xs font-semibold">مفتشية النقل البري</div>
-            </div>
+        <!-- Documents Grid (الخانات) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" id="documentsGrid">
+            
+            <?php foreach ($documents as $doc): ?>
+                <div class="doc-card p-4 rounded-3xl border <?= $doc['card_border'] ?> transition-all duration-200 flex flex-col justify-between space-y-3" 
+                     data-status="<?= $doc['status'] ?>">
+                    
+                    <div>
+                        <!-- Header with Icon & Status Badge -->
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                            <span class="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-xl shrink-0">
+                                <?= $doc['icon'] ?>
+                            </span>
+                            <span class="px-2.5 py-1 rounded-xl text-[10px] font-bold border <?= $doc['status_class'] ?>">
+                                <?= $doc['status_label'] ?>
+                            </span>
+                        </div>
+
+                        <!-- Document Name & Type -->
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-400 block mb-0.5"><?= $doc['type_label'] ?></span>
+                            <h4 class="text-sm font-black text-slate-900 dark:text-white leading-snug">
+                                <?= $doc['name'] ?>
+                            </h4>
+                            <?php if (!empty($doc['doc_number'])): ?>
+                                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-num truncate" dir="ltr">
+                                    <span class="font-sans text-slate-400"><?= $doc['doc_number_label'] ?>:</span> <strong><?= htmlspecialchars($doc['doc_number']) ?></strong>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Dates & Expiry Countdown Box -->
+                    <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+                        
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-slate-400 text-[11px]">تاريخ الانتهاء:</span>
+                            <span class="font-num font-black <?= $doc['status'] === 'expired' ? 'text-rose-600 dark:text-rose-400' : ($doc['status'] === 'expiring' ? 'text-amber-700 dark:text-amber-400' : 'text-slate-900 dark:text-white') ?>" dir="ltr">
+                                <?= !empty($doc['expiry_date']) ? date('d/m/Y', strtotime($doc['expiry_date'])) : '— غير محدد' ?>
+                            </span>
+                        </div>
+
+                        <div class="text-[11px] font-bold <?= $doc['status'] === 'expired' ? 'text-rose-600 dark:text-rose-400 font-num' : ($doc['status'] === 'expiring' ? 'text-amber-700 dark:text-amber-400 font-num' : 'text-emerald-700 dark:text-emerald-400') ?>">
+                            <?= $doc['days_label'] ?>
+                        </div>
+
+                    </div>
+
+                </div>
+            <?php endforeach; ?>
+
         </div>
 
     </div>
 
-</body>
-</html>
+
+    <!-- ==============================================
+         3. عقد العمل ورخصة الاستغلال (قانون 90-11)
+         ============================================== -->
+    <div class="space-y-4">
+        
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="p-2 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 text-lg">📑</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">عقد العمل ورخصة الاستغلال (قانون 90-11)</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">تفاصيل العقد المبرم بين السائق وصاحب رخصة الاستغلال</p>
+                </div>
+            </div>
+
+            <?php if (!empty($driverContract['id'])): ?>
+                <a href="contract_view.php?id=<?= $driverContract['id'] ?>" target="_blank" 
+                   class="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1">
+                    <span>معاينة العقد الموثق</span>
+                    <span>←</span>
+                </a>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($driverContract): ?>
+            <div class="bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-2xs space-y-4">
+                
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 flex items-center justify-center text-xl font-bold font-num">
+                            90-11
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h4 class="text-base font-black text-slate-900 dark:text-white">
+                                    عقد عمل سائق أجير معتمد
+                                </h4>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black <?= $driverContract['status'] === 'signed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' ?>">
+                                    <?= $driverContract['status'] === 'signed' ? 'موثق وساري المفعول ✓' : htmlspecialchars($driverContract['status']) ?>
+                                </span>
+                            </div>
+                            <span class="text-xs text-slate-400 font-num" dir="ltr">
+                                رقم العقد: <?= htmlspecialchars($driverContract['contract_number'] ?: 'CTR-' . $driverContract['id']) ?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="text-right sm:text-left text-xs font-num">
+                        <span class="text-slate-400 block text-[10px]">الأجر / الواجب الشهري:</span>
+                        <span class="text-lg font-black text-teal-700 dark:text-teal-300" dir="ltr">
+                            <?= !empty($driverContract['monthly_wage']) ? number_format($driverContract['monthly_wage'], 2) : '45,000.00' ?> دج
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Contract Key Details Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                    
+                    <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">تاريخ بداية العقد:</span>
+                        <strong class="text-slate-900 dark:text-white font-num text-sm" dir="ltr">
+                            <?= !empty($driverContract['start_date']) ? date('d/m/Y', strtotime($driverContract['start_date'])) : '—' ?>
+                        </strong>
+                    </div>
+
+                    <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">تاريخ نهاية وسريان العقد:</span>
+                        <strong class="text-slate-900 dark:text-white font-num text-sm" dir="ltr">
+                            <?= !empty($driverContract['end_date']) ? date('d/m/Y', strtotime($driverContract['end_date'])) : 'عقد مفتوح (CDI)' ?>
+                        </strong>
+                    </div>
+
+                    <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">صاحب رخصة الاستغلال (المشغل):</span>
+                        <strong class="text-slate-900 dark:text-white text-xs block truncate">
+                            <?= !empty($driverContract['owner_name']) ? htmlspecialchars($driverContract['owner_name']) : 'مؤسسة تاكسي نقيلو' ?>
+                        </strong>
+                        <?php if (!empty($driverContract['owner_phone'])): ?>
+                            <a href="tel:<?= htmlspecialchars($driverContract['owner_phone']) ?>" class="text-[11px] text-teal-600 dark:text-teal-400 font-num font-bold hover:underline" dir="ltr">
+                                <?= htmlspecialchars($driverContract['owner_phone']) ?>
+                            </a>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">المركبة المقيدة بالعقد:</span>
+                        <strong class="text-amber-700 dark:text-amber-400 font-num text-xs block" dir="ltr">
+                            <?= !empty($driverContract['plate_number']) ? htmlspecialchars($driverContract['plate_number']) : ($driver['plate_number'] ?? '—') ?>
+                        </strong>
+                        <span class="text-[10px] text-slate-400">
+                            <?= !empty($driver['door_number']) ? ('رقم الباب: ' . htmlspecialchars($driver['door_number'])) : '' ?>
+                        </span>
+                    </div>
+
+                </div>
+
+            </div>
+        <?php else: ?>
+            <div class="p-6 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 text-center space-y-2">
+                <span class="text-2xl block">📄</span>
+                <p class="text-xs font-bold text-slate-700 dark:text-slate-300">لا يوجد عقد عمل موثق مقيد حالياً لهذا السائق في النظام.</p>
+                <p class="text-[11px] text-slate-400">يمكن لإدارة المنصة تسجيل وتوثيق عقد جديد وفق القانون 90-11 من قسم العقود.</p>
+            </div>
+        <?php endif; ?>
+
+    </div>
+
+</div>
+
+
+<!-- ==============================================
+     Edit Profile Modal (Self-Service)
+     ============================================== -->
+<div id="editProfileModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs hidden no-print">
+    <div class="bg-white dark:bg-[#161d27] w-full max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 space-y-5 text-right max-h-[92vh] overflow-y-auto">
+        
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                تعديل البيانات الشخصية وأمان الحساب
+            </h3>
+            <button type="button" 
+                    onclick="document.getElementById('editProfileModal').classList.add('hidden')"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                ✕
+            </button>
+        </div>
+
+        <form method="POST" action="" enctype="multipart/form-data" class="space-y-4">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="update_profile">
+            <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
+
+            <div>
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">الصورة الشخصية:</label>
+                <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" 
+                       class="w-full text-xs text-slate-500 file:mr-0 file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-600 cursor-pointer">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">رقم الهاتف: *</label>
+                    <input type="tel" name="phone" value="<?= htmlspecialchars($driver['phone'] ?? '') ?>" required dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-num focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">البريد الإلكتروني:</label>
+                    <input type="email" name="email" value="<?= htmlspecialchars($driver['email'] ?? '') ?>" dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-num focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">عنوان الإقامة الكامل:</label>
+                <input type="text" name="address" value="<?= htmlspecialchars($driver['address'] ?? '') ?>"
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                <span class="text-xs font-bold text-amber-700 dark:text-amber-400 block">تغيير كلمة المرور (اختياري):</span>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] text-slate-500 mb-1">كلمة المرور الجديدة:</label>
+                        <input type="password" name="new_password" placeholder="6 أحرف على الأقل" dir="ltr"
+                               class="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] text-slate-500 mb-1">تأكيد كلمة المرور:</label>
+                        <input type="password" name="confirm_password" placeholder="إعادة كتابة الكلمة" dir="ltr"
+                               class="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3">
+                <button type="button" 
+                        onclick="document.getElementById('editProfileModal').classList.add('hidden')"
+                        class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 cursor-pointer">
+                    إلغاء
+                </button>
+                <button type="submit" 
+                        class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-xs cursor-pointer">
+                    حفظ التغييرات
+                </button>
+            </div>
+        </form>
+
+    </div>
+</div>
+
+<!-- ==============================================
+     Modal: تسديد دفعة عبر بريدي موب وإرسال الوصل
+     ============================================== -->
+<div id="baridimobModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs hidden no-print">
+    <div class="bg-white dark:bg-[#161d27] w-full max-w-xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 space-y-5 text-right max-h-[92vh] overflow-y-auto">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div class="flex items-center gap-2">
+                <span class="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl font-bold">💳</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                        تسديد دفعة عبر بريدي موب (BaridiMob & CCP)
+                    </h3>
+                    <p class="text-[11px] text-slate-400">تحويل مباشر إلى الحساب المعتمد لمؤسسة تاكسي نقيلو</p>
+                </div>
+            </div>
+            <button type="button" 
+                    onclick="document.getElementById('baridimobModal').classList.add('hidden')"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                ✕
+            </button>
+        </div>
+
+        <!-- الخطوة 1: معلومات الحساب المعتمد (التي أدخلها الأدمن) -->
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-amber-50/80 to-amber-100/30 dark:from-amber-950/30 dark:to-slate-900 border border-amber-300 dark:border-amber-700/60 space-y-3">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-black text-amber-950 dark:text-amber-300 flex items-center gap-1.5">
+                    <span>🏦</span>
+                    <span>بيانات الحساب البريدي / البنكي المعتمد للتحويل:</span>
+                </span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 font-num">
+                    حساب معتمد ✓
+                </span>
+            </div>
+
+            <!-- مفتاح RIP لبريدي موب مع زر نسخ فوري -->
+            <div class="p-3 bg-white dark:bg-[#121721] rounded-xl border border-amber-300/80 dark:border-amber-700/80 space-y-1.5">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-500 dark:text-slate-400 font-bold">رقم الحساب الجاري RIP (بريدي موب BaridiMob):</span>
+                    <button type="button" onclick="copyText('<?= htmlspecialchars($bankRip) ?>', this)" 
+                            class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-black transition cursor-pointer flex items-center gap-1">
+                        <span>📋</span>
+                        <span>نسخ RIP</span>
+                    </button>
+                </div>
+                <div class="font-num font-black text-sm sm:text-base tracking-wider text-amber-800 dark:text-amber-300 text-center select-all bg-amber-50/50 dark:bg-amber-950/20 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800/60" dir="ltr">
+                    <?= htmlspecialchars($bankRip) ?>
+                </div>
+            </div>
+
+            <!-- بقية تفاصيل الحساب -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div class="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-200/70 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[10px] font-bold">رقم الحساب CCP:</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold" dir="ltr"><?= htmlspecialchars($bankCcp) ?></strong>
+                    </div>
+                    <button type="button" onclick="copyText('<?= htmlspecialchars($bankCcp) ?>', this)" class="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">نسخ</button>
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-200/70 dark:border-slate-800">
+                    <span class="text-slate-400 block text-[10px] font-bold">اسم صاحب الحساب:</span>
+                    <strong class="text-slate-900 dark:text-white truncate block text-[11px]"><?= htmlspecialchars($bankAccountHolder) ?></strong>
+                </div>
+
+                <?php if (!empty($baridimobNumber)): ?>
+                    <div class="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-amber-200/70 dark:border-slate-800 flex items-center justify-between sm:col-span-2">
+                        <div>
+                            <span class="text-slate-400 block text-[10px] font-bold">رقم الهاتف المربوط ببريدي موب:</span>
+                            <strong class="text-slate-900 dark:text-white font-num font-bold text-xs" dir="ltr"><?= htmlspecialchars($baridimobNumber) ?></strong>
+                        </div>
+                        <button type="button" onclick="copyText('<?= htmlspecialchars($baridimobNumber) ?>', this)" class="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">نسخ الرقم</button>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="text-[11px] text-amber-900/90 dark:text-amber-300/90 bg-amber-500/15 p-2.5 rounded-xl flex items-start gap-2">
+                <span class="text-base">💡</span>
+                <span><strong>طريقة الدفع:</strong> انسخ رقم RIP أعلاه، افتح تطبيق <strong>BaridiMob</strong> واختر <em>تحويل عبر RIP</em>، ثم أدخل المبلغ المطلوب. بعد نجاح التحويل التقط صورة للوصل (Capture d'écran) وارفعها بالأسفل لتأكيد الدفعة فوراً.</span>
+            </div>
+        </div>
+
+        <!-- الخطوة 2: نموذج تسجيل الوصل وإرساله للإدارة -->
+        <form method="POST" action="" enctype="multipart/form-data" class="space-y-4">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="submit_baridimob_payment">
+            <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">المبلغ المدفوع (دج): *</label>
+                    <input type="number" step="100" name="amount" value="<?= $remainingBalance > 0 ? $remainingBalance : 4000 ?>" required dir="ltr"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white font-num font-black text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    <span class="text-[10px] text-slate-400 mt-0.5 block">الرصيد المتبقي بذمتك: <?= number_format($remainingBalance, 2) ?> دج</span>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">تاريخ التحويل: *</label>
+                    <input type="date" name="payment_date" value="<?= date('Y-m-d') ?>" required
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white font-num text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                </div>
+            </div>
+
+            <div class="text-xs">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">رقم المعاملة / مرجع الوصل (N° Transaction):</label>
+                <input type="text" name="receipt_ref" placeholder="مثال: BM-20261021-998 أو رقم العملية في الوصل" dir="ltr"
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white font-num text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+            </div>
+
+            <div class="text-xs">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">صورة وصل التحويل (Reçu BaridiMob / CCP): *</label>
+                <input type="file" name="receipt_image" accept="image/png,image/jpeg,image/webp,application/pdf" required
+                       class="w-full text-xs text-slate-500 file:mr-0 file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-600 cursor-pointer border border-dashed border-amber-300 dark:border-amber-700 p-2 rounded-2xl bg-amber-50/20 dark:bg-amber-950/10">
+                <span class="text-[10px] text-slate-400 mt-1 block">صورة واضحة لوصل التحويل أو لقطة شاشة من تطبيق بريدي موب تثبت نجاح العملية.</span>
+            </div>
+
+            <div class="text-xs">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">ملاحظات إضافية:</label>
+                <input type="text" name="notes" placeholder="مثال: تسديد اشتراك شهر أكتوبر 2026"
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" 
+                        onclick="document.getElementById('baridimobModal').classList.add('hidden')"
+                        class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 cursor-pointer">
+                    إلغاء
+                </button>
+                <button type="submit" 
+                        class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs font-black shadow-md transition cursor-pointer flex items-center gap-1.5">
+                    <span>إرسال الوصل وتأكيد الدفعة للإدارة</span>
+                    <span>🚀</span>
+                </button>
+            </div>
+        </form>
+
+    </div>
+</div>
+
+<!-- ==============================================
+     Modal: معاينة صورة الوصل المرفوع (Lightbox)
+     ============================================== -->
+<div id="receiptImageModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs hidden no-print" onclick="this.classList.add('hidden')">
+    <div class="bg-white dark:bg-[#161d27] max-w-2xl w-full rounded-3xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 m-auto" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-xs">
+            <span class="font-bold text-slate-800 dark:text-slate-200" id="receiptModalTitle">معاينة وصل التحويل</span>
+            <button type="button" onclick="document.getElementById('receiptImageModal').classList.add('hidden')" class="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">✕</button>
+        </div>
+        <div class="max-h-[75vh] overflow-auto flex items-center justify-center p-2 bg-slate-50 dark:bg-slate-900 rounded-2xl">
+            <img id="receiptModalImg" src="" alt="وصل التحويل" class="max-w-full h-auto rounded-xl shadow-xs object-contain">
+        </div>
+    </div>
+</div>
+
+<script>
+function viewReceiptImage(url, title) {
+    document.getElementById('receiptModalImg').src = url;
+    document.getElementById('receiptModalTitle').innerText = 'معاينة وصل: ' + title;
+    document.getElementById('receiptImageModal').classList.remove('hidden');
+}
+
+function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<span>تم النسخ ✓</span>';
+        setTimeout(() => { btn.innerHTML = orig; }, 2000);
+    });
+}
+
+// Filter Document Cards
+function filterDocs(type) {
+    const cards = document.querySelectorAll('.doc-card');
+    const btnAll = document.getElementById('btnFilterAll');
+    const btnAlerts = document.getElementById('btnFilterAlerts');
+    const btnValid = document.getElementById('btnFilterValid');
+
+    // Reset button styles
+    [btnAll, btnAlerts, btnValid].forEach(b => {
+        b.classList.remove('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+        b.classList.add('text-slate-600', 'dark:text-slate-400');
+    });
+
+    if (type === 'all') {
+        btnAll.classList.add('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+        cards.forEach(c => c.classList.remove('hidden'));
+    } else if (type === 'alerts') {
+        btnAlerts.classList.add('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+        cards.forEach(c => {
+            const st = c.getAttribute('data-status');
+            if (st === 'expired' || st === 'expiring') {
+                c.classList.remove('hidden');
+            } else {
+                c.classList.add('hidden');
+            }
+        });
+    } else if (type === 'valid') {
+        btnValid.classList.add('bg-white', 'dark:bg-slate-700', 'text-slate-900', 'dark:text-white', 'shadow-2xs');
+        cards.forEach(c => {
+            const st = c.getAttribute('data-status');
+            if (st === 'valid') {
+                c.classList.remove('hidden');
+            } else {
+                c.classList.add('hidden');
+            }
+        });
+    }
+}
+</script>
+
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

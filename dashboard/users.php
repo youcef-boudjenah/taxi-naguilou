@@ -125,22 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                     $messageType = 'error';
                 } else {
                     try {
-                        $stmtDel = $pdo->prepare("DELETE FROM users WHERE id = ?");
-                        $stmtDel->execute([$userId]);
-                        log_audit($pdo, 'user_deleted', 'users', $userId, "حذف حساب المستخدم رقم $userId");
-                        $message = 'تم حذف حساب المستخدم بنجاح.';
+                        soft_delete_entity($pdo, 'users', $userId, "حذف حساب المستخدم ونقله للأرشيف");
+                        $message = 'تم نقل حساب المستخدم إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت من قسم سلة المهملات.';
                         $messageType = 'success';
-                    } catch (\PDOException $e) {
-                        if ($e->getCode() == '23000' || strpos($e->getMessage(), '1451') !== false) {
-                            $stmtUp = $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?");
-                            $stmtUp->execute([$userId]);
-                            log_audit($pdo, 'user_suspended_fk', 'users', $userId, "تجميد حساب المستخدم رقم $userId بدلاً من الحذف لوجود سجلات مرتبطة (عقود/مركبات/ديون)");
-                            $message = 'تعذر الحذف النهائي لوجود سجلات رسمية مرتبطة بالمستخدم (عقود، ديون، أو مركبات). تم تحويل حالة الحساب تلقائياً إلى "مجمد" حفاظاً على الأرشيف المالي والقانوني.';
-                            $messageType = 'warning';
-                        } else {
-                            $message = 'حدث خطأ أثناء محاولة الحذف: ' . htmlspecialchars($e->getMessage());
-                            $messageType = 'error';
-                        }
+                    } catch (\Throwable $e) {
+                        $message = 'حدث خطأ أثناء محاولة الحذف: ' . htmlspecialchars($e->getMessage());
+                        $messageType = 'error';
                     }
                 }
             }
@@ -171,7 +161,7 @@ $statusFilter = $_GET['status'] ?? 'all';
 $subFilter = $_GET['subscription_type'] ?? 'all';
 $searchQuery = trim($_GET['search'] ?? '');
 
-$sql = "SELECT * FROM users WHERE 1=1";
+$sql = "SELECT * FROM users WHERE deleted_at IS NULL";
 $params = [];
 
 if ($roleFilter !== 'all') {
@@ -298,11 +288,11 @@ $roleCounts = [
     </div>
 
     <!-- Users Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold uppercase tracking-wider">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 font-extrabold uppercase tracking-wider">
                         <th class="p-4">المستخدم</th>
                         <th class="p-4">الاتصال</th>
                         <th class="p-4">الدور</th>
@@ -361,45 +351,49 @@ $roleCounts = [
                                 }
                             }
                         ?>
-                            <tr class="hover:bg-slate-50/80 transition">
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                                 <td class="p-4">
                                     <div class="flex items-center gap-2.5">
-                                        <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-800 font-bold flex items-center justify-center text-xs shrink-0">
+                                        <div class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold flex items-center justify-center text-xs shrink-0">
                                             <?= mb_substr($u['full_name'], 0, 1) ?>
                                         </div>
                                         <div>
-                                            <div class="font-bold text-slate-900"><?= htmlspecialchars($u['full_name']) ?></div>
+                                            <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($u['full_name']) ?></div>
                                             <div class="text-[10px] text-slate-400 font-mono" dir="ltr"><?= htmlspecialchars($u['email']) ?></div>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="p-4">
-                                    <span class="font-num font-bold text-slate-700" dir="ltr"><?= htmlspecialchars($u['phone']) ?></span>
+                                    <span class="table-num-badge table-num-slate text-[11px]" dir="ltr">📞 <?= htmlspecialchars($u['phone']) ?></span>
                                 </td>
                                 <td class="p-4">
                                     <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border <?= $roleBadge ?>">
                                         <?= $roleLabel ?>
                                     </span>
                                 </td>
-                                <td class="p-4 text-slate-600">
+                                <td class="p-4 text-slate-600 dark:text-slate-300">
                                     <?= htmlspecialchars($u['wilaya'] ?? '-') ?>
                                 </td>
                                 <td class="p-4">
                                     <?php if (!empty($u['license_number'])): ?>
-                                        <div class="font-mono font-bold text-slate-800"><?= htmlspecialchars($u['license_number']) ?></div>
-                                        <div class="text-[10px] text-slate-400">تنتهي: <?= htmlspecialchars($u['license_expiry'] ?? '-') ?></div>
+                                        <span class="table-num-badge table-num-sky font-bold text-[11px]" dir="ltr">📄 <?= htmlspecialchars($u['license_number']) ?></span>
+                                        <?php if (!empty($u['license_expiry'])): ?>
+                                            <div class="mt-1">
+                                                <span class="table-num-badge table-num-slate text-[10px]" dir="ltr">تنتهي: <?= htmlspecialchars($u['license_expiry']) ?></span>
+                                            </div>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="text-slate-400">-</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-4">
                                     <?php if ($subType === 'unlimited'): ?>
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                        <span class="table-num-badge table-num-slate text-[10px]">
                                             <span>♾️</span>
                                             <span>غير محدود (دائم)</span>
                                         </span>
                                     <?php elseif ($subType === 'free'): ?>
-                                        <div class="space-y-0.5">
+                                        <div class="space-y-1">
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold <?= $isSubExpired ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200' ?>">
                                                 <span>🎁 مجاني</span>
                                                 <?php if ($isSubExpired): ?>
@@ -408,10 +402,17 @@ $roleCounts = [
                                                     <span class="font-num">(باقٍ <?= $daysRemaining ?> ي)</span>
                                                 <?php endif; ?>
                                             </span>
-                                            <div class="text-[10px] text-slate-500 font-num" dir="ltr">ينتهي: <?= htmlspecialchars($subExpiry) ?></div>
+                                            <?php if (!empty($subExpiry)): ?>
+                                                <div>
+                                                    <span class="table-num-badge <?= $isSubExpired ? 'table-num-rose' : 'table-num-emerald' ?> text-[10px]" dir="ltr">
+                                                        <span class="<?= $isSubExpired ? 'table-num-dot-rose' : 'table-num-dot-emerald' ?>"></span>
+                                                        ينتهي: <?= htmlspecialchars($subExpiry) ?>
+                                                    </span>
+                                                </div>
+                                            <?php endif; ?>
                                         </div>
                                     <?php elseif ($subType === 'paid'): ?>
-                                        <div class="space-y-0.5">
+                                        <div class="space-y-1">
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold <?= $isSubExpired ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-blue-50 text-blue-700 border border-blue-200' ?>">
                                                 <span>💎 مدفوع</span>
                                                 <?php if ($isSubExpired): ?>
@@ -420,7 +421,14 @@ $roleCounts = [
                                                     <span class="font-num">(باقٍ <?= $daysRemaining ?> ي)</span>
                                                 <?php endif; ?>
                                             </span>
-                                            <div class="text-[10px] text-slate-500 font-num" dir="ltr">ينتهي: <?= htmlspecialchars($subExpiry) ?></div>
+                                            <?php if (!empty($subExpiry)): ?>
+                                                <div>
+                                                    <span class="table-num-badge <?= $isSubExpired ? 'table-num-rose' : 'table-num-sky' ?> text-[10px]" dir="ltr">
+                                                        <span class="<?= $isSubExpired ? 'table-num-dot-rose' : 'table-num-dot-sky' ?>"></span>
+                                                        ينتهي: <?= htmlspecialchars($subExpiry) ?>
+                                                    </span>
+                                                </div>
+                                            <?php endif; ?>
                                         </div>
                                     <?php endif; ?>
                                 </td>
@@ -433,14 +441,14 @@ $roleCounts = [
                                     <div class="relative inline-block text-right">
                                         <button type="button"
                                                 onclick="toggleTableDropdown(event, this)"
-                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                class="table-dropdown-btn w-9 h-9 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
                                                 title="خيارات وإجراءات الحساب">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                 <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <!-- Edit User Button -->
                                             <button type="button"
                                                     onclick='openEditUserModal(<?= json_encode([

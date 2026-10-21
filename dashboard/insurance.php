@@ -127,12 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         try {
             $pdo->beginTransaction();
             if ($policyId > 0) {
-                $pdo->prepare("DELETE FROM insurance_policies WHERE id = ?")->execute([$policyId]);
+                $pdo->prepare("UPDATE insurance_policies SET deleted_at = NOW() WHERE id = ?")->execute([$policyId]);
             }
             $pdo->prepare("UPDATE vehicles SET insurance_expiry = NULL, insurance_company = NULL WHERE id = ?")->execute([$vehicleId]);
             $pdo->commit();
-            log_audit($pdo, 'insurance_deleted', 'vehicles', $vehicleId, "حذف وتصفير وثيقة التأمين للمركبة رقم $vehicleId");
-            set_flash('success', "تم حذف وثيقة التأمين للمركبة بنجاح");
+            log_audit($pdo, 'insurance_deleted', 'vehicles', $vehicleId, "نقل وثيقة التأمين للمركبة رقم $vehicleId إلى سلة المهملات");
+            set_flash('success', "تم نقل وثيقة التأمين إلى سلة المهملات والأرشيف بنجاح");
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -152,7 +152,7 @@ $filterStatus = trim($_GET['status'] ?? 'all'); // all, imminent, active, expire
 $allVehicles = [];
 if ($pdo) {
     try {
-        $stmtAllV = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles ORDER BY plate_number ASC");
+        $stmtAllV = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles WHERE deleted_at IS NULL ORDER BY plate_number ASC");
         $allVehicles = $stmtAllV ? $stmtAllV->fetchAll() : [];
     } catch (\Throwable $e) {
         $allVehicles = [];
@@ -175,11 +175,13 @@ if ($pdo) {
             INNER JOIN (
                 SELECT vehicle_id, MAX(id) as max_id
                 FROM insurance_policies
+                WHERE deleted_at IS NULL
                 GROUP BY vehicle_id
             ) p2 ON p1.id = p2.max_id
+            WHERE p1.deleted_at IS NULL
         ) p ON v.id = p.vehicle_id
         LEFT JOIN users u ON v.current_driver_id = u.id
-        WHERE 1=1
+        WHERE v.deleted_at IS NULL
     ";
 
     $params = [];
@@ -382,10 +384,10 @@ foreach ($rows as $r) {
     </div>
 
     <!-- Insurance Policies Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                     <tr>
                         <th class="p-3.5 whitespace-nowrap">المركبة المعنية</th>
                         <th class="p-3.5 whitespace-nowrap">السائق المكلف</th>
@@ -438,27 +440,46 @@ foreach ($rows as $r) {
                                 <td class="p-3.5 whitespace-nowrap">
                                     <div class="font-num font-mono text-slate-900 font-bold"><?= htmlspecialchars($policy) ?></div>
                                     <?php if (!empty($row['attestation_number'])): ?>
-                                        <div class="text-[10px] text-slate-400 font-num font-mono">وصل: <?= htmlspecialchars($row['attestation_number']) ?></div>
+                                        <div class="mt-1">
+                                            <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold font-num bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                وصل: <?= htmlspecialchars($row['attestation_number']) ?>
+                                            </span>
+                                        </div>
                                     <?php endif; ?>
                                 </td>
 
-                                <td class="p-3.5 whitespace-nowrap text-slate-600 text-[11px]">
+                                <td class="p-3.5 whitespace-nowrap text-slate-600 dark:text-slate-300 text-[11px]">
                                     <?= htmlspecialchars($coverage) ?>
                                 </td>
 
-                                <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800" dir="ltr">
-                                    <?= htmlspecialchars($expDate) ?>
+                                <td class="p-3.5 whitespace-nowrap font-num">
+                                    <?php if ($days < 0): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800" dir="ltr">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                                            <span><?= htmlspecialchars($expDate) ?></span>
+                                        </span>
+                                    <?php elseif ($days <= 15): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800" dir="ltr">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                            <span><?= htmlspecialchars($expDate) ?></span>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800" dir="ltr">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                            <span><?= htmlspecialchars($expDate) ?></span>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <td class="p-3.5 whitespace-nowrap text-center font-num">
                                     <?php if ($days < 0): ?>
-                                        <span class="text-rose-600 font-bold">منتهي منذ <?= abs($days) ?> يوم</span>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800">منتهي منذ <?= abs($days) ?> يوم</span>
                                     <?php elseif ($days <= 15): ?>
-                                        <span class="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                                             باقي <?= $days ?> أيام
                                         </span>
                                     <?php else: ?>
-                                        <span class="text-emerald-700 font-semibold">باقي <?= $days ?> يوم</span>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">باقي <?= $days ?> يوم</span>
                                     <?php endif; ?>
                                 </td>
 
@@ -489,7 +510,7 @@ foreach ($rows as $r) {
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <button type="button"
                                                     onclick="openRenewModalFor(<?= $row['vehicle_id'] ?>, '<?= htmlspecialchars($row['plate_number']) ?>', '<?= htmlspecialchars($company) ?>')"
                                                     class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition text-right cursor-pointer">

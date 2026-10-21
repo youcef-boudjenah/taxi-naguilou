@@ -20,6 +20,7 @@ $counts = [
     'users'            => 0,
     'audit_logs'       => 0,
     'settings'         => 0,
+    'trash'            => 0,
     'expiring_docs'    => $alertCount,
     'expiring_contracts' => 0,
 ];
@@ -27,30 +28,31 @@ $counts = [
 if ($pdo) {
     try {
         if ($isTaxiDriver) {
-            $stmtDriverSlips = $pdo->prepare("SELECT COUNT(*) FROM transmission_slips WHERE driver_id = ?");
+            $stmtDriverSlips = $pdo->prepare("SELECT COUNT(*) FROM transmission_slips WHERE driver_id = ? AND deleted_at IS NULL");
             $stmtDriverSlips->execute([$user['id']]);
             $counts['slips'] = (int)$stmtDriverSlips->fetchColumn();
 
             $counts['notifications'] = (int)$unreadNotifCount;
             $counts['planning'] = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
-            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
-            $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
+            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports WHERE deleted_at IS NULL")->fetchColumn();
+            $counts['vehicles'] = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL")->fetchColumn();
         } else {
-            $counts['vehicles']           = (int)$pdo->query("SELECT COUNT(*) FROM vehicles")->fetchColumn();
-            $counts['drivers']            = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active'")->fetchColumn();
-            $counts['contracts']          = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed'")->fetchColumn();
-            $counts['expiring_contracts'] = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
-            $counts['cnas']               = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations")->fetchColumn();
-            $counts['leaves']           = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE status = 'approved' AND end_date >= CURDATE()")->fetchColumn();
-            $counts['slips']            = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE status = 'active'")->fetchColumn();
-            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports")->fetchColumn();
+            $counts['vehicles']           = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL")->fetchColumn();
+            $counts['drivers']            = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'active' AND deleted_at IS NULL")->fetchColumn();
+            $counts['contracts']          = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed' AND deleted_at IS NULL")->fetchColumn();
+            $counts['expiring_contracts'] = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND deleted_at IS NULL")->fetchColumn();
+            $counts['cnas']               = (int)$pdo->query("SELECT COUNT(*) FROM cnas_declarations WHERE deleted_at IS NULL")->fetchColumn();
+            $counts['leaves']           = (int)$pdo->query("SELECT COUNT(*) FROM leaves WHERE status = 'approved' AND end_date >= CURDATE() AND deleted_at IS NULL")->fetchColumn();
+            $counts['slips']            = (int)$pdo->query("SELECT COUNT(*) FROM transmission_slips WHERE status = 'active' AND deleted_at IS NULL")->fetchColumn();
+            $counts['traveler_reports'] = (int)$pdo->query("SELECT COUNT(*) FROM traveler_reports WHERE deleted_at IS NULL")->fetchColumn();
             $counts['planning']         = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
-            $counts['debts']            = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE status = 'endette'")->fetchColumn();
+            $counts['debts']            = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE status = 'endette' AND deleted_at IS NULL")->fetchColumn();
             $counts['billing']          = (float)$pdo->query("SELECT COALESCE(SUM(paid_amount), 0) FROM billings WHERE status = 'paid'")->fetchColumn();
             $counts['notifications']    = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
-            $counts['users']            = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+            $counts['users']            = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL")->fetchColumn();
             $counts['audit_logs']       = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
             $counts['settings']         = (int)$pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();
+            $counts['trash']            = function_exists('get_trash_counts') ? (get_trash_counts($pdo)['total'] ?? 0) : 0;
         }
     } catch (\Throwable $e) {
         error_log("Dashboard query error: " . $e->getMessage());
@@ -82,25 +84,6 @@ if ($pdo) {
         <div class="mt-4">
             <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-violet-600 transition">السائقون والبطاقات المهنية</h3>
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">دفاتر المقررة والبطاقات الفنية</p>
-        </div>
-    </a>
-    <?php elseif ($isTaxiDriver): ?>
-    <!-- 1. بطاقتي الفنية ودفتر المقررة (Driver Dedicated Card) -->
-    <a href="<?= url('/dashboard/driver_fiche.php?id=' . $user['id']) ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-violet-50 text-violet-600 group-hover:bg-violet-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 font-num">
-                ملفي المهني
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-violet-600 transition">بطاقتي الفنية ودفتر المقررة</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">بيانات الركوب، التأمين، والعقد 90-11</p>
         </div>
     </a>
     <?php endif; ?>
@@ -275,6 +258,7 @@ if ($pdo) {
         </div>
     </a>
 
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- مركز التدقيق والمصادقة على الملفات (Vérifications) -->
     <a href="<?= url('/dashboard/verifications.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -293,6 +277,26 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">مراجعة رخص السائقين والملفات قيد الانتظار</p>
         </div>
     </a>
+    <?php elseif ($isTaxiDriver): ?>
+    <!-- كشف الحساب والوضعية المالية للسائق -->
+    <a href="<?= url('/dashboard/debt_statement.php?user_id=' . $user['id']) ?>" target="_blank" data-category="finance" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 font-num">
+                كشف رسمي ↗
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-emerald-600 transition">كشف الحساب والمستحقات</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">متابعة الاشتراكات والدفعات والذمم</p>
+        </div>
+    </a>
+    <?php endif; ?>
 
     <!-- ==============================================
          Category 3: المالية والاشتراكات (Finance & Subscriptions)
@@ -446,6 +450,25 @@ if ($pdo) {
         <div class="mt-4">
             <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-slate-800 transition">إعدادات المنصة والهوية</h3>
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">الهوية الجبائية والبيانات البنكية</p>
+        </div>
+    </a>
+
+    <!-- سلة المهملات والأرشيف -->
+    <a href="<?= url('/dashboard/archive.php') ?>" data-category="system" 
+       class="launcher-card bg-white rounded-xl border border-rose-200/90 shadow-2xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold <?= $counts['trash'] > 0 ? 'bg-rose-100 text-rose-700 font-num animate-pulse' : 'bg-slate-100 text-slate-500 font-num' ?>">
+                <?= $counts['trash'] ?> محذوف
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-rose-600 transition">سلة المهملات والأرشيف</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">استرجاع المركبات، السائقين والبيانات</p>
         </div>
     </a>
     <?php endif; ?>

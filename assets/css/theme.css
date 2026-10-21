@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap');
-
 /**
  * Taxi Naguilou - Global Theme System (Light & Dark Mode)
  * Impeccable Design Standards & Zero AI Slop
@@ -21,6 +19,7 @@
 }
 
 html.dark {
+    color-scheme: dark;
     --color-scheme: dark;
     --bg-page: #0b0f14;
     --bg-surface: #161d27;
@@ -288,24 +287,44 @@ html.dark .divide-slate-200 > * + * {
     border-color: #263242 !important;
 }
 
-/* Text overrides in Dark Mode (Excluding amber buttons to preserve dark readable text) */
-html.dark .text-slate-950:not(.bg-amber-500 *):not(.bg-amber-400 *):not([class*="bg-amber"] *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400),
-html.dark .text-slate-900:not(.bg-amber-500 *):not(.bg-amber-400 *):not([class*="bg-amber"] *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400),
-html.dark .text-slate-800:not(.bg-amber-500 *):not(.bg-amber-400 *):not([class*="bg-amber"] *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400) {
+/* Text overrides in Dark Mode (Excluding solid amber buttons to preserve dark readable text) */
+html.dark .text-slate-950:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400),
+html.dark .text-slate-900:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400),
+html.dark .text-slate-800:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *):not(.bg-amber-500):not(.bg-amber-400) {
     color: #f8fafc !important;
 }
 
-html.dark .text-slate-700:not(.bg-amber-500 *):not(.bg-amber-400 *),
-html.dark .text-slate-600:not(.bg-amber-500 *):not(.bg-amber-400 *) {
+html.dark .text-slate-700:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *),
+html.dark .text-slate-600:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *) {
     color: #cbd5e1 !important;
 }
 
-html.dark .text-slate-500:not(.bg-amber-500 *):not(.bg-amber-400 *) {
+html.dark .text-slate-500:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *) {
     color: #94a3b8 !important;
 }
 
-html.dark .text-slate-400:not(.bg-amber-500 *):not(.bg-amber-400 *) {
+html.dark .text-slate-400:not(.bg-amber-500 *):not(.bg-amber-400 *):not(.btn-amber *) {
     color: #94a3b8 !important;
+}
+
+/* Vehicle Modal & Driver Selection Dropdowns in Dark Mode */
+html.dark #addVehicleModal .bg-white {
+    background-color: #161d27 !important;
+}
+
+html.dark [id^="driverDropdown_"] {
+    background-color: #161d27 !important;
+    border-color: #2a3749 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6) !important;
+}
+
+html.dark [id^="driverDropdown_"] > div:hover {
+    background-color: #1f2937 !important;
+}
+
+html.dark [id^="driverSelectedCard_"] {
+    background-color: #1a2332 !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
 }
 
 html.dark .text-amber-600 {
@@ -1166,6 +1185,150 @@ div[class*="fixed"][class*="inset-0"][class*="z-60"] > div {
     box-sizing: border-box !important;
 }
 
+/* ==========================================================================
+   GLOBAL STICKY TABLE SYSTEM (ثبات رأس الجدول في جميع الجداول)
+   ========================================================================== */
+
+/* 1. Sticky Table Container */
+.table-sticky-container,
+.overflow-x-auto:has(> table):not([id*="Modal"] *):not(.fiche-paper *):not(.contract-paper *) {
+    position: relative;
+    max-height: 72vh;
+    overflow-y: auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+/* 2. Separate borders to prevent sticky header jitter */
+.table-sticky-container table,
+.overflow-x-auto:has(> table):not([id*="Modal"] *):not(.fiche-paper *):not(.contract-paper *) > table,
+table.table-sticky {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    width: 100%;
+}
+
+/* 3. Sticky thead and th */
+.table-sticky-container thead,
+.overflow-x-auto:has(> table):not([id*="Modal"] *):not(.fiche-paper *):not(.contract-paper *) > table > thead,
+table.table-sticky thead {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 25 !important;
+}
+
+.table-sticky-container thead th,
+.overflow-x-auto:has(> table):not([id*="Modal"] *):not(.fiche-paper *):not(.contract-paper *) > table > thead th,
+table.table-sticky thead th {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 25 !important;
+    background-color: #f8fafc !important; /* Tailwind slate-50 */
+    box-shadow: inset 0 -1px 0 #e2e8f0, 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Dark mode sticky thead th */
+html.dark .table-sticky-container thead th,
+html.dark .overflow-x-auto:has(> table):not([id*="Modal"] *):not(.fiche-paper *):not(.contract-paper *) > table > thead th,
+html.dark table.table-sticky thead th {
+    background-color: #1e293b !important; /* Tailwind slate-800 */
+    color: #e2e8f0 !important;
+    box-shadow: inset 0 -1px 0 #334155, 0 2px 4px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* 4. Sticky Start and End Columns (Driver & Actions pinned in tables) */
+.table-sticky-container thead th.sticky-col-start,
+table.table-sticky thead th.sticky-col-start {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 30 !important;
+    background-color: #f8fafc !important;
+    box-shadow: -1px 0 0 rgba(226, 232, 240, 0.9), inset 0 -1px 0 #e2e8f0 !important;
+}
+html.dark .table-sticky-container thead th.sticky-col-start,
+html.dark table.table-sticky thead th.sticky-col-start {
+    background-color: #1e293b !important;
+    box-shadow: -1px 0 0 rgba(51, 65, 85, 0.9), inset 0 -1px 0 #334155 !important;
+}
+.table-sticky-container tbody td.sticky-col-start,
+table.table-sticky tbody td.sticky-col-start {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 12 !important;
+    background-color: #ffffff !important;
+    box-shadow: -1px 0 0 rgba(241, 245, 249, 0.9) !important;
+}
+html.dark .table-sticky-container tbody td.sticky-col-start,
+html.dark table.table-sticky tbody td.sticky-col-start {
+    background-color: #0f172a !important;
+    box-shadow: -1px 0 0 rgba(30, 41, 59, 0.9) !important;
+}
+tr:hover td.sticky-col-start {
+    background-color: #f8fafc !important;
+}
+html.dark tr:hover td.sticky-col-start {
+    background-color: #1e293b !important;
+}
+
+.table-sticky-container thead th.sticky-col-end,
+table.table-sticky thead th.sticky-col-end {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 30 !important;
+    background-color: #f8fafc !important;
+    box-shadow: 1px 0 0 rgba(226, 232, 240, 0.9), -2px 0 6px rgba(0, 0, 0, 0.05), inset 0 -1px 0 #e2e8f0 !important;
+}
+html.dark .table-sticky-container thead th.sticky-col-end,
+html.dark table.table-sticky thead th.sticky-col-end {
+    background-color: #1e293b !important;
+    box-shadow: 1px 0 0 rgba(51, 65, 85, 0.9), -3px 0 8px rgba(0, 0, 0, 0.35), inset 0 -1px 0 #334155 !important;
+}
+.table-sticky-container tbody td.sticky-col-end,
+table.table-sticky tbody td.sticky-col-end {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 12 !important;
+    background-color: #ffffff !important;
+    box-shadow: 1px 0 0 rgba(241, 245, 249, 0.9), -2px 0 6px rgba(0, 0, 0, 0.05) !important;
+}
+html.dark .table-sticky-container tbody td.sticky-col-end,
+html.dark table.table-sticky tbody td.sticky-col-end {
+    background-color: #0f172a !important;
+    box-shadow: 1px 0 0 rgba(30, 41, 59, 0.9), -3px 0 8px rgba(0, 0, 0, 0.35) !important;
+}
+tr:hover td.sticky-col-end {
+    background-color: #f8fafc !important;
+}
+html.dark tr:hover td.sticky-col-end {
+    background-color: #1e293b !important;
+}
+
+/* 5. Smooth customized scrollbars for table container */
+.table-sticky-container,
+.overflow-x-auto:has(> table) {
+    overscroll-behavior-x: none;
+}
+.table-sticky-container::-webkit-scrollbar,
+.overflow-x-auto:has(> table)::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.table-sticky-container::-webkit-scrollbar-track,
+.overflow-x-auto:has(> table)::-webkit-scrollbar-track {
+    background: transparent;
+}
+.table-sticky-container::-webkit-scrollbar-thumb,
+.overflow-x-auto:has(> table)::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 9999px;
+}
+.table-sticky-container::-webkit-scrollbar-thumb:hover,
+.overflow-x-auto:has(> table)::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.7);
+}
+
 /* Strict Official Print Protection */
 @media print {
     html, html.dark, body, html.dark body {
@@ -1186,4 +1349,257 @@ div[class*="fixed"][class*="inset-0"][class*="z-60"] > div {
     .no-print {
         display: none !important;
     }
+    .table-sticky-container,
+    .overflow-x-auto:has(> table) {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    .table-sticky-container thead th,
+    .overflow-x-auto:has(> table) > table > thead th {
+        position: static !important;
+        box-shadow: none !important;
+    }
 }
+
+/* ==========================================================================
+   INTERACTIVE BUTTON & DROPDOWN ACCESSIBILITY OPTIMIZATION
+   Fixes for Table Actions (الإجراءات) and App Bar List Dropdowns
+   ========================================================================== */
+
+/* 1. Universal Table Action Dropdown Button (3-Dots) */
+.table-dropdown-btn {
+    min-width: 38px !important;
+    min-height: 38px !important;
+    width: 38px !important;
+    height: 38px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+    user-select: none !important;
+    cursor: pointer !important;
+    position: relative;
+    border-radius: 0.75rem !important; /* rounded-xl */
+    transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease !important;
+}
+
+.table-dropdown-btn svg {
+    pointer-events: none !important;
+    width: 1.15rem !important;
+    height: 1.15rem !important;
+}
+
+.table-dropdown-btn:hover {
+    filter: brightness(0.97);
+}
+
+.table-dropdown-btn:active {
+    transform: scale(0.93) !important;
+}
+
+/* 2. Table Dropdown Menu & Items */
+.table-dropdown-menu {
+    min-width: 240px !important;
+    width: max-content !important;
+    max-width: 320px !important;
+    border-radius: 1rem !important; /* rounded-2xl */
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 10px 20px -5px rgba(0, 0, 0, 0.2) !important;
+    touch-action: manipulation;
+    z-index: 999999 !important;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+html.dark .table-dropdown-menu {
+    background-color: #121824 !important;
+    border-color: #263345 !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+}
+
+.table-dropdown-item {
+    min-height: 38px !important;
+    padding: 8px 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+    cursor: pointer !important;
+    border-radius: 0.75rem !important; /* rounded-xl */
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease !important;
+}
+
+.table-dropdown-item:active {
+    transform: scale(0.97) !important;
+}
+
+/* 3. Desktop App Bar Module Dropdowns ("الأسطول", "السائقون", "المالية", "النظام") */
+.app-bar-dropdown {
+    position: relative;
+}
+
+.app-bar-dropdown-btn {
+    min-height: 38px !important;
+    padding: 6px 14px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+    cursor: pointer !important;
+    border-radius: 0.75rem !important;
+    user-select: none !important;
+    transition: all 0.15s ease !important;
+}
+
+.app-bar-dropdown-btn:active {
+    transform: scale(0.95);
+}
+
+/* Invisible Bridge: covers the gap between button and menu so mouseenter is never lost! */
+.app-bar-dropdown-menu::before {
+    content: '';
+    position: absolute;
+    top: -14px;
+    left: 0;
+    right: 0;
+    height: 16px;
+    background: transparent;
+    pointer-events: auto;
+}
+
+/* Show menu on hover OR when locked open via click */
+.app-bar-dropdown:hover .app-bar-dropdown-menu,
+.app-bar-dropdown.is-open .app-bar-dropdown-menu {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Rotate chevron when open or hovered */
+.app-bar-dropdown:hover .chevron-icon,
+.app-bar-dropdown.is-open .chevron-icon {
+    transform: rotate(180deg);
+}
+
+/* App Bar Dropdown Menu Item */
+.app-bar-dropdown-item {
+    min-height: 40px !important;
+    padding: 8px 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+    cursor: pointer !important;
+    border-radius: 0.65rem !important;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease !important;
+}
+
+.app-bar-dropdown-item:active {
+    transform: scale(0.98);
+}
+
+/* ==========================================================================
+   TABLE NUMBER BADGES & FRAMES (مثل فحص طبي دوري)
+   Standardized colored frames for numbers, licenses, plates, and dates
+   ========================================================================== */
+
+.table-num-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.35rem !important;
+    padding: 0.2rem 0.6rem !important;
+    border-radius: 0.5rem !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important;
+    border: 1.5px solid !important;
+    font-feature-settings: "tnum" 1 !important;
+    font-variant-numeric: tabular-nums !important;
+    letter-spacing: 0.02em !important;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04) !important;
+    transition: all 0.15s ease !important;
+}
+
+/* 1. Emerald Badge (Valid, Active, Safe - إطار أخضر) */
+.table-num-emerald {
+    background-color: #ecfdf5 !important;
+    color: #065f46 !important;
+    border-color: #10b981 !important;
+}
+html.dark .table-num-emerald {
+    background-color: rgba(6, 78, 59, 0.35) !important;
+    color: #6ee7b7 !important;
+    border-color: #059669 !important;
+}
+
+/* 2. Amber Badge (Expiring Soon, Warnings - إطار أصفر عند اقتراب النهاية) */
+.table-num-amber {
+    background-color: #fffbeb !important;
+    color: #92400e !important;
+    border-color: #f59e0b !important;
+}
+html.dark .table-num-amber {
+    background-color: rgba(120, 53, 15, 0.35) !important;
+    color: #fcd34d !important;
+    border-color: #d97706 !important;
+}
+
+/* 3. Rose Badge (Expired, Urgent, Alerts - إطار أحمر عند انتهاء الصلاحية) */
+.table-num-rose {
+    background-color: #fff1f2 !important;
+    color: #9f1239 !important;
+    border-color: #f43f5e !important;
+}
+html.dark .table-num-rose {
+    background-color: rgba(136, 19, 55, 0.35) !important;
+    color: #fda4af !important;
+    border-color: #e11d48 !important;
+}
+
+/* 4. Blue / Sky Badge (Driving Licenses, Contracts, Official Documents) */
+.table-num-sky {
+    background-color: #f0f9ff !important;
+    color: #0369a1 !important;
+    border-color: #bae6fd !important;
+}
+html.dark .table-num-sky {
+    background-color: rgba(12, 74, 110, 0.35) !important;
+    color: #7dd3fc !important;
+    border-color: rgba(14, 165, 233, 0.35) !important;
+}
+
+/* 5. Slate Badge (Neutral Numbers, Phone Numbers, Door IDs, Counts) */
+.table-num-slate {
+    background-color: #f8fafc !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+}
+html.dark .table-num-slate {
+    background-color: rgba(30, 41, 59, 0.5) !important;
+    color: #cbd5e1 !important;
+    border-color: #475569 !important;
+}
+
+/* Dot indicator inside badge */
+.table-num-dot {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 9999px !important;
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+}
+.table-num-dot-emerald { background-color: #10b981 !important; }
+.table-num-dot-amber { background-color: #f59e0b !important; }
+.table-num-dot-rose { background-color: #f43f5e !important; }
+.table-num-dot-sky { background-color: #0ea5e9 !important; }
+

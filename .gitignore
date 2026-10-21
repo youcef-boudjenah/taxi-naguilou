@@ -8,6 +8,8 @@ test_contracts.php
 test_billing.php
 test_billing_final.php
 test_notif.php
+uploads/.schema_migrated_*
+.schema_migrated_*
 
 # OS files
 .DS_Store

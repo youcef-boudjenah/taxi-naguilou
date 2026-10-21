@@ -252,9 +252,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $subId = intval($_POST['subscription_id'] ?? 0);
     if ($subId > 0) {
         try {
-            $pdo->prepare("DELETE FROM driver_subscriptions WHERE id = ?")->execute([$subId]);
-            log_audit($pdo, 'subscription_deleted', 'driver_subscriptions', $subId, "حذف اشتراك رقم $subId");
-            set_flash('success', "تم حذف / تصفير قيد الاشتراك للفترة المحددة بنجاح");
+            $pdo->prepare("UPDATE driver_subscriptions SET deleted_at = NOW() WHERE id = ?")->execute([$subId]);
+            log_audit($pdo, 'subscription_deleted', 'driver_subscriptions', $subId, "نقل اشتراك رقم $subId إلى سلة المهملات");
+            set_flash('success', "تم نقل قيد الاشتراك إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت.");
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء حذف الاشتراك: ' . $e->getMessage());
         }
@@ -294,14 +294,14 @@ $sql = "
             COUNT(*) as vehicles_count,
             GROUP_CONCAT(CONCAT(COALESCE(brand, ''), ' ', COALESCE(model, ''), '|||', COALESCE(plate_number, ''), '|||', COALESCE(door_number, '')) SEPARATOR '###') as vehicles_data
         FROM (
-            SELECT id, brand, model, plate_number, door_number, current_driver_id as v_driver_id FROM vehicles WHERE current_driver_id IS NOT NULL
+            SELECT id, brand, model, plate_number, door_number, current_driver_id as v_driver_id FROM vehicles WHERE current_driver_id IS NOT NULL AND deleted_at IS NULL
             UNION ALL
-            SELECT id, brand, model, plate_number, door_number, replacement_driver_id as v_driver_id FROM vehicles WHERE replacement_driver_id IS NOT NULL
+            SELECT id, brand, model, plate_number, door_number, replacement_driver_id as v_driver_id FROM vehicles WHERE replacement_driver_id IS NOT NULL AND deleted_at IS NULL
         ) v_all
         GROUP BY v_driver_id
     ) v_agg ON v_agg.v_driver_id = u.id
-    LEFT JOIN driver_subscriptions s ON (s.driver_id = u.id AND s.period_month = ?)
-    WHERE u.role = 'driver'
+    LEFT JOIN driver_subscriptions s ON (s.driver_id = u.id AND s.period_month = ? AND s.deleted_at IS NULL)
+    WHERE u.role = 'driver' AND u.deleted_at IS NULL
 ";
 $params = [$selectedPeriod];
 
@@ -587,10 +587,10 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
     </div>
 
     <!-- Subscriptions Table: Exact 8 Columns Requested -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200/90 whitespace-nowrap">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/90 dark:border-slate-700/80 shadow-2xs whitespace-nowrap">
                     <tr>
                         <th class="p-3.5">السائق</th>
                         <th class="p-3.5 text-center">حساب الفضاء</th>
@@ -670,26 +670,33 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                                 </td>
 
                                 <!-- 4. اشتراك الفضاء -->
-                                <td class="p-3.5 whitespace-nowrap text-center font-num font-semibold text-slate-700">
-                                    <span class="inline-block" dir="ltr"><?= number_format($sFee, 2, ',', ' ') ?> DZD</span>
+                                <td class="p-3.5 whitespace-nowrap text-center font-num">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold font-num bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700" dir="ltr">
+                                        <?= number_format($sFee, 2, ',', ' ') ?> DZD
+                                    </span>
                                 </td>
 
                                 <!-- 5. cotis. المركبات -->
-                                <td class="p-3.5 whitespace-nowrap text-center font-num font-semibold text-slate-700">
-                                    <span class="inline-block font-bold text-slate-800" dir="ltr"><?= number_format($vFee, 2, ',', ' ') ?> DZD</span>
-                                    <div class="text-[10px] text-slate-400 font-sans">
+                                <td class="p-3.5 whitespace-nowrap text-center font-num">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold font-num bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800" dir="ltr">
+                                        <?= number_format($vFee, 2, ',', ' ') ?> DZD
+                                    </span>
+                                    <div class="text-[10px] text-slate-400 font-sans mt-0.5">
                                         (<?= $vCount ?> <?= $vCount > 1 ? 'مركبات' : ($vCount === 1 ? 'مركبة' : 'بدون مركبة') ?>)
                                     </div>
                                 </td>
 
                                 <!-- 6. المبلغ المستحق -->
                                 <td class="p-3.5 whitespace-nowrap text-center font-num">
-                                    <div class="font-black text-slate-900 text-sm" dir="ltr">
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-black font-num bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800 shadow-2xs" dir="ltr">
                                         <?= number_format($tot, 2, ',', ' ') ?> DZD
-                                    </div>
+                                    </span>
                                     <?php if ($paidAmount > 0 && !$isPaid): ?>
-                                        <div class="text-[10px] text-emerald-600 font-bold" dir="ltr">
-                                            المدفوع: <?= number_format($paidAmount, 2, ',', ' ') ?> DZD
+                                        <div class="mt-1" dir="ltr">
+                                            <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold font-num bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                <span>✓ المدفوع:</span>
+                                                <span><?= number_format($paidAmount, 2, ',', ' ') ?> DZD</span>
+                                            </span>
                                         </div>
                                     <?php endif; ?>
                                 </td>
@@ -723,16 +730,16 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                                     <div class="relative inline-block text-right">
                                         <button type="button" 
                                                 onclick="toggleTableDropdown(event, this)"
-                                                class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200/80 hover:bg-slate-100 hover:text-slate-900 text-slate-500 transition shadow-xs focus:outline-hidden"
+                                                class="table-dropdown-btn w-9 h-9 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
                                                 title="خيارات الإجراءات">
                                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                                             </svg>
                                         </button>
-                                        <div class="table-dropdown-menu hidden fixed bg-white/95 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/80 py-1.5 min-w-[200px] text-right z-50 transition-all">
+                                        <div class="table-dropdown-menu hidden fixed bg-white dark:bg-[#161d27] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-800 p-1.5 min-w-[210px] text-right z-50">
                                             <button type="button"
                                                     onclick="openDriverPayment(<?= (int)$r['driver_id'] ?>, '<?= htmlspecialchars($r['driver_name'], ENT_QUOTES) ?>', <?= $remaining > 0 ? $remaining : $tot ?>)" 
-                                                    class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 transition text-right">
+                                                    class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition text-right cursor-pointer">
                                                 <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                                 </svg>
@@ -750,7 +757,7 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                                                         "payment_method" => $r["payment_method"] ?? "baridimob",
                                                         "notes" => $r["payment_notes"] ?? ""
                                                     ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'
-                                                    class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition text-right">
+                                                    class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-right cursor-pointer">
                                                 <svg class="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 015.25 6H10" />
                                                 </svg>
@@ -758,7 +765,7 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                                             </button>
                                             <?php if (!empty($r['subscription_id'])): ?>
                                             <a href="/dashboard/invoice.php?type=subscription&id=<?= (int)$r['subscription_id'] ?>" target="_blank"
-                                               class="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition">
+                                               class="table-dropdown-item flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition">
                                                 <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.07-.37-2.18-.37-3.329 0-4.418 3.582-8 8-8s8 3.582 8 8c0 1.15-.13 2.26-.37 3.329m-15.26 0A7.962 7.962 0 004 10.5C4 6.082 7.582 2.5 12 2.5s8 3.582 8 8c0 1.18-.255 2.3-.72 3.329m-14.56 0h14.56m-14.56 0A3.5 3.5 0 003.5 17h17a3.5 3.5 0 00-.72-3.171M6 17v4h12v-4" />
                                                 </svg>
@@ -772,7 +779,7 @@ $kpiCollectionRate = $kpiVehiculesTotalCount > 0 ? round(($kpiVehiculesReglesCou
                                                 <input type="hidden" name="action" value="delete_subscription">
                                                 <input type="hidden" name="subscription_id" value="<?= $r['subscription_id'] ?>">
                                                 <button type="submit" 
-                                                        class="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition text-right">
+                                                        class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition text-right cursor-pointer">
                                                     <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                                                     </svg>

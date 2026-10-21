@@ -128,10 +128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $slipId = intval($_POST['slip_id'] ?? 0);
     if ($slipId > 0) {
         try {
-            $stmt = $pdo->prepare("DELETE FROM transmission_slips WHERE id = ?");
+            $stmt = $pdo->prepare("UPDATE transmission_slips SET deleted_at = NOW() WHERE id = ?");
             $stmt->execute([$slipId]);
-            log_audit($pdo, 'slip_deleted', 'transmission_slips', $slipId, "حذف جدول الإرسال رقم $slipId");
-            set_flash('success', "تم حذف جدول الإرسال بنجاح من الأرشيف");
+            log_audit($pdo, 'slip_deleted', 'transmission_slips', $slipId, "نقل جدول الإرسال رقم $slipId إلى سلة المهملات");
+            set_flash('success', "تم نقل جدول الإرسال بنجاح إلى سلة المهملات والأرشيف. يمكنك استرجاعه في أي وقت.");
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء حذف جدول الإرسال: ' . $e->getMessage());
         }
@@ -150,7 +150,7 @@ if ($pdo) {
                 FROM transmission_slips s
                 JOIN vehicles v ON s.vehicle_id = v.id
                 JOIN users u ON s.driver_id = u.id
-                WHERE s.driver_id = ?
+                WHERE s.driver_id = ? AND s.deleted_at IS NULL
                 ORDER BY s.id DESC
             ");
             $stmtH->execute([$_SESSION['user_id']]);
@@ -161,6 +161,7 @@ if ($pdo) {
                 FROM transmission_slips s
                 JOIN vehicles v ON s.vehicle_id = v.id
                 JOIN users u ON s.driver_id = u.id
+                WHERE s.deleted_at IS NULL
                 ORDER BY s.id DESC
             ");
         }
@@ -446,9 +447,9 @@ if (isset($_GET['print_id']) && $pdo) {
                 <?php endif; ?>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-right text-xs">
-                    <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
+            <div class="table-sticky-container overflow-x-auto">
+                <table class="table-sticky w-full text-right text-xs">
+                    <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                         <tr>
                             <th class="p-3.5 whitespace-nowrap text-center">رقم الجدول</th>
                             <th class="p-3.5 whitespace-nowrap">المركبة المعنية</th>
@@ -463,40 +464,59 @@ if (isset($_GET['print_id']) && $pdo) {
                     <tbody class="divide-y divide-slate-100 font-medium">
                         <?php if (!empty($slipsHistory)): ?>
                             <?php foreach ($slipsHistory as $slip): ?>
-                                <tr class="hover:bg-slate-50/60 transition">
-                                    <td class="p-3.5 whitespace-nowrap text-center font-num font-mono font-bold text-slate-900">
-                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['slip_number']) ?></span>
+                                <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
+                                    <td class="p-3.5 whitespace-nowrap text-center">
+                                        <span class="table-num-badge table-num-sky font-bold font-mono text-[11px]" dir="ltr">
+                                            📄 <?= htmlspecialchars($slip['slip_number']) ?>
+                                        </span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap">
-                                        <div class="font-bold text-slate-900"><?= htmlspecialchars($slip['brand'] . ' ' . $slip['model']) ?></div>
-                                        <div class="text-[11px] font-num text-slate-500" dir="ltr"><?= htmlspecialchars($slip['plate_number']) ?> (باب: <?= htmlspecialchars($slip['door_number']) ?>)</div>
+                                        <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($slip['brand'] . ' ' . $slip['model']) ?></div>
+                                        <div class="flex items-center gap-1.5 mt-1">
+                                            <span class="table-num-badge bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 text-[10px] font-bold" dir="ltr">
+                                                🚗 <?= htmlspecialchars($slip['plate_number']) ?>
+                                            </span>
+                                            <span class="table-num-badge table-num-slate text-[10px]">
+                                                باب: <?= htmlspecialchars($slip['door_number']) ?>
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap">
-                                        <div class="font-semibold text-slate-800"><?= htmlspecialchars($slip['driver_name']) ?></div>
-                                        <div class="text-[11px] font-num text-slate-400" dir="ltr"><?= htmlspecialchars($slip['driver_phone']) ?></div>
+                                        <div class="font-semibold text-slate-800 dark:text-slate-100"><?= htmlspecialchars($slip['driver_name']) ?></div>
+                                        <?php if (!empty($slip['driver_phone'])): ?>
+                                            <span class="table-num-badge table-num-slate text-[10px] mt-0.5" dir="ltr">📞 <?= htmlspecialchars($slip['driver_phone']) ?></span>
+                                        <?php endif; ?>
                                     </td>
-                                    <td class="p-3.5 max-w-xs truncate text-slate-600">
+                                    <td class="p-3.5 max-w-xs truncate text-slate-600 dark:text-slate-300">
                                         <?= htmlspecialchars($slip['route_line']) ?>
                                     </td>
-                                    <td class="p-3.5 whitespace-nowrap font-num text-slate-700">
-                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['issue_date']) ?></span>
+                                    <td class="p-3.5 whitespace-nowrap text-center">
+                                        <span class="table-num-badge table-num-slate text-[11px]" dir="ltr"><?= htmlspecialchars($slip['issue_date']) ?></span>
                                     </td>
-                                    <td class="p-3.5 whitespace-nowrap font-num font-semibold text-slate-800">
-                                        <span class="inline-block" dir="ltr"><?= htmlspecialchars($slip['valid_until']) ?></span>
+                                    <td class="p-3.5 whitespace-nowrap text-center">
+                                        <?php 
+                                        $isExp = !empty($slip['valid_until']) && strtotime($slip['valid_until']) < time();
+                                        ?>
+                                        <span class="table-num-badge <?= $isExp ? 'table-num-rose' : 'table-num-emerald' ?> text-[11px]" dir="ltr">
+                                            <span class="<?= $isExp ? 'table-num-dot-rose' : 'table-num-dot-emerald' ?>"></span>
+                                            <?= htmlspecialchars($slip['valid_until']) ?>
+                                        </span>
                                     </td>
                                     <td class="p-3.5 whitespace-nowrap text-center">
                                         <?php 
                                         $st = $slip['status'] ?? 'active';
                                         if ($st === 'active'): ?>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200/60">
+                                            <span class="table-num-badge table-num-emerald text-[10px] font-bold">
+                                                <span class="table-num-dot-emerald"></span>
                                                 ساري (Actif)
                                             </span>
                                         <?php elseif ($st === 'expired'): ?>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] border border-slate-200/60">
+                                            <span class="table-num-badge table-num-slate text-[10px] font-bold">
                                                 منتهي (Expiré)
                                             </span>
                                         <?php else: ?>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200/60">
+                                            <span class="table-num-badge table-num-rose text-[10px] font-bold">
+                                                <span class="table-num-dot-rose"></span>
                                                 ملغى (Annulé)
                                             </span>
                                         <?php endif; ?>

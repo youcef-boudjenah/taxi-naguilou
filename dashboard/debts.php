@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalculate_month']))
         $debtsList = $pdo->query("SELECT id, total_credits FROM driver_debts")->fetchAll();
         $recalculatedCount = 0;
         foreach ($debtsList as $dbItem) {
-            $sumStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) as total_v, MAX(payment_date) as last_v FROM versements WHERE debt_id = ?");
+            $sumStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) as total_v, MAX(payment_date) as last_v FROM versements WHERE debt_id = ? AND (status = 'approved' OR status IS NULL) AND deleted_at IS NULL");
             $sumStmt->execute([$dbItem['id']]);
             $sumData = $sumStmt->fetch();
             $totalV = (float)($sumData['total_v'] ?? 0);
@@ -52,8 +52,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo->beginTransaction();
             // Insert versement
             $stmtV = $pdo->prepare("
-                INSERT INTO versements (debt_id, amount, payment_method, payment_date, receipt_ref, notes)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO versements (debt_id, amount, payment_method, payment_date, receipt_ref, notes, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'approved')
             ");
             $stmtV->execute([$debtId, $amount, $method, $date, $receipt, $notes]);
 
@@ -79,6 +79,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             set_flash('error', 'حدث خطأ أثناء تسجيل الدفعة: ' . $e->getMessage());
         }
     }
+}
+
+// Handle Approve BaridiMob Versement
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'approve_versement') {
+    require_csrf_token();
+    $versementId = intval($_POST['versement_id'] ?? 0);
+    if ($versementId > 0) {
+        try {
+            $stmtV = $pdo->prepare("
+                SELECT v.*, d.chauffeur_name, d.user_id, d.total_credits, d.total_versements
+                FROM versements v
+                JOIN driver_debts d ON v.debt_id = d.id
+                WHERE v.id = ? AND v.status = 'pending' AND v.deleted_at IS NULL
+            ");
+            $stmtV->execute([$versementId]);
+            $ver = $stmtV->fetch();
+
+            if ($ver) {
+                $pdo->beginTransaction();
+                // 1. Mark versement as approved
+                $stmtUpV = $pdo->prepare("UPDATE versements SET status = 'approved' WHERE id = ?");
+                $stmtUpV->execute([$versementId]);
+
+                // 2. Update driver_debts balance
+                $vAmount = (float)$ver['amount'];
+                $vDate = $ver['payment_date'] ?: date('Y-m-d');
+                $dId = (int)$ver['debt_id'];
+
+                $stmtUpD = $pdo->prepare("
+                    UPDATE driver_debts 
+                    SET total_versements = total_versements + ?,
+                        last_versement_date = ?,
+                        status = IF((total_credits - (total_versements + ?)) <= 0, 'a_jour', 'endette')
+                    WHERE id = ?
+                ");
+                $stmtUpD->execute([$vAmount, $vDate, $vAmount, $dId]);
+
+                $pdo->commit();
+
+                // 3. Notify Driver User
+                if (!empty($ver['user_id'])) {
+                    $notifTitle = "✅ تم تأكيد استلام دفعتك عبر بريدي موب";
+                    $notifMsg = "تم اعتماد وتحصيل دفعتك بمبلغ " . number_format($vAmount, 2) . " دج واقتطاعها من رصيد ديونك بنجاح.";
+                    $notifLink = "/dashboard/driver_fiche.php?id=" . intval($ver['user_id']);
+                    $stmtNotif = $pdo->prepare("
+                        INSERT INTO notifications (user_id, type, title, message, link, is_read, created_at)
+                        VALUES (?, 'info', ?, ?, ?, 0, NOW())
+                    ");
+                    $stmtNotif->execute([$ver['user_id'], $notifTitle, $notifMsg, $notifLink]);
+                }
+
+                log_audit($pdo, 'versement_approved', 'versements', $versementId, "تأكيد واعتماد دفعة بريدي موب بمبلغ {$vAmount} دج للسائق {$ver['chauffeur_name']}");
+                set_flash('success', "تم تأكيد واعتماد دفعة بريدي موب بمبلغ " . number_format($vAmount, 2) . " دج بنجاح وتحديث رصيد السائق.");
+            } else {
+                set_flash('error', 'الدفعة المطلوبة غير موجودة أو تم البت فيها مسبقاً.');
+            }
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء اعتماد الدفعة: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/debts.php');
+}
+
+// Handle Reject BaridiMob Versement
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reject_versement') {
+    require_csrf_token();
+    $versementId = intval($_POST['versement_id'] ?? 0);
+    $rejectReason = trim($_POST['reject_reason'] ?? '');
+    if (empty($rejectReason)) $rejectReason = 'وصل غير مطابق أو تعذر التحقق من الحساب';
+
+    if ($versementId > 0) {
+        try {
+            $stmtV = $pdo->prepare("
+                SELECT v.*, d.chauffeur_name, d.user_id
+                FROM versements v
+                JOIN driver_debts d ON v.debt_id = d.id
+                WHERE v.id = ? AND v.status = 'pending' AND v.deleted_at IS NULL
+            ");
+            $stmtV->execute([$versementId]);
+            $ver = $stmtV->fetch();
+
+            if ($ver) {
+                $noteAppend = " [تم الرفض: " . $rejectReason . " - " . date('Y-m-d H:i') . "]";
+                $stmtUpV = $pdo->prepare("UPDATE versements SET status = 'rejected', notes = CONCAT(COALESCE(notes, ''), ?) WHERE id = ?");
+                $stmtUpV->execute([$noteAppend, $versementId]);
+
+                // Notify Driver User
+                if (!empty($ver['user_id'])) {
+                    $notifTitle = "❌ تم رفض وصل دفعة بريدي موب";
+                    $notifMsg = "تم رفض الوصل المقدم لدفعة " . number_format($ver['amount'], 2) . " دج. السبب: " . $rejectReason . ". يرجى مراجعة الإدارة.";
+                    $notifLink = "/dashboard/driver_fiche.php?id=" . intval($ver['user_id']);
+                    $stmtNotif = $pdo->prepare("
+                        INSERT INTO notifications (user_id, type, title, message, link, is_read, created_at)
+                        VALUES (?, 'warning', ?, ?, ?, 0, NOW())
+                    ");
+                    $stmtNotif->execute([$ver['user_id'], $notifTitle, $notifMsg, $notifLink]);
+                }
+
+                log_audit($pdo, 'versement_rejected', 'versements', $versementId, "رفض دفعة بريدي موب للسائق {$ver['chauffeur_name']}: $rejectReason");
+                set_flash('info', "تم رفض الدفعة وإرسال إشعار توضيحي للسائق بالسبب.");
+            } else {
+                set_flash('error', 'الدفعة المطلوبة غير موجودة أو تمت معالجتها.');
+            }
+        } catch (\Throwable $e) {
+            set_flash('error', 'حدث خطأ أثناء رفض الدفعة: ' . $e->getMessage());
+        }
+    }
+    redirect('/dashboard/debts.php');
 }
 
 // Handle Add New Debt / Loan
@@ -117,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             if ($initialVersement > 0) {
                 $stmtV = $pdo->prepare("
-                    INSERT INTO versements (debt_id, amount, payment_method, payment_date, receipt_ref, notes)
+                    INSERT INTO versements (debt_id, amount, payment_method, payment_date, receipt_ref, notes, status)
                     VALUES (?, ?, 'especes', CURDATE(), ?, 'دفعة أولية عند تسجيل الدين')
                 ");
                 $receipt = 'VER-' . date('Y') . '-' . rand(100, 999);
@@ -183,11 +294,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($debtId > 0) {
         try {
             $pdo->beginTransaction();
-            $pdo->prepare("DELETE FROM versements WHERE debt_id = ?")->execute([$debtId]);
-            $pdo->prepare("DELETE FROM driver_debts WHERE id = ?")->execute([$debtId]);
+            $pdo->prepare("UPDATE versements SET deleted_at = NOW() WHERE debt_id = ?")->execute([$debtId]);
+            $pdo->prepare("UPDATE driver_debts SET deleted_at = NOW() WHERE id = ?")->execute([$debtId]);
             $pdo->commit();
-            log_audit($pdo, 'debt_deleted', 'driver_debts', $debtId, "حذف القيد المالي رقم $debtId وسجل دفعاته");
-            set_flash('success', "تم حذف القيد المالي وسجل دفعاته نهائياً بنجاح");
+            log_audit($pdo, 'debt_deleted', 'driver_debts', $debtId, "نقل القيد المالي رقم $debtId وسجل دفعاته إلى سلة المهملات");
+            set_flash('success', "تم نقل القيد المالي وسجل دفعاته إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت.");
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -212,13 +323,13 @@ $countAnciens = 0;
 
 if ($pdo) {
     try {
-        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' ORDER BY full_name ASC");
+        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND deleted_at IS NULL ORDER BY full_name ASC");
         $registeredDrivers = $stmtD ? $stmtD->fetchAll() : [];
     } catch (\Throwable $e) {
         $registeredDrivers = [];
     }
 
-    $where = ["1=1"];
+    $where = ["1=1", "deleted_at IS NULL"];
     $params = [];
 
     if (!empty($search)) {
@@ -278,6 +389,23 @@ if ($pdo) {
 
     try {
         $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien'")->fetchColumn();
+    // Pending BaridiMob Versements
+    $pendingVersements = [];
+    try {
+        $pStmt = $pdo->query("
+            SELECT v.*, d.chauffeur_name, d.phone, d.total_credits, d.total_versements, 
+                   (d.total_credits - d.total_versements) AS remaining_debt,
+                   u.id AS driver_user_id
+            FROM versements v
+            JOIN driver_debts d ON v.debt_id = d.id
+            LEFT JOIN users u ON d.user_id = u.id
+            WHERE v.status = 'pending' AND v.deleted_at IS NULL
+            ORDER BY v.created_at DESC
+        ");
+        $pendingVersements = $pStmt ? $pStmt->fetchAll() : [];
+    } catch (\Throwable $e) {
+        $pendingVersements = [];
+    }
     } catch (\Throwable $e) {
         $countAnciens = 0;
     }
@@ -375,6 +503,112 @@ if ($pdo) {
 
     </div>
 
+        <!-- Pending BaridiMob Payments Section -->
+    <?php if (!empty($pendingVersements)): ?>
+    <div class="bg-gradient-to-l from-amber-500/10 via-amber-500/5 to-transparent border-2 border-amber-400/40 rounded-2xl p-5 shadow-sm space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shadow-sm shrink-0">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-base font-black text-slate-900">طلبات تسديد عبر بريدي موب بانتظار التأكيد والاعتماد</h2>
+                        <span class="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500 text-slate-950">
+                            <?= count($pendingVersements) ?> طلب جديد
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-600 mt-0.5">قام السائقون برفع وصولات دفع بريدي موب. يرجى مراجعة صورة الوصل وتأكيد استلام المبلغ في الحساب أو الرفض.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            <?php foreach ($pendingVersements as $pv): ?>
+            <div class="bg-white rounded-xl border border-amber-200/80 p-4 shadow-2xs space-y-3 relative overflow-hidden flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <div class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                                <span><?= htmlspecialchars($pv['chauffeur_name']) ?></span>
+                                <?php if ($pv['driver_user_id']): ?>
+                                    <a href="driver_fiche.php?id=<?= $pv['driver_user_id'] ?>" target="_blank" class="text-[10px] text-amber-700 hover:underline font-semibold bg-amber-50 px-1.5 py-0.5 rounded">الملف ↗</a>
+                                <?php endif; ?>
+                            </div>
+                            <?php if (!empty($pv['phone'])): ?>
+                                <div class="text-[11px] text-slate-500 font-num" dir="ltr">📞 <?= htmlspecialchars($pv['phone']) ?></div>
+                            <?php endif; ?>
+                        </div>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            قيد المراجعة
+                        </span>
+                    </div>
+
+                    <div class="bg-slate-50 rounded-lg p-2.5 space-y-1.5 text-xs border border-slate-100">
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-500">المبلغ المحوّل:</span>
+                            <span class="font-black text-emerald-700 font-num text-sm" dir="ltr"><?= number_format($pv['amount'], 2, ',', ' ') ?> DZD</span>
+                        </div>
+                        <div class="flex justify-between items-center text-[11px]">
+                            <span class="text-slate-500">تاريخ العملية:</span>
+                            <span class="font-bold text-slate-700 font-num"><?= htmlspecialchars($pv['payment_date']) ?></span>
+                        </div>
+                        <div class="flex justify-between items-center text-[11px]">
+                            <span class="text-slate-500">رقم المعاملة:</span>
+                            <span class="font-mono font-bold text-slate-800" dir="ltr"><?= htmlspecialchars($pv['receipt_ref']) ?></span>
+                        </div>
+                        <?php if (!empty($pv['notes'])): ?>
+                        <div class="text-[11px] text-slate-500 pt-1 border-t border-slate-200/60 truncate" title="<?= htmlspecialchars($pv['notes']) ?>">
+                            <span class="font-medium">ملاحظة:</span> <?= htmlspecialchars($pv['notes']) ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    <?php if (!empty($pv['receipt_image'])): ?>
+                    <button type="button" 
+                            onclick="openReceiptPreviewModal('<?= htmlspecialchars($pv['receipt_image']) ?>', '<?= htmlspecialchars($pv['chauffeur_name'], ENT_QUOTES) ?>', '<?= number_format($pv['amount'], 2) ?> DZD', '<?= htmlspecialchars($pv['receipt_ref'], ENT_QUOTES) ?>')"
+                            class="flex-1 py-2 px-2.5 rounded-lg border border-slate-300 hover:border-amber-400 bg-white hover:bg-amber-50/50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition">
+                        <svg class="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                        </svg>
+                        <span>معاينة الوصل</span>
+                    </button>
+                    <?php endif; ?>
+
+                    <!-- Approve Form -->
+                    <form method="POST" action="" onsubmit="return confirm('تأكيد استلام دفعة بريدي موب بمبلغ <?= number_format($pv['amount'], 2) ?> دج واعتمادها في حساب السائق؟')" class="<?= !empty($pv['receipt_image']) ? 'flex-1' : 'w-full' ?>">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="approve_versement">
+                        <input type="hidden" name="versement_id" value="<?= $pv['id'] ?>">
+                        <button type="submit" class="w-full py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 transition shadow-xs">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span>تأكيد واستلام</span>
+                        </button>
+                    </form>
+
+                    <!-- Reject Button -->
+                    <button type="button" 
+                            onclick="openRejectModal(<?= $pv['id'] ?>, '<?= htmlspecialchars($pv['chauffeur_name'], ENT_QUOTES) ?>', '<?= number_format($pv['amount'], 2) ?> DZD')"
+                            class="p-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition"
+                            title="رفض الوصل">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Filter & Search Toolbar -->
     <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
         
@@ -436,10 +670,10 @@ if ($pdo) {
     </div>
 
     <!-- Debts Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200/90 whitespace-nowrap">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/90 dark:border-slate-700/80 shadow-2xs whitespace-nowrap">
                     <tr>
                         <th class="p-3.5 text-center w-12 font-num">رقم</th>
                         <th class="p-3.5">السائق</th>
@@ -456,33 +690,53 @@ if ($pdo) {
                             $reste = max(0, $d['total_credits'] - $d['total_versements']);
                             $isEndette = ($reste > 0);
                         ?>
-                            <tr class="hover:bg-slate-50/70 transition">
-                                <td class="p-3.5 whitespace-nowrap text-center font-num font-bold text-slate-400" dir="ltr">
-                                    <?= $idx + 1 ?>
+                            <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                                <td class="p-3.5 whitespace-nowrap text-center">
+                                    <span class="table-num-badge table-num-slate text-[11px]">#<?= $idx + 1 ?></span>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 text-[13px]"><?= htmlspecialchars($d['chauffeur_name']) ?></div>
-                                    <div class="text-[11px] text-slate-500 flex items-center gap-1.5 font-num">
-                                        <span dir="ltr"><?= htmlspecialchars($d['phone']) ?></span>
-                                        <?= $d['driver_type'] === 'ancien' ? '<span class="text-amber-600 font-bold">(سابق)</span>' : '' ?>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100 text-[13px]"><?= htmlspecialchars($d['chauffeur_name']) ?></div>
+                                    <div class="mt-1 flex items-center gap-1.5">
+                                        <?php if (!empty($d['phone'])): ?>
+                                            <span class="table-num-badge table-num-slate text-[10px]" dir="ltr">📞 <?= htmlspecialchars($d['phone']) ?></span>
+                                        <?php endif; ?>
+                                        <?= $d['driver_type'] === 'ancien' ? '<span class="table-num-badge table-num-amber text-[10px] font-bold">سابق</span>' : '' ?>
                                     </div>
                                 </td>
-                                <td class="p-3.5 whitespace-nowrap font-num font-bold text-slate-800">
-                                    <span class="inline-block" dir="ltr"><?= number_format($d['total_credits'], 2, ',', ' ') ?> DZD</span>
+                                <td class="p-3.5 whitespace-nowrap text-center">
+                                    <span class="table-num-badge table-num-amber text-xs font-bold" dir="ltr">
+                                        <span class="table-num-dot-amber"></span>
+                                        <?= number_format($d['total_credits'], 2, ',', ' ') ?> DZD
+                                    </span>
                                 </td>
-                                <td class="p-3.5 whitespace-nowrap font-num font-bold text-emerald-600">
-                                    <span class="inline-block" dir="ltr"><?= number_format($d['total_versements'], 2, ',', ' ') ?> DZD</span>
-                                </td>
-                                <td class="p-3.5 whitespace-nowrap font-num font-bold <?= $isEndette ? 'text-rose-600' : 'text-slate-400' ?>">
-                                    <span class="inline-block" dir="ltr"><?= number_format($reste, 2, ',', ' ') ?> DZD</span>
+                                <td class="p-3.5 whitespace-nowrap text-center">
+                                    <span class="table-num-badge table-num-emerald text-xs font-bold" dir="ltr">
+                                        <span class="table-num-dot-emerald"></span>
+                                        <?= number_format($d['total_versements'], 2, ',', ' ') ?> DZD
+                                    </span>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <?php if ($isEndette): ?>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
+                                        <span class="table-num-badge table-num-rose text-xs font-bold" dir="ltr">
+                                            <span class="table-num-dot-rose"></span>
+                                            <?= number_format($reste, 2, ',', ' ') ?> DZD
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="table-num-badge table-num-emerald text-xs font-bold" dir="ltr">
+                                            <span class="table-num-dot-emerald"></span>
+                                            0.00 DZD
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="p-3.5 whitespace-nowrap text-center">
+                                    <?php if ($isEndette): ?>
+                                        <span class="table-num-badge table-num-rose text-xs font-bold">
+                                            <span class="table-num-dot-rose"></span>
                                             مدين
                                         </span>
                                     <?php else: ?>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                        <span class="table-num-badge table-num-emerald text-xs font-bold">
+                                            <span class="table-num-dot-emerald"></span>
                                             مسدد
                                         </span>
                                     <?php endif; ?>
@@ -491,14 +745,14 @@ if ($pdo) {
                                     <div class="relative inline-block text-right">
                                         <button type="button"
                                                 onclick="toggleTableDropdown(event, this)"
-                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                class="table-dropdown-btn w-9 h-9 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
                                                 title="خيارات وإجراءات الحساب المالي">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                 <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-52 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <!-- Add Versement Button -->
                                             <button type="button"
                                                     onclick="openVersementModal(<?= $d['id'] ?>, '<?= htmlspecialchars($d['chauffeur_name'], ENT_QUOTES) ?>', <?= $reste ?>)"
@@ -852,6 +1106,117 @@ function openEditDebtModal(data) {
 }
 function closeEditDebtModal() {
     const modal = document.getElementById('editDebtModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+</script>
+
+<!-- Modal: Preview BaridiMob Receipt Image -->
+<div id="receiptPreviewModal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white max-w-xl w-full rounded-2xl p-5 border border-slate-200 shadow-2xl space-y-4 text-right">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+                <h3 class="font-bold text-slate-900 text-base" id="previewTitle">معاينة وصل بريدي موب</h3>
+                <span class="text-xs text-slate-500" id="previewSubtitle"></span>
+            </div>
+            <button onclick="closeReceiptPreviewModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div class="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-950 rounded-xl p-2 border border-slate-800">
+            <img id="previewImage" src="" alt="وصل الدفع" class="max-w-full max-h-[65vh] object-contain rounded-lg">
+        </div>
+        <div class="flex items-center justify-between pt-2">
+            <a id="previewDownloadBtn" href="" target="_blank" download class="text-xs text-amber-700 hover:underline font-bold flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                <span>تحميل الصورة بدقة أصلية</span>
+            </a>
+            <button type="button" onclick="closeReceiptPreviewModal()" class="px-4 py-2 bg-slate-900 text-white rounded-lg font-bold text-xs">
+                إغلاق
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Reject BaridiMob Payment -->
+<div id="rejectVersementModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4 text-right">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                </div>
+                <h3 class="font-bold text-slate-900 text-base">رفض دفعة بريدي موب</h3>
+            </div>
+            <button onclick="closeRejectModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="reject_versement">
+            <input type="hidden" name="versement_id" id="rejectVersementId" value="0">
+
+            <p class="text-slate-600 leading-relaxed" id="rejectDriverInfo">
+                هل أنت متأكد من رفض هذه الدفعة؟ سيتم إشعار السائق بسبب الرفض مباشرة في حسابه.
+            </p>
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">سبب الرفض <span class="text-rose-500">*</span></label>
+                <select name="reject_reason" required class="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition font-medium">
+                    <option value="التحويل لم يصل للحساب البنكي بعد">التحويل لم يصل للحساب البنكي بعد</option>
+                    <option value="صورة الوصل غير واضحة أو مقطوعة">صورة الوصل غير واضحة أو مقطوعة</option>
+                    <option value="المبلغ المكتوب لا يطابق المبلغ بالوصل">المبلغ المكتوب لا يطابق المبلغ بالوصل</option>
+                    <option value="رقم المعاملة غير صحيح أو مكرر">رقم المعاملة غير صحيح أو مكرر</option>
+                    <option value="سبب آخر يرجى التواصل مع الإدارة">سبب آخر يرجى التواصل مع الإدارة</option>
+                </select>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <button type="button" onclick="closeRejectModal()" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition">
+                    إلغاء
+                </button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition shadow-xs">
+                    تأكيد الرفض
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openReceiptPreviewModal(imgUrl, driver, amount, ref) {
+    document.getElementById('previewImage').src = imgUrl;
+    document.getElementById('previewTitle').textContent = 'وصل بريدي موب - ' + driver;
+    document.getElementById('previewSubtitle').textContent = 'المبلغ: ' + amount + ' | مرجع: ' + ref;
+    document.getElementById('previewDownloadBtn').href = imgUrl;
+    const modal = document.getElementById('receiptPreviewModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+function closeReceiptPreviewModal() {
+    const modal = document.getElementById('receiptPreviewModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+function openRejectModal(id, driver, amount) {
+    document.getElementById('rejectVersementId').value = id;
+    document.getElementById('rejectDriverInfo').innerHTML = 'أنت بصدد رفض دفعة السائق <strong>' + driver + '</strong> بمبلغ <strong>' + amount + '</strong>.<br>يرجى تحديد سبب الرفض لإبلاغ السائق:';
+    const modal = document.getElementById('rejectVersementModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+function closeRejectModal() {
+    const modal = document.getElementById('rejectVersementModal');
     modal.classList.add('hidden');
     modal.classList.remove('flex');
 }

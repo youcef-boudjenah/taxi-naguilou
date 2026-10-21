@@ -190,10 +190,10 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
             <span class="text-xs text-slate-400 font-num"><?= count($pendingDrivers) ?> سائقاً</span>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80">
                         <th class="p-3.5">السائق والولاية</th>
                         <th class="p-3.5">الهاتف والتواصل</th>
                         <th class="p-3.5">رخصة السياقة وصلاحيتها</th>
@@ -209,31 +209,49 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
                                 $isExp = !empty($drv['license_expiry']) && strtotime($drv['license_expiry']) < strtotime('+30 days');
                                 $isPending = $drv['status'] === 'pending';
                             ?>
-                            <tr class="hover:bg-slate-50/80 transition">
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900"><?= htmlspecialchars($drv['full_name']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($drv['full_name']) ?></div>
                                     <div class="text-[11px] text-slate-400"><?= htmlspecialchars($drv['wilaya'] ?? 'أدرار') ?></div>
                                 </td>
-                                <td class="p-3.5 whitespace-nowrap font-num" dir="ltr">
-                                    <span class="font-bold text-slate-800"><?= htmlspecialchars($drv['phone']) ?></span>
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <span class="table-num-badge table-num-slate text-[11px]" dir="ltr">📞 <?= htmlspecialchars($drv['phone']) ?></span>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold text-slate-800" dir="ltr"><?= htmlspecialchars($drv['license_number'] ?? 'غير مسجل') ?></div>
-                                    <div class="text-[11px] font-num <?= $isExp ? 'text-rose-600 font-bold' : 'text-slate-400' ?>" dir="ltr">
-                                        <?= !empty($drv['license_expiry']) ? 'انتهاء: ' . $drv['license_expiry'] : 'تاريخ غير محدد' ?>
+                                    <span class="table-num-badge table-num-sky font-bold text-[11px]" dir="ltr">
+                                        📄 <?= htmlspecialchars($drv['license_number'] ?? 'غير مسجل') ?>
+                                    </span>
+                                    <div class="mt-1">
+                                        <?php if (!empty($drv['license_expiry'])): ?>
+                                            <span class="table-num-badge <?= $isExp ? 'table-num-rose' : 'table-num-emerald' ?> text-[10px]" dir="ltr">
+                                                <span class="<?= $isExp ? 'table-num-dot-rose' : 'table-num-dot-emerald' ?>"></span>
+                                                انتهاء: <?= htmlspecialchars($drv['license_expiry']) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="table-num-badge table-num-slate text-[10px]">تاريخ غير محدد</span>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num text-amber-800 font-bold" dir="ltr"><?= htmlspecialchars($drv['card_number'] ?? 'LIV-2026-XX') ?></div>
-                                    <div class="text-[10px] text-slate-500">فحص طبي ساري الصلاحية</div>
+                                    <span class="table-num-badge table-num-amber font-bold text-[11px]" dir="ltr">
+                                        <?= htmlspecialchars($drv['card_number'] ?? 'LIV-2026-XX') ?>
+                                    </span>
+                                    <div class="mt-1">
+                                        <span class="table-num-badge table-num-emerald text-[10px]">
+                                            <span class="table-num-dot-emerald"></span>
+                                            فحص طبي ساري الصلاحية
+                                        </span>
+                                    </div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <?php if ($isPending): ?>
-                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                        <span class="table-num-badge table-num-amber text-[10px] font-bold">
+                                            <span class="table-num-dot-amber"></span>
                                             قيد المراجعة ⏳
                                         </span>
                                     <?php else: ?>
-                                        <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                        <span class="table-num-badge table-num-emerald text-[10px] font-bold">
+                                            <span class="table-num-dot-emerald"></span>
                                             نشط ومفعل ✓
                                         </span>
                                     <?php endif; ?>
@@ -289,10 +307,10 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
             <span class="text-xs text-slate-400 font-num"><?= count($pendingVehicles) ?> مركبة</span>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80">
                         <th class="p-3.5">المركبة والطراز</th>
                         <th class="p-3.5">رقم اللوحة والباب</th>
                         <th class="p-3.5">السائق المكلف</th>
@@ -308,30 +326,48 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
                                 $isTcExp = !empty($veh['technical_control_expiry']) && strtotime($veh['technical_control_expiry']) < strtotime('+15 days');
                                 $isInsExp = !empty($veh['insurance_expiry']) && strtotime($veh['insurance_expiry']) < strtotime('+15 days');
                             ?>
-                            <tr class="hover:bg-slate-50/80 transition">
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900"><?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($veh['brand'] . ' ' . $veh['model']) ?></div>
                                     <div class="text-[11px] text-slate-400">سنة السريان: 2026</div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-black text-amber-900 font-num" dir="ltr"><?= htmlspecialchars($veh['plate_number']) ?></div>
-                                    <div class="text-[10px] text-slate-500">باب: <?= htmlspecialchars($veh['door_number']) ?></div>
-                                </td>
-                                <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-800"><?= htmlspecialchars($veh['driver_name'] ?? 'بدون سائق حالي') ?></div>
-                                    <div class="font-num text-[11px] text-slate-400" dir="ltr"><?= htmlspecialchars($veh['driver_phone'] ?? '') ?></div>
-                                </td>
-                                <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold <?= $isTcExp ? 'text-rose-600' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($veh['technical_control_expiry'] ?? 'غير محدد') ?>
+                                    <div class="flex items-center gap-1.5 mb-1">
+                                        <span class="table-num-badge bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 font-bold" dir="ltr">
+                                            🚗 <?= htmlspecialchars($veh['plate_number']) ?>
+                                        </span>
+                                        <span class="table-num-badge table-num-slate text-[10px]">
+                                            باب: <?= htmlspecialchars($veh['door_number']) ?>
+                                        </span>
                                     </div>
-                                    <div class="text-[10px] text-slate-400">فحص تقني دوري معتمد</div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num font-bold <?= $isInsExp ? 'text-rose-600' : 'text-slate-700' ?>" dir="ltr">
-                                        <?= htmlspecialchars($veh['insurance_expiry'] ?? 'غير محدد') ?>
-                                    </div>
-                                    <div class="text-[10px] text-slate-400"><?= htmlspecialchars($veh['insurance_company'] ?? 'SAA') ?></div>
+                                    <div class="font-bold text-slate-800 dark:text-slate-100"><?= htmlspecialchars($veh['driver_name'] ?? 'بدون سائق حالي') ?></div>
+                                    <?php if (!empty($veh['driver_phone'])): ?>
+                                        <span class="table-num-badge table-num-slate text-[10px] mt-0.5" dir="ltr">📞 <?= htmlspecialchars($veh['driver_phone']) ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <?php if (!empty($veh['technical_control_expiry'])): ?>
+                                        <span class="table-num-badge <?= $isTcExp ? 'table-num-rose' : 'table-num-emerald' ?> text-[11px]" dir="ltr">
+                                            <span class="<?= $isTcExp ? 'table-num-dot-rose' : 'table-num-dot-emerald' ?>"></span>
+                                            <?= htmlspecialchars($veh['technical_control_expiry']) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="table-num-badge table-num-slate text-[10px]">غير محدد</span>
+                                    <?php endif; ?>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">فحص تقني دوري معتمد</div>
+                                </td>
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <?php if (!empty($veh['insurance_expiry'])): ?>
+                                        <span class="table-num-badge <?= $isInsExp ? 'table-num-rose' : 'table-num-emerald' ?> text-[11px]" dir="ltr">
+                                            <span class="<?= $isInsExp ? 'table-num-dot-rose' : 'table-num-dot-emerald' ?>"></span>
+                                            <?= htmlspecialchars($veh['insurance_expiry']) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="table-num-badge table-num-slate text-[10px]">غير محدد</span>
+                                    <?php endif; ?>
+                                    <div class="text-[10px] text-slate-400 mt-0.5"><?= htmlspecialchars($veh['insurance_company'] ?? 'SAA') ?></div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <div class="flex items-center justify-center gap-1.5">

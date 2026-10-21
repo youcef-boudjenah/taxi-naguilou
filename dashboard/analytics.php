@@ -519,9 +519,9 @@ require_once __DIR__ . '/../includes/header.php';
                 <a href="debts.php" class="text-xs font-bold text-amber-500 hover:underline">عرض الكل (<?= $debtSummary['indebted_drivers_count'] ?>) &larr;</a>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-right text-xs">
-                    <thead>
+            <div class="table-sticky-container overflow-x-auto">
+                <table class="table-sticky w-full text-right text-xs">
+                    <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                         <tr class="bg-slate-50 dark:bg-[#121824] text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
                             <th class="py-3 px-4">#</th>
                             <th class="py-3 px-4">السائق المكلف</th>
@@ -539,27 +539,43 @@ require_once __DIR__ . '/../includes/header.php';
                             if (str_starts_with($cleanPhone, '0')) $cleanPhone = '213' . substr($cleanPhone, 1);
                         ?>
                         <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
-                            <td class="py-3 px-4 font-bold text-slate-400"><?= $rank++ ?></td>
+                            <td class="py-3 px-4">
+                                <span class="table-num-badge table-num-slate text-[11px]">#<?= $rank++ ?></span>
+                            </td>
                             <td class="py-3 px-4 font-sans font-bold text-slate-900 dark:text-white">
                                 <a href="driver_fiche.php?id=<?= $td['user_id'] ?>" class="hover:text-amber-500 transition">
                                     <?= htmlspecialchars($td['chauffeur_name']) ?>
                                 </a>
-                                <div class="text-[11px] font-normal text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($td['phone']) ?></div>
+                                <?php if (!empty($td['phone'])): ?>
+                                    <div class="mt-0.5">
+                                        <span class="table-num-badge table-num-slate text-[10px]" dir="ltr">📞 <?= htmlspecialchars($td['phone']) ?></span>
+                                    </div>
+                                <?php endif; ?>
                             </td>
-                            <td class="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">
-                                <?= htmlspecialchars($td['door_number'] ?: '-') ?>
+                            <td class="py-3 px-4">
+                                <span class="table-num-badge table-num-slate text-[10px]">باب: <?= htmlspecialchars($td['door_number'] ?: '-') ?></span>
                             </td>
-                            <td class="py-3 px-4 text-left text-slate-700 dark:text-slate-300">
-                                <?= number_format($td['total_credits'], 0) ?>
+                            <td class="py-3 px-4 text-left">
+                                <span class="table-num-badge table-num-amber text-xs font-bold" dir="ltr">
+                                    <span class="table-num-dot-amber"></span>
+                                    <?= number_format($td['total_credits'], 0) ?> دج
+                                </span>
                             </td>
-                            <td class="py-3 px-4 text-left text-emerald-600 dark:text-emerald-400">
-                                <?= number_format($td['total_versements'], 0) ?>
+                            <td class="py-3 px-4 text-left">
+                                <span class="table-num-badge table-num-emerald text-xs font-bold" dir="ltr">
+                                    <span class="table-num-dot-emerald"></span>
+                                    <?= number_format($td['total_versements'], 0) ?> دج
+                                </span>
                             </td>
-                            <td class="py-3 px-4 text-left font-black text-rose-600 dark:text-rose-400">
-                                <?= number_format($td['net_balance'], 0) ?> دج
+                            <td class="py-3 px-4 text-left">
+                                <span class="table-num-badge table-num-rose text-xs font-bold" dir="ltr">
+                                    <span class="table-num-dot-rose"></span>
+                                    <?= number_format($td['net_balance'], 0) ?> دج
+                                </span>
                             </td>
                             <td class="py-3 px-4 text-center">
-                                <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold font-sans <?= $td['days_overdue'] > 30 ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400' ?>">
+                                <span class="table-num-badge <?= $td['days_overdue'] > 30 ? 'table-num-rose' : 'table-num-amber' ?> text-[10px] font-bold">
+                                    <span class="<?= $td['days_overdue'] > 30 ? 'table-num-dot-rose' : 'table-num-dot-amber' ?>"></span>
                                     <?= $td['days_overdue'] ?> يوم
                                 </span>
                             </td>

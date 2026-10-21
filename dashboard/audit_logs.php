@@ -166,11 +166,11 @@ if ($pdo) {
     </div>
 
     <!-- Logs Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold uppercase tracking-wider">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 font-extrabold uppercase tracking-wider">
                         <th class="p-4">التوقيت</th>
                         <th class="p-4">المستخدم</th>
                         <th class="p-4">نوع الإجراء</th>
@@ -196,13 +196,13 @@ if ($pdo) {
                             elseif (str_contains($l['action'], 'created')) $badgeColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
                             elseif (str_contains($l['action'], 'delete') || str_contains($l['action'], 'suspend')) $badgeColor = 'bg-rose-50 text-rose-800 border-rose-200';
                         ?>
-                            <tr class="hover:bg-slate-50/80 transition">
-                                <td class="p-4 text-slate-500 font-num text-[11px] whitespace-nowrap">
-                                    <?= htmlspecialchars($l['created_at']) ?>
+                            <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                                <td class="p-4 whitespace-nowrap">
+                                    <span class="table-num-badge table-num-slate text-[11px]" dir="ltr"><?= htmlspecialchars($l['created_at']) ?></span>
                                 </td>
-                                <td class="p-4 font-bold text-slate-900">
+                                <td class="p-4 font-bold text-slate-900 dark:text-slate-100">
                                     <div class="flex items-center gap-1.5">
-                                        <span class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] text-slate-700">👤</span>
+                                        <span class="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] text-slate-700 dark:text-slate-300">👤</span>
                                         <span><?= htmlspecialchars($l['user_name'] ?? 'النظام') ?></span>
                                     </div>
                                 </td>
@@ -212,16 +212,18 @@ if ($pdo) {
                                     </span>
                                 </td>
                                 <td class="p-4">
-                                    <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-bold text-[10px]">
+                                    <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[10px]">
                                         <?= htmlspecialchars($l['entity']) ?>
                                         <?= !empty($l['entity_id']) ? '#' . $l['entity_id'] : '' ?>
                                     </span>
                                 </td>
-                                <td class="p-4 text-slate-700">
+                                <td class="p-4 text-slate-700 dark:text-slate-200">
                                     <?= htmlspecialchars($l['details'] ?? '-') ?>
                                 </td>
-                                <td class="p-4 text-slate-400 font-mono text-[11px]" dir="ltr">
-                                    <?= htmlspecialchars($l['ip_address'] ?? '127.0.0.1') ?>
+                                <td class="p-4 whitespace-nowrap">
+                                    <span class="table-num-badge table-num-slate font-mono text-[10px]" dir="ltr">
+                                        🌐 <?= htmlspecialchars($l['ip_address'] ?? '127.0.0.1') ?>
+                                    </span>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

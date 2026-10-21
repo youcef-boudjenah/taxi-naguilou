@@ -125,10 +125,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE id = ? AND replacement_driver_id = ?")->execute([$leaveData['vehicle_id'], $leaveData['replacement_driver_id']]);
             }
 
-            $stmtDel = $pdo->prepare("DELETE FROM leaves WHERE id = ?");
+            $stmtDel = $pdo->prepare("UPDATE leaves SET deleted_at = NOW() WHERE id = ?");
             $stmtDel->execute([$leaveId]);
-            log_audit($pdo, 'leave_deleted', 'leaves', $leaveId, "حذف العطلة رقم $leaveId");
-            set_flash('success', "تم إلغاء وحذف العطلة بنجاح واستعادة حالة المركبة الأصلية");
+            log_audit($pdo, 'leave_deleted', 'leaves', $leaveId, "نقل العطلة رقم $leaveId إلى سلة المهملات");
+            set_flash('success', "تم نقل العطلة إلى سلة المهملات والأرشيف بنجاح واستعادة حالة المركبة الأصلية. يمكنك استرجاعها من سلة المهملات.");
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء حذف العطلة: ' . $e->getMessage());
         }
@@ -137,11 +137,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch leaves
-$whereLeaves = "1=1";
+$whereLeaves = "l.deleted_at IS NULL";
 $paramsLeaves = [];
 if (is_owner() && !is_admin()) {
     $whereLeaves = "(v.owner_id = ? OR v.owner_id IS NULL)";
     $paramsLeaves = [intval($_SESSION['user_id'])];
+}
+
+$search = trim($_GET['search'] ?? '');
+if (!empty($search)) {
+    $whereLeaves .= " AND (u1.full_name LIKE ? OR u2.full_name LIKE ? OR v.plate_number LIKE ? OR v.door_number LIKE ?)";
+    $paramsLeaves[] = "%$search%";
+    $paramsLeaves[] = "%$search%";
+    $paramsLeaves[] = "%$search%";
+    $paramsLeaves[] = "%$search%";
 }
 
 $stmtL = $pdo->prepare("
@@ -231,11 +240,29 @@ if (is_owner() && !is_admin()) {
         </div>
     </div>
 
+    <!-- Search Toolbar -->
+    <div class="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs shadow-2xs">
+        <form method="GET" class="flex-1 w-full flex items-center gap-2">
+            <div class="relative flex-1 sm:max-w-md">
+                <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
+                       placeholder="ابحث باسم السائق الأصلي، السائق البديل، أو رقم لوحة المركبة..."
+                       class="w-full pr-9 pl-8 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+            </div>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 dark:bg-slate-700 text-white font-bold hover:bg-slate-800 transition cursor-pointer">بحث</button>
+            <?php if (!empty($search)): ?>
+                <a href="leaves.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+            <?php endif; ?>
+        </form>
+    </div>
+
     <!-- Leaves Table -->
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200/80">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                     <tr>
                         <th class="p-3.5 whitespace-nowrap">المركبة</th>
                         <th class="p-3.5 whitespace-nowrap">السائق الأصلي</th>
@@ -249,30 +276,48 @@ if (is_owner() && !is_admin()) {
                 <tbody class="divide-y divide-slate-100 font-medium">
                     <?php if (!empty($leaves)): ?>
                         <?php foreach ($leaves as $l): ?>
-                            <tr class="hover:bg-slate-50/60 transition">
+                            <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 font-num text-[11px]" dir="ltr"><?= htmlspecialchars($l['plate_number']) ?></div>
-                                    <div class="text-[11px] text-slate-400"><?= htmlspecialchars($l['brand'] . ' ' . $l['model']) ?> (باب: <?= htmlspecialchars($l['door_number']) ?>)</div>
+                                    <div class="flex items-center gap-1.5 mb-1">
+                                        <span class="table-num-badge bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 font-bold" dir="ltr">
+                                            🚗 <?= htmlspecialchars($l['plate_number']) ?>
+                                        </span>
+                                        <span class="table-num-badge table-num-slate text-[10px]">
+                                            باب: <?= htmlspecialchars($l['door_number']) ?>
+                                        </span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-500 dark:text-slate-400 font-medium"><?= htmlspecialchars($l['brand'] . ' ' . $l['model']) ?></div>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-semibold text-slate-700"><?= htmlspecialchars($l['main_driver']) ?></div>
-                                    <div class="text-[11px] text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($l['main_phone']) ?></div>
-                                </td>
-                                <td class="p-3.5 whitespace-nowrap">
-                                    <?php if (!empty($l['relief_driver'])): ?>
-                                        <div class="font-bold text-emerald-700"><?= htmlspecialchars($l['relief_driver']) ?></div>
-                                        <div class="text-[11px] text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($l['relief_phone']) ?></div>
-                                    <?php else: ?>
-                                        <span class="text-rose-600 font-semibold text-[11px]">بدون بديل (متوقفة)</span>
+                                    <div class="font-semibold text-slate-800 dark:text-slate-100"><?= htmlspecialchars($l['main_driver']) ?></div>
+                                    <?php if (!empty($l['main_phone'])): ?>
+                                        <span class="table-num-badge table-num-slate mt-0.5 text-[10px]" dir="ltr">
+                                            📞 <?= htmlspecialchars($l['main_phone']) ?>
+                                        </span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-num text-slate-800" dir="ltr"><?= htmlspecialchars($l['start_date']) ?> → <?= htmlspecialchars($l['end_date']) ?></div>
+                                    <?php if (!empty($l['relief_driver'])): ?>
+                                        <div class="font-bold text-emerald-700 dark:text-emerald-400"><?= htmlspecialchars($l['relief_driver']) ?></div>
+                                        <?php if (!empty($l['relief_phone'])): ?>
+                                            <span class="table-num-badge table-num-slate mt-0.5 text-[10px]" dir="ltr">
+                                                📞 <?= htmlspecialchars($l['relief_phone']) ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="table-num-badge table-num-rose text-[11px]">بدون بديل (متوقفة)</span>
+                                    <?php endif; ?>
                                 </td>
-                                <td class="p-3.5 text-slate-700 whitespace-nowrap"><?= htmlspecialchars($l['reason']) ?></td>
+                                <td class="p-3.5 whitespace-nowrap">
+                                    <span class="table-num-badge table-num-emerald text-[11px]" dir="ltr">
+                                        <span class="table-num-dot-emerald"></span>
+                                        <?= htmlspecialchars($l['start_date']) ?> → <?= htmlspecialchars($l['end_date']) ?>
+                                    </span>
+                                </td>
+                                <td class="p-3.5 text-slate-700 dark:text-slate-200 whitespace-nowrap"><?= htmlspecialchars($l['reason']) ?></td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <span class="table-num-badge table-num-emerald">
+                                        <svg class="w-3 h-3 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                                         </svg>
                                         <span>خدمة مستمرة</span>
@@ -282,14 +327,14 @@ if (is_owner() && !is_admin()) {
                                     <div class="relative inline-block text-right">
                                         <button type="button"
                                                 onclick="toggleTableDropdown(event, this)"
-                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                class="table-dropdown-btn w-9 h-9 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
                                                 title="خيارات العطلة">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                                 <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-48 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right">
+                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <a href="slips.php"
                                                class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 font-bold transition">
                                                 <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

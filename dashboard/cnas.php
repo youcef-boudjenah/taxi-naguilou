@@ -101,10 +101,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
         } elseif ($action === 'delete') {
             $decId = intval($_POST['declaration_id'] ?? 0);
             if ($decId > 0) {
-                $stmtDel = $pdo->prepare("DELETE FROM cnas_declarations WHERE id = ?");
+                $stmtDel = $pdo->prepare("UPDATE cnas_declarations SET deleted_at = NOW() WHERE id = ?");
                 $stmtDel->execute([$decId]);
-                log_audit($pdo, 'cnas_declaration_deleted', 'cnas_declarations', $decId, "حذف تصريح CNAS رقم $decId");
-                $message = 'تم حذف تصريح الضمان الاجتماعي بنجاح.';
+                log_audit($pdo, 'cnas_declaration_deleted', 'cnas_declarations', $decId, "نقل تصريح CNAS رقم $decId إلى سلة المهملات");
+                $message = 'تم نقل تصريح الضمان الاجتماعي إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت.';
                 $messageType = 'success';
             }
         }
@@ -119,14 +119,25 @@ $totalCotisationsPaid = 0.00;
 $pendingCotisations = 0.00;
 
 if ($pdo) {
+    $search = trim($_GET['search'] ?? '');
     try {
-        $stmtDec = $pdo->query("
+        $sqlDec = "
             SELECT c.*, u.full_name as driver_name, u.phone as driver_phone, u.wilaya,
                    DATEDIFF(c.attestation_expiry, CURDATE()) as days_to_expiry
             FROM cnas_declarations c
             JOIN users u ON c.driver_id = u.id
-            ORDER BY c.created_at DESC
-        ");
+            WHERE c.deleted_at IS NULL
+        ";
+        $paramsDec = [];
+        if (!empty($search)) {
+            $sqlDec .= " AND (u.full_name LIKE ? OR c.cnas_number LIKE ? OR c.period_quarter LIKE ?)";
+            $paramsDec[] = "%$search%";
+            $paramsDec[] = "%$search%";
+            $paramsDec[] = "%$search%";
+        }
+        $sqlDec .= " ORDER BY c.created_at DESC";
+        $stmtDec = $pdo->prepare($sqlDec);
+        $stmtDec->execute($paramsDec);
         $declarations = $stmtDec ? $stmtDec->fetchAll() : [];
     } catch (\Throwable $e) {
         $declarations = [];
@@ -221,6 +232,24 @@ if ($pdo) {
         </div>
     </div>
 
+    <!-- Search Toolbar -->
+    <div class="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs shadow-2xs">
+        <form method="GET" class="flex-1 w-full flex items-center gap-2">
+            <div class="relative flex-1 sm:max-w-md">
+                <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
+                       placeholder="ابحث باسم السائق، رقم الضمان الاجتماعي، أو الفترة الثلاثية..."
+                       class="w-full pr-9 pl-8 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+            </div>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 dark:bg-slate-700 text-white font-bold hover:bg-slate-800 transition cursor-pointer">بحث</button>
+            <?php if (!empty($search)): ?>
+                <a href="cnas.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+            <?php endif; ?>
+        </form>
+    </div>
+
     <!-- Declarations Table -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="p-4 border-b border-slate-100 flex items-center justify-between">
@@ -228,10 +257,10 @@ if ($pdo) {
             <span class="text-[11px] text-slate-400">القانون 11/90 المتعلق بعلاقات العمل</span>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-right text-xs">
-                <thead>
-                    <tr class="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold uppercase tracking-wider">
+        <div class="table-sticky-container overflow-x-auto">
+            <table class="table-sticky w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 font-extrabold uppercase tracking-wider">
                         <th class="p-4">السائق المصرح</th>
                         <th class="p-4">رقم الضمان الاجتماعي</th>
                         <th class="p-4">الفترة الثلاثية</th>
@@ -256,42 +285,64 @@ if ($pdo) {
                         ?>
                             <tr class="hover:bg-slate-50/80 transition">
                                 <td class="p-4">
-                                    <div class="font-bold text-slate-900"><?= htmlspecialchars($d['driver_name']) ?></div>
-                                    <div class="text-[10px] text-slate-400 font-num" dir="ltr"><?= htmlspecialchars($d['driver_phone']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($d['driver_name']) ?></div>
+                                    <div class="mt-1" dir="ltr">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold font-num bg-slate-100/90 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
+                                            <?= htmlspecialchars($d['driver_phone']) ?>
+                                        </span>
+                                    </div>
                                 </td>
-                                <td class="p-4 font-mono font-bold text-slate-800" dir="ltr">
-                                    <?= htmlspecialchars($d['cnas_number']) ?>
+                                <td class="p-4 font-mono font-bold" dir="ltr">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold font-num bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800 shadow-2xs font-mono">
+                                        <span>🏥</span>
+                                        <span><?= htmlspecialchars($d['cnas_number']) ?></span>
+                                    </span>
                                 </td>
-                                <td class="p-4 font-bold text-slate-700">
-                                    <?= htmlspecialchars($d['period_quarter']) ?>
+                                <td class="p-4 font-bold text-slate-700 dark:text-slate-200">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                        <?= htmlspecialchars($d['period_quarter']) ?>
+                                    </span>
                                 </td>
-                                <td class="p-4 font-num text-slate-700 font-bold">
-                                    <?= number_format($d['base_salary'], 2, ',', ' ') ?> دج
+                                <td class="p-4 font-num">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold font-num bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                                        <?= number_format($d['base_salary'], 2, ',', ' ') ?> دج
+                                    </span>
                                 </td>
                                 <td class="p-4">
-                                    <div class="font-num font-bold text-slate-900"><?= number_format($d['total_cotisation'], 2, ',', ' ') ?> دج</div>
-                                    <div class="text-[10px] text-slate-400">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-black font-num bg-sky-50 dark:bg-sky-950/40 text-sky-900 dark:text-sky-200 border border-sky-200 dark:border-sky-800">
+                                        <?= number_format($d['total_cotisation'], 2, ',', ' ') ?> دج
+                                    </span>
+                                    <div class="text-[10px] text-slate-400 mt-1">
                                         مشغل: <?= number_format($d['cotisation_patronale'], 0) ?> دج | عامل: <?= number_format($d['cotisation_ouvriere'], 0) ?> دج
                                     </div>
                                 </td>
                                 <td class="p-4">
                                     <?php if ($isPaid): ?>
-                                        <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            مسدد (<?= htmlspecialchars($d['receipt_ref'] ?? 'وصل') ?>)
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                            <span>مسدد (<?= htmlspecialchars($d['receipt_ref'] ?? 'وصل') ?>)</span>
                                         </span>
                                     <?php else: ?>
-                                        <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
-                                            قيد الانتظار
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                            <span>قيد الانتظار</span>
                                         </span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="p-4">
                                     <?php if (!empty($d['attestation_expiry'])): ?>
-                                        <div class="font-num text-[11px] font-bold text-slate-800"><?= htmlspecialchars($d['attestation_expiry']) ?></div>
                                         <?php if ($days !== null && $days <= 15): ?>
-                                            <span class="text-[10px] font-bold text-rose-600 block">تنتهي خلال <?= $days ?> أيام!</span>
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800 font-num" dir="ltr">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                                                <span><?= htmlspecialchars($d['attestation_expiry']) ?></span>
+                                            </span>
+                                            <span class="text-[10px] font-bold text-rose-600 block mt-0.5">تنتهي خلال <?= $days ?> أيام!</span>
                                         <?php else: ?>
-                                            <span class="text-[10px] text-emerald-600 block">سارية المفعول (<?= $days ?> يوماً)</span>
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800 font-num" dir="ltr">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                                <span><?= htmlspecialchars($d['attestation_expiry']) ?></span>
+                                            </span>
+                                            <span class="text-[10px] text-emerald-600 block mt-0.5">سارية المفعول (<?= $days ?> يوماً)</span>
                                         <?php endif; ?>
                                     <?php else: ?>
                                         <span class="text-slate-400">-</span>
