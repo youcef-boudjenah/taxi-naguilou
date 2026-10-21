@@ -54,11 +54,23 @@ if ($type === 'drivers') {
         INSERT INTO users 
             (full_name, first_name, last_name, email, password_hash, phone, role, status,
              license_number, license_expiry, medical_cert_expiry, activity_start_date,
-             birth_date, address, wilaya)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             birth_date, birth_place, father_name, mother_name, address, wilaya)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON DUPLICATE KEY UPDATE
             full_name = VALUES(full_name),
-            phone = VALUES(phone)
+            first_name = COALESCE(VALUES(first_name), first_name),
+            last_name = COALESCE(VALUES(last_name), last_name),
+            phone = VALUES(phone),
+            license_number = COALESCE(VALUES(license_number), license_number),
+            license_expiry = COALESCE(VALUES(license_expiry), license_expiry),
+            medical_cert_expiry = COALESCE(VALUES(medical_cert_expiry), medical_cert_expiry),
+            activity_start_date = COALESCE(VALUES(activity_start_date), activity_start_date),
+            birth_date = COALESCE(VALUES(birth_date), birth_date),
+            birth_place = COALESCE(VALUES(birth_place), birth_place),
+            father_name = COALESCE(VALUES(father_name), father_name),
+            mother_name = COALESCE(VALUES(mother_name), mother_name),
+            address = COALESCE(VALUES(address), address),
+            wilaya = COALESCE(VALUES(wilaya), wilaya)
     ");
 
     foreach ($data as $row) {
@@ -77,14 +89,17 @@ if ($type === 'drivers') {
             $last     = str_val($row['last_name']  ?? $row['lastName']  ?? '');
 
             $stmt->execute([
-                $name, $first, $last, $email, $passHash, $phone, $role, 'active',
+                $name, $first ?: null, $last ?: null, $email, $passHash, $phone, $role, 'active',
                 str_val($row['license_number'] ?? $row['licenseNumber'] ?? null) ?: null,
                 safe_date($row['license_expiry'] ?? $row['licenseExpiry'] ?? null),
                 safe_date($row['medical_cert_expiry'] ?? $row['medicalExpiry'] ?? null),
                 safe_date($row['activity_start_date'] ?? $row['startDate'] ?? null),
                 safe_date($row['birth_date'] ?? $row['birthDate'] ?? null),
+                str_val($row['birth_place'] ?? $row['birthPlace'] ?? null) ?: null,
+                str_val($row['father_name'] ?? $row['fatherName'] ?? null) ?: null,
+                str_val($row['mother_name'] ?? $row['motherName'] ?? null) ?: null,
                 str_val($row['address'] ?? null) ?: null,
-                str_val($row['wilaya'] ?? '16 - الجزائر العاصمة'),
+                str_val($row['wilaya'] ?? '01 - أدرار'),
             ]);
             $inserted++;
         } catch (PDOException $e) {

@@ -337,3 +337,53 @@ CREATE TABLE IF NOT EXISTS `traveler_passengers` (
     FOREIGN KEY (`report_id`) REFERENCES `traveler_reports`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Dynamic Migrations for Pre-existing Databases (Safe on MySQL 5.7+ & 8.0+)
+DROP PROCEDURE IF EXISTS `_migrate_taxi_columns`;
+DELIMITER $$
+CREATE PROCEDURE `_migrate_taxi_columns`()
+BEGIN
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'first_name') THEN
+        ALTER TABLE `users` ADD COLUMN `first_name` VARCHAR(80) NULL AFTER `full_name`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'last_name') THEN
+        ALTER TABLE `users` ADD COLUMN `last_name` VARCHAR(80) NULL AFTER `first_name`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'birth_date') THEN
+        ALTER TABLE `users` ADD COLUMN `birth_date` DATE NULL AFTER `wilaya`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'birth_place') THEN
+        ALTER TABLE `users` ADD COLUMN `birth_place` VARCHAR(150) NULL AFTER `birth_date`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'father_name') THEN
+        ALTER TABLE `users` ADD COLUMN `father_name` VARCHAR(100) NULL AFTER `birth_place`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'mother_name') THEN
+        ALTER TABLE `users` ADD COLUMN `mother_name` VARCHAR(100) NULL AFTER `father_name`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'address') THEN
+        ALTER TABLE `users` ADD COLUMN `address` VARCHAR(255) NULL AFTER `mother_name`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'license_issue_date') THEN
+        ALTER TABLE `users` ADD COLUMN `license_issue_date` DATE NULL AFTER `license_number`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'license_issue_place') THEN
+        ALTER TABLE `users` ADD COLUMN `license_issue_place` VARCHAR(100) NULL AFTER `license_issue_date`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medical_cert_expiry') THEN
+        ALTER TABLE `users` ADD COLUMN `medical_cert_expiry` DATE NULL AFTER `license_expiry`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medical_exam_start') THEN
+        ALTER TABLE `users` ADD COLUMN `medical_exam_start` DATE NULL AFTER `medical_cert_expiry`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medical_exam_end') THEN
+        ALTER TABLE `users` ADD COLUMN `medical_exam_end` DATE NULL AFTER `medical_exam_start`;
+    END IF;
+    IF NOT EXISTS (SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'qr_token') THEN
+        ALTER TABLE `users` ADD COLUMN `qr_token` VARCHAR(64) UNIQUE NULL AFTER `password_hash`;
+    END IF;
+END $$
+DELIMITER ;
+CALL `_migrate_taxi_columns`();
+DROP PROCEDURE IF EXISTS `_migrate_taxi_columns`;
+
+

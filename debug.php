@@ -41,7 +41,8 @@ if ($dbConfigExists) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>فحص تشخيص الخادم (Bluehost Diagnostic) | تاكسي نقيلو</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Production Compiled Tailwind CSS -->
+    <link rel="stylesheet" href="assets/css/tailwind.min.css">
     <style>body { font-family: 'Cairo', sans-serif; }</style>
 </head>
 <body class="bg-slate-50 text-slate-800 p-4 sm:p-8">

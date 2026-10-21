@@ -379,31 +379,47 @@ $vehicles = [];
 $trashVehiclesCount = 0;
 
 if ($pdo) {
+    $hasVehDeletedAt = false;
     try {
-        $totalVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL")->fetchColumn();
+        $colV = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'deleted_at'")->fetch();
+        $hasVehDeletedAt = !empty($colV);
+        if (!$hasVehDeletedAt) {
+            try {
+                $pdo->exec("ALTER TABLE `vehicles` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_vehicles_deleted_at` (`deleted_at`)");
+                $hasVehDeletedAt = true;
+            } catch (\Throwable $eAlter) {}
+        }
+    } catch (\Throwable $e) {}
+
+    $vDelCond = $hasVehDeletedAt ? " AND deleted_at IS NULL" : "";
+    $vWhereDel = $hasVehDeletedAt ? " WHERE deleted_at IS NULL" : "";
+    $vDelAlias = $hasVehDeletedAt ? " AND v.deleted_at IS NULL" : "";
+
+    try {
+        $totalVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles {$vWhereDel}")->fetchColumn();
     } catch (\Throwable $e) {}
 
     try {
-        $trashVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NOT NULL")->fetchColumn();
+        $trashVehiclesCount = $hasVehDeletedAt ? (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
     } catch (\Throwable $e) {}
 
     try {
-        $activeVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE (status = 'active' OR status IS NULL) AND deleted_at IS NULL")->fetchColumn();
+        $activeVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE (status = 'active' OR status IS NULL) {$vDelCond}")->fetchColumn();
     } catch (\Throwable $e) {}
 
     try {
-        $suspendedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'suspended' AND deleted_at IS NULL")->fetchColumn();
+        $suspendedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'suspended' {$vDelCond}")->fetchColumn();
     } catch (\Throwable $e) {}
 
     try {
-        $assignedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE current_driver_id IS NOT NULL AND deleted_at IS NULL")->fetchColumn();
+        $assignedVehiclesCount = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE current_driver_id IS NOT NULL {$vDelCond}")->fetchColumn();
     } catch (\Throwable $e) {}
 
     try {
         $reliefVehiclesCount = (int)$pdo->query("
             SELECT COUNT(DISTINCT v.id) FROM vehicles v
             LEFT JOIN leaves l ON (l.vehicle_id = v.id AND l.status = 'approved' AND l.end_date >= CURDATE())
-            WHERE (v.replacement_driver_id IS NOT NULL OR l.replacement_driver_id IS NOT NULL) AND v.deleted_at IS NULL
+            WHERE (v.replacement_driver_id IS NOT NULL OR l.replacement_driver_id IS NOT NULL) {$vDelAlias}
         ")->fetchColumn();
     } catch (\Throwable $e) {}
 
@@ -662,9 +678,11 @@ if ($pdo) {
     }
 
     if ($filter === 'trash') {
-        $query .= " AND v.deleted_at IS NOT NULL";
+        $query .= $hasVehDeletedAt ? " AND v.deleted_at IS NOT NULL" : " AND 1=0";
     } else {
-        $query .= " AND v.deleted_at IS NULL";
+        if ($hasVehDeletedAt) {
+            $query .= " AND v.deleted_at IS NULL";
+        }
         if ($filter === 'active') {
             $query .= " AND (v.status = 'active' OR v.status IS NULL)";
         } elseif ($filter === 'suspended') {
@@ -853,7 +871,18 @@ if ($pdo) {
         $vehicles = $stmt->fetchAll() ?: [];
     } catch (\Throwable $e) {
         error_log("vehicles.php - Query vehicles error: " . $e->getMessage());
-        $vehicles = [];
+        try {
+            $fallbackQuery = str_replace([" AND v.deleted_at IS NULL", " AND v.deleted_at IS NOT NULL"], "", $query);
+            $stmtF = $pdo->prepare($fallbackQuery);
+            $stmtF->execute($params);
+            $vehicles = $stmtF->fetchAll() ?: [];
+        } catch (\Throwable $e2) {
+            try {
+                $vehicles = $pdo->query("SELECT * FROM vehicles ORDER BY id DESC")->fetchAll() ?: [];
+            } catch (\Throwable $e3) {
+                $vehicles = [];
+            }
+        }
     }
 }
 

@@ -1,0 +1,13 @@
+{
+  "name": "taxi-naguilou",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Taxi-Naguilou Platform - Compiled Tailwind CSS AOT Production Pipeline",
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/input.css -o ./assets/css/tailwind.min.css --minify",
+    "watch:css": "tailwindcss -i ./assets/css/input.css -o ./assets/css/tailwind.min.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

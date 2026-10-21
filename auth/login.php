@@ -30,21 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: { amber: { 500: '#f59e0b', 600: '#d97706' } },
-                    fontFamily: { 
-                        sans: ['Cairo', 'Tajawal', 'sans-serif'], 
-                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif'] 
-                    }
-                }
-            }
-        };
-    </script>
+    <!-- Production Compiled Tailwind CSS -->
+    <link rel="stylesheet" href="<?= url('/assets/css/tailwind.min.css') ?>">
     <?= render_theme_head() ?>
     <style>
         html, body, input, button, select, textarea { 
@@ -129,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="text-center text-xs text-slate-500 flex items-center justify-between px-2">
             <a href="<?= url('/') ?>" class="hover:text-amber-600 transition">← العودة للرئيسية</a>
-            <a href="<?= url('/install.php') ?>" class="text-slate-400 hover:text-amber-600 transition text-[11px]">معالج التثبيت (Installer)</a>
+            <!-- <a href="<?= url('/install.php') ?>" class="text-slate-400 hover:text-amber-600 transition text-[11px]">معالج التثبيت (Installer)</a> -->
             <a href="<?= url('/auth/register.php') ?>" class="font-bold text-amber-600 hover:underline">تسجيل حساب جديد</a>
         </div>
 

@@ -265,35 +265,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     $driverId = intval($_POST['driver_id'] ?? 0);
     if ($driverId > 0) {
-        $licNum = trim($_POST['license_number'] ?? '');
-        $licIssue = !empty($_POST['license_issue_date']) ? $_POST['license_issue_date'] : null;
-        $licPlace = trim($_POST['license_issue_place'] ?? '');
-        $licExp = !empty($_POST['license_expiry']) ? $_POST['license_expiry'] : null;
+        $cleanDate = function($val) {
+            return (!empty($val) && $val !== '0000-00-00') ? trim($val) : null;
+        };
 
-        $medStart = !empty($_POST['medical_exam_start']) ? $_POST['medical_exam_start'] : null;
-        $medExp = !empty($_POST['medical_cert_expiry']) ? $_POST['medical_cert_expiry'] : null;
-        $medEnd = !empty($_POST['medical_exam_end']) ? $_POST['medical_exam_end'] : $medExp;
+        $firstName = trim($_POST['first_name'] ?? '');
+        $lastName = trim($_POST['last_name'] ?? '');
+        $birthDate = $cleanDate($_POST['birth_date'] ?? null);
+        $birthPlace = trim($_POST['birth_place'] ?? '');
+        $fatherName = trim($_POST['father_name'] ?? '');
+        $motherName = trim($_POST['mother_name'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+
+        $licNum = trim($_POST['license_number'] ?? '');
+        $licIssue = $cleanDate($_POST['license_issue_date'] ?? null);
+        $licPlace = trim($_POST['license_issue_place'] ?? '');
+        $licExp = $cleanDate($_POST['license_expiry'] ?? null);
+
+        $medStart = $cleanDate($_POST['medical_exam_start'] ?? null);
+        $medExp = $cleanDate($_POST['medical_cert_expiry'] ?? null);
+        $medEnd = $cleanDate($_POST['medical_exam_end'] ?? null) ?: $medExp;
         if (empty($medExp) && !empty($medEnd)) $medExp = $medEnd;
         if (empty($medEnd) && !empty($medExp)) $medEnd = $medExp;
 
         $cardNum = trim($_POST['card_number'] ?? '');
-        $taxiStart = !empty($_POST['taxi_contract_start']) ? $_POST['taxi_contract_start'] : null;
-        $taxiEnd = !empty($_POST['taxi_contract_end']) ? $_POST['taxi_contract_end'] : null;
+        $taxiStart = $cleanDate($_POST['taxi_contract_start'] ?? null);
+        $taxiEnd = $cleanDate($_POST['taxi_contract_end'] ?? null);
 
         try {
-            $stmtUp = $pdo->prepare("
+            $sqlUp = "
                 UPDATE users SET 
+                    birth_date = ?, birth_place = ?, father_name = ?, mother_name = ?, address = ?,
                     license_number = ?, license_issue_date = ?, license_issue_place = ?, license_expiry = ?,
                     medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?,
-                    card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?
-                WHERE id = ? AND (role = 'driver' OR role = 'owner')
-            ");
-            $stmtUp->execute([
+                    card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?,
+                    first_name = ?, last_name = ?
+            ";
+            $upParams = [
+                $birthDate, $birthPlace, $fatherName, $motherName, $address,
                 $licNum, $licIssue, $licPlace, $licExp,
                 $medStart, $medExp, $medEnd,
                 $cardNum, $taxiStart, $taxiEnd,
-                $driverId
-            ]);
+                $firstName ?: null, $lastName ?: null
+            ];
+
+            $compName = trim(($lastName ? $lastName . ' ' : '') . $firstName);
+            if (!empty($compName)) {
+                $sqlUp .= ", full_name = ?";
+                $upParams[] = $compName;
+            }
+            if (!empty($phone)) {
+                $sqlUp .= ", phone = ?";
+                $upParams[] = $phone;
+            }
+
+            if (is_admin()) {
+                $sqlUp .= " WHERE id = ?";
+                $upParams[] = $driverId;
+            } else {
+                $sqlUp .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
+                $upParams[] = $driverId;
+            }
+
+            $stmtUp = $pdo->prepare($sqlUp);
+            $stmtUp->execute($upParams);
 
             // Sync with signed labor contract if dates exist
             if (!empty($taxiStart) && !empty($taxiEnd)) {
@@ -303,8 +339,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 } catch (\Throwable $e) {}
             }
 
-            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث وتجديد الوثائق الرسمية والرخص للسائق رقم $driverId");
-            set_flash('success', 'تم تحديث وتجديد وثائق ورخص السائق بنجاح');
+            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث الحالة المدنية والوثائق الرسمية للسائق رقم $driverId");
+            set_flash('success', 'تم حفظ وتحديث بيانات الحالة المدنية والوثائق الرسمية للسائق بنجاح');
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء تحديث الوثائق: ' . $e->getMessage());
         }
@@ -572,12 +608,38 @@ $countMissingDocs = 0;
 $activeVehicles = [];
 
 if ($pdo) {
+    // Check if deleted_at exists in users table and self-heal if missing
+    $hasUsersDeletedAt = false;
+    try {
+        $cU = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
+        $hasUsersDeletedAt = !empty($cU);
+        if (!$hasUsersDeletedAt) {
+            try {
+                $pdo->exec("ALTER TABLE `users` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_users_deleted_at` (`deleted_at`)");
+                $hasUsersDeletedAt = true;
+            } catch (\Throwable $eAlter) {}
+        }
+    } catch (\Throwable $e) {}
+
+    if (!$hasUsersDeletedAt && function_exists('migrateSoftDeleteFields')) {
+        try {
+            migrateSoftDeleteFields($pdo);
+            $cU = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
+            $hasUsersDeletedAt = !empty($cU);
+        } catch (\Throwable $e) {}
+    }
+
     // Vehicle join condition including replacement drivers
     $joinVehOn = "(v.current_driver_id = u.id OR v.owner_id = u.id OR v.replacement_driver_id = u.id)";
 
     // 1. Fetch Main Drivers List with assigned vehicle info
-    try {
+    if ($hasUsersDeletedAt) {
         $deletedCond = ($filter === 'trash') ? " AND u.deleted_at IS NOT NULL" : " AND u.deleted_at IS NULL";
+    } else {
+        $deletedCond = ($filter === 'trash') ? " AND 1=0" : "";
+    }
+
+    try {
         $sql = "
             SELECT u.*, 
                    MAX(v.plate_number) as plate_number, 
@@ -608,7 +670,42 @@ if ($pdo) {
         $allDrivers = $stmtD->fetchAll() ?: [];
     } catch (\Throwable $e) {
         error_log("drivers.php - Main drivers query notice: " . $e->getMessage());
-        $allDrivers = [];
+        // Fallback: simple join without leaves subquery and without deleted_at
+        try {
+            $fSql = "
+                SELECT u.*, 
+                       MAX(v.plate_number) as plate_number, 
+                       MAX(v.brand) as brand, 
+                       MAX(v.model) as model, 
+                       MAX(v.door_number) as door_number,
+                       MAX(v.technical_control_expiry) as veh_tc_expiry, 
+                       MAX(v.insurance_expiry) as veh_ins_expiry,
+                       0 as is_veh_replacement,
+                       0 as veh_repl_count,
+                       0 as act_leave_repl_count
+                FROM users u
+                LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+                WHERE (u.role = 'driver' OR (u.role = 'owner' AND (u.license_number IS NOT NULL OR u.driver_type IS NOT NULL)))
+            ";
+            $fParams = [];
+            if (!empty($search)) {
+                $fSql .= " AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.license_number LIKE ?)";
+                $fParams[] = "%$search%";
+                $fParams[] = "%$search%";
+                $fParams[] = "%$search%";
+            }
+            $fSql .= " GROUP BY u.id ORDER BY u.id DESC";
+            $stmtF = $pdo->prepare($fSql);
+            $stmtF->execute($fParams);
+            $allDrivers = $stmtF->fetchAll() ?: [];
+        } catch (\Throwable $e2) {
+            error_log("drivers.php - Fallback drivers query error: " . $e2->getMessage());
+            try {
+                $allDrivers = $pdo->query("SELECT * FROM users WHERE role = 'driver' ORDER BY id DESC")->fetchAll() ?: [];
+            } catch (\Throwable $e3) {
+                $allDrivers = [];
+            }
+        }
     }
 
     // 2. Process Alerts, Flags & Probation Stage for every driver
@@ -694,11 +791,21 @@ if ($pdo) {
     // 4. Counts
     $driverWhere = "(role = 'driver' OR (role = 'owner' AND (license_number IS NOT NULL OR driver_type IS NOT NULL)))";
     $countTrashDrivers = 0;
+    $countActifs = 0;
+    $countAnciens = 0;
+    $uDelCond = $hasUsersDeletedAt ? " AND deleted_at IS NULL" : "";
     try {
-        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status = 'active' AND deleted_at IS NULL")->fetchColumn();
-        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status != 'active' AND deleted_at IS NULL")->fetchColumn();
-        $countTrashDrivers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND deleted_at IS NOT NULL")->fetchColumn();
-    } catch (\Throwable $e) {}
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status = 'active' {$uDelCond}")->fetchColumn();
+        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND status != 'active' {$uDelCond}")->fetchColumn();
+        if ($hasUsersDeletedAt) {
+            $countTrashDrivers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE $driverWhere AND deleted_at IS NOT NULL")->fetchColumn();
+        }
+    } catch (\Throwable $e) {
+        try {
+            $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND (status = 'active' OR status IS NULL)")->fetchColumn();
+            $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'driver' AND status = 'suspended'")->fetchColumn();
+        } catch (\Throwable $e2) {}
+    }
 
     // Dynamic Counts for Probation Stages (3 months per stage, stops after 9 months)
     $countTrial1 = count(array_filter($allDrivers, fn($x) => ($x['probation_stage'] ?? '') === 'trial_1'));
@@ -728,6 +835,14 @@ if ($pdo) {
         $clientDriversMap[(int)$d['id']] = [
             'id' => (int)$d['id'],
             'full_name' => $d['full_name'] ?? '',
+            'first_name' => $d['first_name'] ?? '',
+            'last_name' => $d['last_name'] ?? '',
+            'birth_date' => $d['birth_date'] ?? '',
+            'birth_place' => $d['birth_place'] ?? '',
+            'father_name' => $d['father_name'] ?? '',
+            'mother_name' => $d['mother_name'] ?? '',
+            'address' => $d['address'] ?? '',
+            'wilaya' => $d['wilaya'] ?? '16 - الجزائر العاصمة',
             'phone' => $d['phone'] ?? '',
             'avatar_url' => !empty($d['avatar_url']) ? url($d['avatar_url']) : '',
             'plate_number' => $d['plate_number'] ?? '',
@@ -2126,12 +2241,12 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div>
                     <div class="flex items-center gap-2">
-                        <h3 class="font-black text-slate-900 text-base sm:text-lg">إدارة وتجديد وثائق ورخص السائق</h3>
+                        <h3 class="font-black text-slate-900 text-base sm:text-lg">تعديل بيانات وهوية ووثائق السائق</h3>
                         <span class="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 font-num">
-                            تجديد فوري
+                            تحديث فوري
                         </span>
                     </div>
-                    <p class="text-xs text-slate-500 mt-0.5">تحديث صلاحية رخصة السياقة، الفحص الطبي الدوري، وعقد استغلال رخصة الأجرة</p>
+                    <p class="text-xs text-slate-500 mt-0.5">تعديل الحالة المدنية، رخصة السياقة، الفحص الطبي الدوري، وعقد الاستغلال</p>
                 </div>
             </div>
             
@@ -2175,12 +2290,58 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="hidden" name="driver_id" id="docDriverId" value="">
             <input type="hidden" name="return_filter" value="<?= htmlspecialchars($filter) ?>">
 
-            <!-- 1. رخصة السياقة -->
+            <!-- 1. الحالة المدنية والهوية الشخصية -->
+            <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3.5">
+                <div class="flex items-center justify-between border-b border-amber-200/70 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        <h4 class="font-black text-slate-900 text-xs">1. الحالة المدنية والهوية الشخصية (État Civil & Filiation)</h4>
+                    </div>
+                    <span class="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">دفتر المقررة والبطاقة المهنية</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اللقب (Nom de famille)</label>
+                        <input type="text" name="last_name" id="docLastName" placeholder="مثال: بلبشير" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الاسم (Prénom)</label>
+                        <input type="text" name="first_name" id="docFirstName" placeholder="مثال: بوجمعة" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">تاريخ الازدياد (Date de Naissance)</label>
+                        <input type="date" name="birth_date" id="docBirthDate" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">مكان الازدياد (Lieu de Naissance)</label>
+                        <input type="text" name="birth_place" id="docBirthPlace" placeholder="مثال: أدرار" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اسم الأب (ابن)</label>
+                        <input type="text" name="father_name" id="docFatherName" placeholder="مثال: اسم الأب" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">اسم ولقب الأم (وابن)</label>
+                        <input type="text" name="mother_name" id="docMotherName" placeholder="مثال: اسم ولقب الأم" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">رقم الهاتف</label>
+                        <input type="tel" name="phone" id="docPhone" placeholder="06XXXXXXXX" dir="ltr" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">العنوان الكامل للإقامة</label>
+                        <input type="text" name="address" id="docAddress" placeholder="مثال: حي 20 مسكن، أدرار" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. رخصة السياقة -->
             <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3.5">
                 <div class="flex items-center justify-between border-b border-slate-200/70 pb-2.5">
                     <div class="flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                        <h4 class="font-black text-slate-900 text-xs">بيانات رخصة السياقة (Permis de Conduire)</h4>
+                        <h4 class="font-black text-slate-900 text-xs">2. بيانات رخصة السياقة (Permis de Conduire)</h4>
                     </div>
                     <div class="flex items-center gap-1.5">
                         <button type="button" onclick="renewLicense(5)" class="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-[11px] transition shadow-2xs cursor-pointer">
@@ -3009,6 +3170,24 @@ require_once __DIR__ . '/../includes/header.php';
         if (ficheLink && driver.id) {
             ficheLink.href = 'driver_fiche.php?id=' + driver.id;
         }
+
+        // Civil Status fields
+        const docLast = document.getElementById('docLastName');
+        if (docLast) docLast.value = driver.last_name || '';
+        const docFirst = document.getElementById('docFirstName');
+        if (docFirst) docFirst.value = driver.first_name || '';
+        const docBirthDate = document.getElementById('docBirthDate');
+        if (docBirthDate) docBirthDate.value = driver.birth_date || '';
+        const docBirthPlace = document.getElementById('docBirthPlace');
+        if (docBirthPlace) docBirthPlace.value = driver.birth_place || '';
+        const docFather = document.getElementById('docFatherName');
+        if (docFather) docFather.value = driver.father_name || '';
+        const docMother = document.getElementById('docMotherName');
+        if (docMother) docMother.value = driver.mother_name || '';
+        const docPhone = document.getElementById('docPhone');
+        if (docPhone) docPhone.value = driver.phone || '';
+        const docAddress = document.getElementById('docAddress');
+        if (docAddress) docAddress.value = driver.address || '';
 
         // License fields
         document.getElementById('docLicenseNumber').value = driver.license_number || '';

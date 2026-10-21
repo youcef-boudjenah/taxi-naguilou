@@ -107,8 +107,8 @@ $remainingBalance = max(0, $invoiceData['total_due'] - $invoiceData['paid_amount
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-    
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Production Compiled Tailwind CSS -->
+    <link rel="stylesheet" href="<?= url('/assets/css/tailwind.min.css') ?>">
     <style>
         body, * { font-family: 'Cairo', sans-serif !important; }
         .font-num, [dir="ltr"] { font-family: 'Plus Jakarta Sans', sans-serif !important; }

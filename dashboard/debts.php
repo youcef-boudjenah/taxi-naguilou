@@ -6,6 +6,45 @@ require_role(['super_admin', 'admin']);
 
 $pdo = getDBConnection();
 
+// Run debts & versements migration defensively
+if ($pdo && function_exists('migrateDebtsAndVersements')) {
+    migrateDebtsAndVersements($pdo);
+}
+
+// Check column availability defensively
+$hasDebtsDeletedAt = false;
+$hasVersementsDeletedAt = false;
+$hasUsersDeletedAt = false;
+
+if ($pdo) {
+    try {
+        $c = $pdo->query("SHOW COLUMNS FROM `driver_debts` LIKE 'deleted_at'")->fetch();
+        $hasDebtsDeletedAt = !empty($c);
+        if (!$hasDebtsDeletedAt) {
+            try {
+                $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_debts_deleted_at` (`deleted_at`)");
+                $hasDebtsDeletedAt = true;
+            } catch (\Throwable $exAlter) {}
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $cV = $pdo->query("SHOW COLUMNS FROM `versements` LIKE 'deleted_at'")->fetch();
+        $hasVersementsDeletedAt = !empty($cV);
+        if (!$hasVersementsDeletedAt) {
+            try {
+                $pdo->exec("ALTER TABLE `versements` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_vers_deleted_at` (`deleted_at`)");
+                $hasVersementsDeletedAt = true;
+            } catch (\Throwable $exAlterV) {}
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $cU = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
+        $hasUsersDeletedAt = !empty($cU);
+    } catch (\Throwable $e) {}
+}
+
 // Handle Recalculate Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalculate_month'])) {
     require_csrf_token();
@@ -13,8 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalculate_month']))
         $pdo->beginTransaction();
         $debtsList = $pdo->query("SELECT id, total_credits FROM driver_debts")->fetchAll();
         $recalculatedCount = 0;
+        $vRecalcCond = $hasVersementsDeletedAt ? " AND deleted_at IS NULL" : "";
         foreach ($debtsList as $dbItem) {
-            $sumStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) as total_v, MAX(payment_date) as last_v FROM versements WHERE debt_id = ? AND (status = 'approved' OR status IS NULL) AND deleted_at IS NULL");
+            $sumStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) as total_v, MAX(payment_date) as last_v FROM versements WHERE debt_id = ? AND (status = 'approved' OR status IS NULL) {$vRecalcCond}");
             $sumStmt->execute([$dbItem['id']]);
             $sumData = $sumStmt->fetch();
             $totalV = (float)($sumData['total_v'] ?? 0);
@@ -87,11 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $versementId = intval($_POST['versement_id'] ?? 0);
     if ($versementId > 0) {
         try {
+            $vDelClause = $hasVersementsDeletedAt ? " AND v.deleted_at IS NULL" : "";
             $stmtV = $pdo->prepare("
                 SELECT v.*, d.chauffeur_name, d.user_id, d.total_credits, d.total_versements
                 FROM versements v
                 JOIN driver_debts d ON v.debt_id = d.id
-                WHERE v.id = ? AND v.status = 'pending' AND v.deleted_at IS NULL
+                WHERE v.id = ? AND v.status = 'pending' {$vDelClause}
             ");
             $stmtV->execute([$versementId]);
             $ver = $stmtV->fetch();
@@ -154,11 +195,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     if ($versementId > 0) {
         try {
+            $vDelClause = $hasVersementsDeletedAt ? " AND v.deleted_at IS NULL" : "";
             $stmtV = $pdo->prepare("
                 SELECT v.*, d.chauffeur_name, d.user_id
                 FROM versements v
                 JOIN driver_debts d ON v.debt_id = d.id
-                WHERE v.id = ? AND v.status = 'pending' AND v.deleted_at IS NULL
+                WHERE v.id = ? AND v.status = 'pending' {$vDelClause}
             ");
             $stmtV->execute([$versementId]);
             $ver = $stmtV->fetch();
@@ -294,8 +336,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($debtId > 0) {
         try {
             $pdo->beginTransaction();
-            $pdo->prepare("UPDATE versements SET deleted_at = NOW() WHERE debt_id = ?")->execute([$debtId]);
-            $pdo->prepare("UPDATE driver_debts SET deleted_at = NOW() WHERE id = ?")->execute([$debtId]);
+            if ($hasVersementsDeletedAt) {
+                $pdo->prepare("UPDATE versements SET deleted_at = NOW() WHERE debt_id = ?")->execute([$debtId]);
+            }
+            if ($hasDebtsDeletedAt) {
+                $pdo->prepare("UPDATE driver_debts SET deleted_at = NOW() WHERE id = ?")->execute([$debtId]);
+            } else {
+                $pdo->prepare("DELETE FROM driver_debts WHERE id = ?")->execute([$debtId]);
+            }
             $pdo->commit();
             log_audit($pdo, 'debt_deleted', 'driver_debts', $debtId, "نقل القيد المالي رقم $debtId وسجل دفعاته إلى سلة المهملات");
             set_flash('success', "تم نقل القيد المالي وسجل دفعاته إلى سلة المهملات والأرشيف بنجاح. يمكنك استرجاعه في أي وقت.");
@@ -320,16 +368,23 @@ $dettesActifs = 0.0;
 $creancesAnciens = 0.0;
 $countActifs = 0;
 $countAnciens = 0;
+$pendingVersements = [];
 
 if ($pdo) {
+    // 1. Registered drivers for dropdown
+    $userDelClause = $hasUsersDeletedAt ? " AND deleted_at IS NULL" : "";
     try {
-        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND deleted_at IS NULL ORDER BY full_name ASC");
+        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' {$userDelClause} ORDER BY full_name ASC");
         $registeredDrivers = $stmtD ? $stmtD->fetchAll() : [];
     } catch (\Throwable $e) {
         $registeredDrivers = [];
     }
 
-    $where = ["1=1", "deleted_at IS NULL"];
+    // 2. Query Debts Table
+    $where = ["1=1"];
+    if ($hasDebtsDeletedAt) {
+        $where[] = "deleted_at IS NULL";
+    }
     $params = [];
 
     if (!empty($search)) {
@@ -339,9 +394,9 @@ if ($pdo) {
     }
 
     if ($filter === 'endette') {
-        $where[] = "status = 'endette'";
+        $where[] = "(status = 'endette' OR (total_credits - total_versements) > 0)";
     } elseif ($filter === 'a_jour') {
-        $where[] = "status = 'a_jour'";
+        $where[] = "(status = 'a_jour' OR (total_credits - total_versements) <= 0)";
     }
 
     if ($driverType === 'actif') {
@@ -357,15 +412,35 @@ if ($pdo) {
         $debts = $stmt->fetchAll() ?: [];
     } catch (\Throwable $e) {
         error_log("debts.php - Query debts notice: " . $e->getMessage());
-        $debts = [];
+        // Fallback: strip deleted_at condition if present and retry
+        try {
+            $fallbackWhere = array_values(array_filter($where, function($cond) {
+                return stripos($cond, 'deleted_at') === false;
+            }));
+            if (empty($fallbackWhere)) {
+                $fallbackWhere = ["1=1"];
+            }
+            $fallbackSql = "SELECT * FROM driver_debts WHERE " . implode(' AND ', $fallbackWhere) . " ORDER BY (total_credits - total_versements) DESC, id ASC";
+            $stmt = $pdo->prepare($fallbackSql);
+            $stmt->execute($params);
+            $debts = $stmt->fetchAll() ?: [];
+        } catch (\Throwable $e2) {
+            error_log("debts.php - Fallback query notice: " . $e2->getMessage());
+            try {
+                $debts = $pdo->query("SELECT * FROM driver_debts ORDER BY (total_credits - total_versements) DESC, id ASC")->fetchAll() ?: [];
+            } catch (\Throwable $e3) {
+                $debts = [];
+            }
+        }
     }
 
-    // Dynamic KPI Calculations from Real Database Data
+    // 3. Dynamic KPI Calculations from Real Database Data
+    $debtDelCond = $hasDebtsDeletedAt ? " AND deleted_at IS NULL" : "";
     try {
         $dettesActifs = (float)$pdo->query("
             SELECT COALESCE(SUM(total_credits - total_versements), 0) 
             FROM driver_debts 
-            WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0
+            WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0 {$debtDelCond}
         ")->fetchColumn();
     } catch (\Throwable $e) {
         $dettesActifs = 0.0;
@@ -375,22 +450,27 @@ if ($pdo) {
         $creancesAnciens = (float)$pdo->query("
             SELECT COALESCE(SUM(total_credits - total_versements), 0) 
             FROM driver_debts 
-            WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0
+            WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0 {$debtDelCond}
         ")->fetchColumn();
     } catch (\Throwable $e) {
         $creancesAnciens = 0.0;
     }
 
     try {
-        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'actif'")->fetchColumn();
+        $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'actif' {$debtDelCond}")->fetchColumn();
     } catch (\Throwable $e) {
         $countActifs = 0;
     }
 
     try {
-        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien'")->fetchColumn();
-    // Pending BaridiMob Versements
+        $countAnciens = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien' {$debtDelCond}")->fetchColumn();
+    } catch (\Throwable $e) {
+        $countAnciens = 0;
+    }
+
+    // 4. Pending BaridiMob Versements
     $pendingVersements = [];
+    $vDelCond = $hasVersementsDeletedAt ? " AND v.deleted_at IS NULL" : "";
     try {
         $pStmt = $pdo->query("
             SELECT v.*, d.chauffeur_name, d.phone, d.total_credits, d.total_versements, 
@@ -399,15 +479,12 @@ if ($pdo) {
             FROM versements v
             JOIN driver_debts d ON v.debt_id = d.id
             LEFT JOIN users u ON d.user_id = u.id
-            WHERE v.status = 'pending' AND v.deleted_at IS NULL
+            WHERE v.status = 'pending' {$vDelCond}
             ORDER BY v.created_at DESC
         ");
         $pendingVersements = $pStmt ? $pStmt->fetchAll() : [];
     } catch (\Throwable $e) {
         $pendingVersements = [];
-    }
-    } catch (\Throwable $e) {
-        $countAnciens = 0;
     }
 }
 ?>

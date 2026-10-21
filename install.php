@@ -195,11 +195,23 @@ function perform_installation(array $params): array {
             PDO::ATTR_TIMEOUT => 4,
         ]);
 
-        // 4. Load & Execute Schema
+        // 4. Load & Execute Schema & Migrations
         if (file_exists(CONFIG_FILE)) {
             require_once CONFIG_FILE;
             if (function_exists('initAllTables')) {
                 initAllTables($pdo);
+            }
+            if (function_exists('migrateDriverFicheFields')) {
+                migrateDriverFicheFields($pdo);
+            }
+            if (function_exists('migrateSoftDeleteFields')) {
+                migrateSoftDeleteFields($pdo);
+            }
+            if (function_exists('migrateDebtsAndVersements')) {
+                migrateDebtsAndVersements($pdo);
+            }
+            if (function_exists('ensure_db_indexes')) {
+                ensure_db_indexes($pdo);
             }
         }
 
@@ -454,30 +466,8 @@ $wilayas = [
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        amber: {
-                            50: '#fffbeb',
-                            100: '#fef3c7',
-                            200: '#fde68a',
-                            500: '#f59e0b',
-                            600: '#d97706',
-                            700: '#b45309',
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Cairo', 'sans-serif'],
-                        num: ['Plus Jakarta Sans', 'Cairo', 'sans-serif']
-                    }
-                }
-            }
-        };
-    </script>
+    <!-- Production Compiled Tailwind CSS -->
+    <link rel="stylesheet" href="assets/css/tailwind.min.css">
     <style>
         body { font-family: 'Cairo', sans-serif; font-feature-settings: "tnum"; }
         ::selection { background-color: #fef3c7; color: #92400e; }

@@ -23,12 +23,19 @@ if (is_driver() && $driverId !== intval($_SESSION['user_id'])) {
     exit;
 }
 
-// 1. Handle Self-Service Profile Update (Phone, Email, Address, Avatar & Password)
+// 1. Handle Self-Service Profile Update (Phone, Email, Address, Civil Status, Avatar & Password)
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_profile') {
     require_csrf_token();
     $targetId = intval($_POST['driver_id'] ?? 0);
 
     if ($targetId > 0 && (!is_driver() || (int)$_SESSION['user_id'] === $targetId)) {
+        $firstName = trim($_POST['first_name'] ?? '');
+        $lastName = trim($_POST['last_name'] ?? '');
+        $birthDate = (!empty($_POST['birth_date']) && $_POST['birth_date'] !== '0000-00-00') ? trim($_POST['birth_date']) : null;
+        $birthPlace = trim($_POST['birth_place'] ?? '');
+        $fatherName = trim($_POST['father_name'] ?? '');
+        $motherName = trim($_POST['mother_name'] ?? '');
+
         $phone = trim($_POST['phone'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $address = trim($_POST['address'] ?? '');
@@ -60,8 +67,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
             }
 
             try {
-                $params = [$phone, $address];
-                $sql = "UPDATE users SET phone = ?, address = ?";
+                $params = [$phone, $address, $birthDate, $birthPlace, $fatherName, $motherName, $firstName ?: null, $lastName ?: null];
+                $sql = "UPDATE users SET phone = ?, address = ?, birth_date = ?, birth_place = ?, father_name = ?, mother_name = ?, first_name = ?, last_name = ?";
+                
+                $compName = trim(($lastName ? $lastName . ' ' : '') . $firstName);
+                if (!empty($compName)) {
+                    $sql .= ", full_name = ?";
+                    $params[] = $compName;
+                }
                 if (!empty($email)) {
                     $sql .= ", email = ?";
                     $params[] = $email;
@@ -74,8 +87,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
                     $sql .= ", password_hash = ?";
                     $params[] = password_hash($newPass, PASSWORD_BCRYPT);
                 }
-                $sql .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
-                $params[] = $targetId;
+
+                if (is_admin()) {
+                    $sql .= " WHERE id = ?";
+                    $params[] = $targetId;
+                } else {
+                    $sql .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
+                    $params[] = $targetId;
+                }
 
                 $stmtUp = $pdo->prepare($sql);
                 $stmtUp->execute($params);
@@ -85,8 +104,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
                     if (!empty($email)) $_SESSION['user_email'] = $email;
                 }
 
-                log_audit($pdo, 'driver_profile_updated', 'users', $targetId, "تحديث الملف الشخصي ومعلومات الأمان للسائق رقم $targetId");
-                set_flash('success', 'تم حفظ وتحديث بيانات حسابك ومعلوماتك بنجاح.');
+                log_audit($pdo, 'driver_profile_updated', 'users', $targetId, "تحديث الملف الشخصي ومعلومات الهوية للسائق رقم $targetId");
+                set_flash('success', 'تم حفظ وتحديث بيانات حسابك ومعلومات الحالة المدنية بنجاح.');
             } catch (\Throwable $e) {
                 set_flash('error', 'حدث خطأ أثناء حفظ التعديلات: ' . $e->getMessage());
             }
@@ -596,6 +615,68 @@ require_once __DIR__ . '/../includes/header.php';
 
 
     <!-- ==============================================
+         الحالة المدنية والهوية الشخصية للسائق (Filiation & État Civil)
+         ============================================== -->
+    <div class="bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-2xs space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+                <span class="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-lg">🪪</span>
+                <div>
+                    <h3 class="text-sm sm:text-base font-black text-slate-900 dark:text-white">الحالة المدنية والهوية الرسمية (دفتر المقررة)</h3>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400">البيانات الشخصية والنسب المقيدة في البطاقة المهنية ودفتر الشروط</p>
+                </div>
+            </div>
+            <button onclick="document.getElementById('editProfileModal').classList.remove('hidden')" 
+                    class="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-700/60 font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                </svg>
+                <span>تعديل بيانات الهوية والحالة المدنية</span>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 text-xs">
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">اللقب (Nom):</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-black"><?= !empty($driver['last_name']) ? htmlspecialchars($driver['last_name']) : '— غير مسجل' ?></strong>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">الاسم (Prénom):</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-black"><?= !empty($driver['first_name']) ? htmlspecialchars($driver['first_name']) : '— غير مسجل' ?></strong>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">تاريخ ومكان الازدياد:</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-bold flex items-center gap-1.5 flex-wrap">
+                    <span class="font-num" dir="ltr"><?= !empty($driver['birth_date']) ? date('d/m/Y', strtotime($driver['birth_date'])) : '—' ?></span>
+                    <?php if (!empty($driver['birth_place'])): ?>
+                        <span>(<?= htmlspecialchars($driver['birth_place']) ?>)</span>
+                    <?php endif; ?>
+                </strong>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">اسم الأب (ابن):</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-bold"><?= !empty($driver['father_name']) ? htmlspecialchars($driver['father_name']) : '— غير مسجل' ?></strong>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">اسم ولقب الأم (وابن):</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-bold"><?= !empty($driver['mother_name']) ? htmlspecialchars($driver['mother_name']) : '— غير مسجل' ?></strong>
+            </div>
+
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
+                <span class="text-slate-400 block text-[10px] font-bold mb-1">العنوان الكامل للإقامة:</span>
+                <strong class="text-slate-900 dark:text-white text-xs font-bold truncate block" title="<?= htmlspecialchars($driver['address'] ?? '') ?>">
+                    <?= !empty($driver['address']) ? htmlspecialchars($driver['address']) : '— غير مسجل' ?>
+                </strong>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ==============================================
          1. القسم المالي المباشر: الديون، الدفعات، والرصيد المتبقي
          ============================================== -->
     <div class="space-y-4">
@@ -993,6 +1074,49 @@ require_once __DIR__ . '/../includes/header.php';
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_profile">
             <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
+
+            <div class="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl border border-amber-200/80 dark:border-amber-800/60 space-y-3">
+                <span class="text-xs font-black text-amber-900 dark:text-amber-300 block">الحالة المدنية والنسب (دفتر المقررة):</span>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">اللقب (Nom):</label>
+                        <input type="text" name="last_name" value="<?= htmlspecialchars($driver['last_name'] ?? '') ?>" placeholder="مثال: بلبشير"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">الاسم (Prénom):</label>
+                        <input type="text" name="first_name" value="<?= htmlspecialchars($driver['first_name'] ?? '') ?>" placeholder="مثال: بوجمعة"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">تاريخ الازدياد:</label>
+                        <input type="date" name="birth_date" value="<?= htmlspecialchars($driver['birth_date'] ?? '') ?>"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-num focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">مكان الازدياد:</label>
+                        <input type="text" name="birth_place" value="<?= htmlspecialchars($driver['birth_place'] ?? '') ?>" placeholder="مثال: أدرار"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">اسم الأب (ابن):</label>
+                        <input type="text" name="father_name" value="<?= htmlspecialchars($driver['father_name'] ?? '') ?>" placeholder="مثال: اسم الأب"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">اسم ولقب الأم (وابن):</label>
+                        <input type="text" name="mother_name" value="<?= htmlspecialchars($driver['mother_name'] ?? '') ?>" placeholder="مثال: اسم ولقب الأم"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+            </div>
 
             <div>
                 <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">الصورة الشخصية:</label>

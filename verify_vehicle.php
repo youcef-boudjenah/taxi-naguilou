@@ -206,7 +206,8 @@ $plateFormatted = $vehicle ? str_replace('/', '-', $vehicle['plate_number']) : '
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title><?= $vehicle ? "بطاقة مركبة الأجرة {$vehicle['door_number']} | {$siteName}" : "التحقق من المركبة | {$siteName}" ?></title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Production Compiled Tailwind CSS -->
+    <link rel="stylesheet" href="<?= url('/assets/css/tailwind.min.css') ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Changa:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">

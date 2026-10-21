@@ -136,19 +136,31 @@ function getDBConnection() {
         $pdo->exec("SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode, 'ONLY_FULL_GROUP_BY', ''))");
     } catch (\Throwable $ex) {}
 
-    // Run migrations only once, persist lock file to save ~280ms on every HTTP request!
-    $schemaLock = __DIR__ . '/../uploads/.schema_migrated_v246';
-    if (!file_exists($schemaLock)) {
+    // Run migrations: check lock file AND verify that users table has deleted_at column
+    $schemaLock = __DIR__ . '/../uploads/.schema_migrated_v250';
+    $needsMigration = !file_exists($schemaLock);
+    if (!$needsMigration) {
+        // Double check: if lock exists but database is missing deleted_at on users or driver_debts, re-run!
+        try {
+            $colCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
+            if (empty($colCheck)) {
+                $needsMigration = true;
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    if ($needsMigration) {
         initAllTables($pdo);
         migrateDriverFicheFields($pdo);
         migrateSoftDeleteFields($pdo);
+        migrateDebtsAndVersements($pdo);
         seedDefaultData($pdo);
         ensure_db_indexes($pdo);
         $destDir = dirname($schemaLock);
         if (!is_dir($destDir)) {
             @mkdir($destDir, 0777, true);
         }
-        @file_put_contents($schemaLock, json_encode(['migrated_at' => date('c'), 'v' => '2.4.6']));
+        @file_put_contents($schemaLock, json_encode(['migrated_at' => date('c'), 'v' => '2.5.0']));
     }
 
     return $pdo;
@@ -221,7 +233,8 @@ function initAllTables(PDO $pdo) {
         next_medical_end DATE NULL,
         taxi_contract_start DATE NULL,
         taxi_contract_end DATE NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
     -- Vehicles Table
@@ -247,6 +260,7 @@ function initAllTables(PDO $pdo) {
         suspended_reason VARCHAR(255) NULL,
         qr_code VARCHAR(64) UNIQUE NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL,
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (current_driver_id) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (replacement_driver_id) REFERENCES users(id) ON DELETE SET NULL
@@ -266,6 +280,7 @@ function initAllTables(PDO $pdo) {
         signed_at TIMESTAMP NULL,
         notes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL,
         FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
@@ -282,6 +297,7 @@ function initAllTables(PDO $pdo) {
         reason VARCHAR(255) NOT NULL,
         status ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'approved',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL,
         FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
         FOREIGN KEY (replacement_driver_id) REFERENCES users(id) ON DELETE SET NULL
@@ -331,7 +347,8 @@ function initAllTables(PDO $pdo) {
         last_versement_date DATE NULL,
         notes VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
     -- Versements Log (Payments)
@@ -343,7 +360,10 @@ function initAllTables(PDO $pdo) {
         payment_date DATE NOT NULL,
         receipt_ref VARCHAR(100) NULL,
         notes VARCHAR(255) NULL,
+        receipt_image VARCHAR(255) NULL,
+        status VARCHAR(20) DEFAULT 'approved',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at DATETIME NULL DEFAULT NULL,
         FOREIGN KEY (debt_id) REFERENCES driver_debts(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -568,13 +588,16 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'activity_start_date' => "DATE NULL AFTER `probation_stage`",
             'activity_status' => "VARCHAR(50) DEFAULT 'active' AFTER `activity_start_date`",
             'dtw_visa_date' => "DATE NULL AFTER `activity_status`",
+            'wilaya' => "VARCHAR(100) DEFAULT '01 - أدرار' AFTER `status`",
             'birth_date' => "DATE NULL AFTER `wilaya`",
             'birth_place' => "VARCHAR(150) NULL AFTER `birth_date`",
             'father_name' => "VARCHAR(100) NULL AFTER `birth_place`",
             'mother_name' => "VARCHAR(100) NULL AFTER `father_name`",
             'address' => "VARCHAR(255) NULL AFTER `mother_name`",
+            'license_number' => "VARCHAR(50) NULL AFTER `address`",
             'license_issue_date' => "DATE NULL AFTER `license_number`",
             'license_issue_place' => "VARCHAR(100) NULL AFTER `license_issue_date`",
+            'license_expiry' => "DATE NULL AFTER `license_issue_place`",
             'medical_cert_expiry' => "DATE NULL AFTER `license_expiry`",
             'medical_exam_start' => "DATE NULL AFTER `medical_cert_expiry`",
             'medical_exam_end' => "DATE NULL AFTER `medical_exam_start`",
@@ -1387,6 +1410,31 @@ function migrateSoftDeleteFields(PDO $pdo): void {
             }
         } catch (\Throwable $e) {}
     }
+}
+
+/**
+ * Ensures driver_debts and versements have required columns and indexes
+ */
+function migrateDebtsAndVersements(PDO $pdo): void {
+    try {
+        $debtCols = $pdo->query("SHOW COLUMNS FROM `driver_debts`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (!in_array('deleted_at', $debtCols)) {
+            $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_debts_deleted_at` (`deleted_at`)");
+        }
+    } catch (\Throwable $e) {}
+
+    try {
+        $versCols = $pdo->query("SHOW COLUMNS FROM `versements`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (!in_array('status', $versCols)) {
+            $pdo->exec("ALTER TABLE `versements` ADD COLUMN `status` VARCHAR(20) DEFAULT 'approved'");
+        }
+        if (!in_array('receipt_image', $versCols)) {
+            $pdo->exec("ALTER TABLE `versements` ADD COLUMN `receipt_image` VARCHAR(255) NULL");
+        }
+        if (!in_array('deleted_at', $versCols)) {
+            $pdo->exec("ALTER TABLE `versements` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_vers_deleted_at` (`deleted_at`)");
+        }
+    } catch (\Throwable $e) {}
 }
 
 /**
