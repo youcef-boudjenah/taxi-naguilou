@@ -271,12 +271,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $firstName = trim($_POST['first_name'] ?? '');
         $lastName = trim($_POST['last_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $wilaya = trim($_POST['wilaya'] ?? '');
         $birthDate = $cleanDate($_POST['birth_date'] ?? null);
         $birthPlace = trim($_POST['birth_place'] ?? '');
         $fatherName = trim($_POST['father_name'] ?? '');
         $motherName = trim($_POST['mother_name'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $address = trim($_POST['address'] ?? '');
+
+        $driverType = in_array($_POST['driver_type'] ?? '', ['ajir', 'replacement']) ? $_POST['driver_type'] : null;
+        $probStage = in_array($_POST['probation_stage'] ?? '', ['trial_1', 'trial_2', 'trial_3', 'official']) ? $_POST['probation_stage'] : null;
+        $actStatus = in_array($_POST['activity_status'] ?? '', ['active', 'on_leave', 'suspended']) ? $_POST['activity_status'] : null;
 
         $licNum = trim($_POST['license_number'] ?? '');
         $licIssue = $cleanDate($_POST['license_issue_date'] ?? null);
@@ -292,6 +298,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $cardNum = trim($_POST['card_number'] ?? '');
         $taxiStart = $cleanDate($_POST['taxi_contract_start'] ?? null);
         $taxiEnd = $cleanDate($_POST['taxi_contract_end'] ?? null);
+
+        // Handle Avatar Photo (File Upload from mobile camera/gallery OR base64 snapshot OR removal)
+        $avatarUrl = null;
+        $removeAvatar = !empty($_POST['remove_avatar']) && $_POST['remove_avatar'] == '1';
+
+        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+            $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+            if (in_array($ext, $allowedExts)) {
+                $destDir = __DIR__ . '/../uploads/drivers';
+                if (!is_dir($destDir)) {
+                    mkdir($destDir, 0777, true);
+                }
+                $fileName = 'driver_' . time() . '_' . rand(100, 999) . '.' . $ext;
+                if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
+                    $avatarUrl = '/uploads/drivers/' . $fileName;
+                }
+            }
+        } elseif (!empty($_POST['avatar_base64']) && str_starts_with($_POST['avatar_base64'], 'data:image/')) {
+            $destDir = __DIR__ . '/../uploads/drivers';
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0777, true);
+            }
+            $rawParts = explode(',', $_POST['avatar_base64']);
+            if (count($rawParts) === 2) {
+                $imgData = base64_decode($rawParts[1]);
+                if ($imgData !== false) {
+                    $fileName = 'driver_cam_' . time() . '_' . rand(100, 999) . '.jpg';
+                    if (file_put_contents($destDir . '/' . $fileName, $imgData) !== false) {
+                        $avatarUrl = '/uploads/drivers/' . $fileName;
+                    }
+                }
+            }
+        }
 
         try {
             $sqlUp = "
@@ -319,6 +359,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $sqlUp .= ", phone = ?";
                 $upParams[] = $phone;
             }
+            if (!empty($email)) {
+                $sqlUp .= ", email = ?";
+                $upParams[] = $email;
+            }
+            if (!empty($wilaya)) {
+                $sqlUp .= ", wilaya = ?";
+                $upParams[] = $wilaya;
+            }
+            if ($driverType !== null) {
+                $sqlUp .= ", driver_type = ?";
+                $upParams[] = $driverType;
+            }
+            if ($probStage !== null) {
+                $sqlUp .= ", probation_stage = ?";
+                $upParams[] = $probStage;
+            }
+            if ($actStatus !== null) {
+                $sqlUp .= ", activity_status = ?";
+                $upParams[] = $actStatus;
+            }
+            if ($avatarUrl !== null) {
+                $sqlUp .= ", avatar_url = ?";
+                $upParams[] = $avatarUrl;
+            } elseif ($removeAvatar) {
+                $sqlUp .= ", avatar_url = NULL";
+            }
 
             if (is_admin()) {
                 $sqlUp .= " WHERE id = ?";
@@ -331,6 +397,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmtUp = $pdo->prepare($sqlUp);
             $stmtUp->execute($upParams);
 
+            // Handle Assigned Vehicle update if present
+            if (isset($_POST['assigned_vehicle_id'])) {
+                $newVehId = intval($_POST['assigned_vehicle_id']);
+                // Check currently assigned vehicle
+                $curStmt = $pdo->prepare("SELECT id FROM vehicles WHERE current_driver_id = ?");
+                $curStmt->execute([$driverId]);
+                $curVehId = (int)$curStmt->fetchColumn();
+
+                if ($newVehId !== $curVehId) {
+                    $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+                    if ($newVehId > 0) {
+                        $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $newVehId]);
+                    }
+                }
+            }
+
             // Sync with signed labor contract if dates exist
             if (!empty($taxiStart) && !empty($taxiEnd)) {
                 try {
@@ -339,10 +421,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 } catch (\Throwable $e) {}
             }
 
-            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث الحالة المدنية والوثائق الرسمية للسائق رقم $driverId");
-            set_flash('success', 'تم حفظ وتحديث بيانات الحالة المدنية والوثائق الرسمية للسائق بنجاح');
+            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث الحالة المدنية والصورة والوثائق الرسمية للسائق رقم $driverId");
+            set_flash('success', 'تم حفظ وتحديث بيانات السائق وصورته والوثائق الرسمية بنجاح');
         } catch (\Throwable $e) {
-            set_flash('error', 'حدث خطأ أثناء تحديث الوثائق: ' . $e->getMessage());
+            set_flash('error', 'حدث خطأ أثناء تحديث بيانات ووثائق السائق: ' . $e->getMessage());
         }
     }
     $retFilter = trim($_POST['return_filter'] ?? '');
@@ -642,6 +724,7 @@ if ($pdo) {
     try {
         $sql = "
             SELECT u.*, 
+                   MAX(CASE WHEN v.current_driver_id = u.id THEN v.id ELSE NULL END) as assigned_vehicle_id,
                    MAX(v.plate_number) as plate_number, 
                    MAX(v.brand) as brand, 
                    MAX(v.model) as model, 
@@ -837,6 +920,7 @@ if ($pdo) {
             'full_name' => $d['full_name'] ?? '',
             'first_name' => $d['first_name'] ?? '',
             'last_name' => $d['last_name'] ?? '',
+            'email' => $d['email'] ?? '',
             'birth_date' => $d['birth_date'] ?? '',
             'birth_place' => $d['birth_place'] ?? '',
             'father_name' => $d['father_name'] ?? '',
@@ -845,6 +929,10 @@ if ($pdo) {
             'wilaya' => $d['wilaya'] ?? '16 - الجزائر العاصمة',
             'phone' => $d['phone'] ?? '',
             'avatar_url' => !empty($d['avatar_url']) ? url($d['avatar_url']) : '',
+            'driver_type' => $d['driver_type'] ?? 'ajir',
+            'probation_stage' => $d['probation_stage'] ?? 'trial_1',
+            'activity_status' => $d['activity_status'] ?? 'active',
+            'assigned_vehicle_id' => !empty($d['assigned_vehicle_id']) ? (int)$d['assigned_vehicle_id'] : (!empty($d['vehicle_id']) ? (int)$d['vehicle_id'] : 0),
             'plate_number' => $d['plate_number'] ?? '',
             'door_number' => $d['door_number'] ?? '',
             'license_number' => $d['license_number'] ?? '',
@@ -1749,7 +1837,20 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
 
+                        <!-- Dual Buttons: Direct Camera vs Gallery -->
+                        <div class="flex flex-col gap-1.5 w-full mt-2.5">
+                            <button type="button" onclick="triggerDriverCamera('add')" class="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer">
+                                <span>📸 التقاط بالكاميرا (مباشر)</span>
+                            </button>
+                            <button type="button" onclick="triggerDriverGallery('add')" class="w-full px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer">
+                                <span>📁 اختيار من المعرض</span>
+                            </button>
+                        </div>
+
+                        <input type="file" id="addCameraInput" accept="image/*" capture="environment" class="hidden" onchange="onDriverPhotoSelected(this, 'add')">
+                        <input type="file" id="addGalleryInput" accept="image/png,image/jpeg,image/webp,image/*" class="hidden" onchange="onDriverPhotoSelected(this, 'add')">
                         <input type="file" id="driverAvatarInput" name="avatar" accept="image/*" class="hidden" onchange="previewDriverAvatar(this)">
+                        <input type="hidden" name="avatar_base64" id="addAvatarBase64" value="">
                         <span class="text-[10px] text-slate-400 text-center mt-2">تظهر في البطاقة الفنية الرسمية للسائق</span>
                     </div>
 
@@ -2284,11 +2385,127 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
 
         <!-- Modal Form Body -->
-        <form method="POST" action="" id="manageDocsForm" class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
+        <form method="POST" action="" id="manageDocsForm" enctype="multipart/form-data" class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_driver_docs">
             <input type="hidden" name="driver_id" id="docDriverId" value="">
             <input type="hidden" name="return_filter" value="<?= htmlspecialchars($filter) ?>">
+
+            <!-- 0. الصورة الشخصية والوضعية المهنية -->
+            <div class="p-4 rounded-2xl bg-gradient-to-br from-slate-50 via-amber-50/25 to-slate-50 border border-slate-200/90 shadow-2xs space-y-3.5">
+                <div class="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-amber-500/20"></span>
+                        <h4 class="font-black text-slate-900 text-xs">صورة السائق والبيانات المهنية (Photo & Statut)</h4>
+                    </div>
+                    <span class="text-[10px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">مطابقة لملف النقل</span>
+                </div>
+
+                <!-- Dual Camera & Gallery Capture Zone -->
+                <div class="flex flex-col sm:flex-row items-center gap-4 bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs">
+                    <!-- Avatar Preview Box -->
+                    <div class="relative shrink-0">
+                        <div id="docEditAvatarPreviewBox" class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 border-2 border-dashed border-amber-300 overflow-hidden flex items-center justify-center text-slate-400 shadow-inner transition">
+                            <span id="docEditAvatarPlaceholder" class="text-2xl font-black text-amber-500">?</span>
+                            <img id="docEditAvatarImg" src="" alt="صورة السائق" class="w-full h-full object-cover hidden">
+                        </div>
+                        <span id="docEditAvatarNewBadge" class="hidden absolute -top-1 -right-1 px-1.5 py-0.5 rounded-md bg-emerald-500 text-white text-[9px] font-bold shadow-xs animate-pulse">
+                            جديدة ✓
+                        </span>
+                    </div>
+
+                    <!-- Dual Action Buttons -->
+                    <div class="flex-1 w-full space-y-2 text-center sm:text-right">
+                        <div>
+                            <p class="font-bold text-slate-800 text-xs">تحديث الصورة الشخصية للسائق</p>
+                            <p class="text-[11px] text-slate-500 mt-0.5">التقط صورة فورية بالكاميرا مباشرة أو اختر ملف صورة من المعرض</p>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2 pt-1 justify-center sm:justify-start">
+                            <!-- Mobile direct camera shoot (capture="environment") / Desktop webcam -->
+                            <button type="button" onclick="triggerDriverCamera('doc')" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 hover:from-amber-600 hover:to-amber-500 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition active:scale-95 cursor-pointer">
+                                <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                                </svg>
+                                <span>📸 التقاط بالكاميرا (مباشر)</span>
+                            </button>
+
+                            <!-- Gallery File Pick -->
+                            <button type="button" onclick="triggerDriverGallery('doc')" class="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs flex items-center gap-2 shadow-2xs transition active:scale-95 cursor-pointer">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                                </svg>
+                                <span>📁 اختيار من المعرض</span>
+                            </button>
+
+                            <!-- Remove / Reset Photo -->
+                            <button type="button" id="docRemoveAvatarBtn" onclick="removeDriverPhoto('doc')" class="hidden px-2.5 py-2 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-200 font-bold text-xs flex items-center gap-1 transition cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                <span>حذف الصورة</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hidden inputs for file upload and webcam base64 -->
+                    <input type="file" id="docCameraInput" accept="image/*" capture="environment" class="hidden" onchange="onDriverPhotoSelected(this, 'doc')">
+                    <input type="file" id="docGalleryInput" accept="image/png,image/jpeg,image/webp,image/*" class="hidden" onchange="onDriverPhotoSelected(this, 'doc')">
+                    <input type="hidden" name="avatar_base64" id="docAvatarBase64" value="">
+                    <input type="hidden" name="remove_avatar" id="docRemoveAvatar" value="0">
+                </div>
+
+                <!-- Professional Status & Vehicle Selection -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">نوع السائق (Catégorie)</label>
+                        <select name="driver_type" id="docDriverType" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                            <option value="ajir">سائق أساسي (أجير معتمد)</option>
+                            <option value="replacement">سائق بديل (استخلاف / احتياطي)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">مرحلة التأهيل</label>
+                        <select name="probation_stage" id="docProbationStage" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                            <option value="trial_1">مرحلة تجريبية 1 (0 إلى 3 أشهر)</option>
+                            <option value="trial_2">مرحلة تجريبية 2 (3 إلى 6 أشهر)</option>
+                            <option value="trial_3">مرحلة تجريبية 3 (6 إلى 9 أشهر)</option>
+                            <option value="official">سائق مثبت رسمياً ⭐ (Official)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">حالة النشاط</label>
+                        <select name="activity_status" id="docActivityStatus" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                            <option value="active">ساري الخدمة (En service)</option>
+                            <option value="on_leave">في عطلة (En congé)</option>
+                            <option value="suspended">موقوف مؤقتاً (Suspendu)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">المركبة المخصصة</label>
+                        <select name="assigned_vehicle_id" id="docAssignedVehicle" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                            <option value="0">بدون مركبة حالياً (احتياطي)</option>
+                            <?php foreach ($activeVehicles as $av): ?>
+                                <option value="<?= (int)$av['id'] ?>">
+                                    <?= htmlspecialchars($av['plate_number']) ?> 
+                                    <?= !empty($av['door_number']) ? '(باب: ' . htmlspecialchars($av['door_number']) . ')' : '' ?>
+                                    <?= !empty($av['brand']) ? '- ' . htmlspecialchars($av['brand']) : '' ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">البريد الإلكتروني (Email)</label>
+                        <input type="email" name="email" id="docEmail" placeholder="driver@taxinaguilou.dz" dir="ltr" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">الولاية (Wilaya)</label>
+                        <input type="text" name="wilaya" id="docWilaya" placeholder="مثال: 16 - الجزائر أو 01 - أدرار" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                    </div>
+                </div>
+            </div>
 
             <!-- 1. الحالة المدنية والهوية الشخصية -->
             <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3.5">
@@ -2438,6 +2655,44 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </form>
 
+    </div>
+</div>
+
+<!-- Live Webcam Stream Modal (Desktop / Direct Live Shoot) -->
+<div id="driverWebcamModal" class="hidden fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-md items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col text-white">
+        <div class="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                <h4 class="font-bold text-sm">التقاط صورة حية بالكاميرا</h4>
+            </div>
+            <button type="button" onclick="closeWebcamModal()" class="text-slate-400 hover:text-white transition p-1 cursor-pointer">✕</button>
+        </div>
+        <div class="relative bg-black aspect-4/3 flex items-center justify-center overflow-hidden">
+            <video id="webcamVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+            <canvas id="webcamCanvas" class="hidden"></canvas>
+            <img id="webcamSnapshotPreview" src="" alt="Snapshot" class="w-full h-full object-cover hidden">
+            <div id="webcamLoading" class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 text-slate-400 text-xs">
+                <div class="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>جاري تشغيل الكاميرا...</span>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-800 flex items-center justify-between gap-2">
+            <button type="button" onclick="closeWebcamModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 cursor-pointer">
+                إلغاء
+            </button>
+            <div class="flex items-center gap-2">
+                <button type="button" id="webcamRetakeBtn" onclick="retakeWebcamSnapshot()" class="hidden px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-bold cursor-pointer">
+                    🔄 إعادة الالتقاط
+                </button>
+                <button type="button" id="webcamCaptureBtn" onclick="captureWebcamSnapshot()" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-md flex items-center gap-1.5 cursor-pointer">
+                    📸 التقاط
+                </button>
+                <button type="button" id="webcamConfirmBtn" onclick="confirmWebcamSnapshot()" class="hidden px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md flex items-center gap-1.5 cursor-pointer">
+                    ✓ اعتماد الصورة
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -3129,6 +3384,239 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     // ==========================================
+    // Driver Photo Upload & Direct Camera Logic
+    // ==========================================
+    let currentPhotoTarget = 'doc'; // 'doc' or 'add'
+    let webcamStream = null;
+
+    function triggerDriverCamera(prefix) {
+        currentPhotoTarget = prefix;
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                      || (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+
+        const camInput = document.getElementById(prefix + 'CameraInput');
+        // On mobile devices, triggering input with capture="environment" launches camera directly!
+        if (isMobile && camInput) {
+            camInput.click();
+            return;
+        }
+
+        // On desktop, open live webcam viewfinder if mediaDevices is supported, otherwise fallback to camera input
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            openWebcamModal();
+        } else if (camInput) {
+            camInput.click();
+        }
+    }
+
+    function triggerDriverGallery(prefix) {
+        currentPhotoTarget = prefix;
+        const galInput = document.getElementById(prefix + 'GalleryInput');
+        if (galInput) {
+            galInput.click();
+        }
+    }
+
+    function onDriverPhotoSelected(inputElem, prefix) {
+        if (!inputElem.files || !inputElem.files[0]) return;
+        const file = inputElem.files[0];
+
+        // Ensure active input has name="avatar" so PHP receives $_FILES['avatar']
+        const cam = document.getElementById(prefix + 'CameraInput');
+        const gal = document.getElementById(prefix + 'GalleryInput');
+        const legacy = document.getElementById('driverAvatarInput');
+        if (cam) cam.name = '';
+        if (gal) gal.name = '';
+        if (prefix === 'add' && legacy) legacy.name = '';
+        inputElem.name = 'avatar';
+
+        // Clear base64 and remove flag
+        const b64 = document.getElementById(prefix + 'AvatarBase64');
+        if (b64) b64.value = '';
+        const rem = document.getElementById(prefix + 'RemoveAvatar');
+        if (rem) rem.value = '0';
+
+        // Show live preview
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const dataUrl = e.target.result;
+            if (prefix === 'doc') {
+                updateDriverAvatarPreview('doc', dataUrl, true);
+            } else if (prefix === 'add') {
+                const previewImg = document.getElementById('driverAvatarPreview');
+                const placeholder = document.getElementById('photoPlaceholder');
+                const livePreviewImg = document.getElementById('livePreviewImg');
+                const livePreviewInitials = document.getElementById('livePreviewInitials');
+
+                if (previewImg) { previewImg.src = dataUrl; previewImg.classList.remove('hidden'); }
+                if (placeholder) placeholder.classList.add('hidden');
+                if (livePreviewImg) { livePreviewImg.src = dataUrl; livePreviewImg.classList.remove('hidden'); }
+                if (livePreviewInitials) livePreviewInitials.classList.add('hidden');
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function updateDriverAvatarPreview(prefix, imgSrc, isNew = false) {
+        const img = document.getElementById(prefix + 'EditAvatarImg');
+        const placeholder = document.getElementById(prefix + 'EditAvatarPlaceholder');
+        const badge = document.getElementById(prefix + 'EditAvatarNewBadge');
+        const removeBtn = document.getElementById(prefix + 'RemoveAvatarBtn');
+
+        if (imgSrc) {
+            if (img) {
+                img.src = imgSrc;
+                img.classList.remove('hidden');
+            }
+            if (placeholder) placeholder.classList.add('hidden');
+            if (removeBtn) removeBtn.classList.remove('hidden');
+            if (badge) {
+                if (isNew) badge.classList.remove('hidden');
+                else badge.classList.add('hidden');
+            }
+        } else {
+            if (img) {
+                img.src = '';
+                img.classList.add('hidden');
+            }
+            if (placeholder) placeholder.classList.remove('hidden');
+            if (removeBtn) removeBtn.classList.add('hidden');
+            if (badge) badge.classList.add('hidden');
+        }
+    }
+
+    function removeDriverPhoto(prefix) {
+        updateDriverAvatarPreview(prefix, null, false);
+        const cam = document.getElementById(prefix + 'CameraInput');
+        const gal = document.getElementById(prefix + 'GalleryInput');
+        if (cam) { cam.value = ''; cam.name = ''; }
+        if (gal) { gal.value = ''; gal.name = ''; }
+        const b64 = document.getElementById(prefix + 'AvatarBase64');
+        if (b64) b64.value = '';
+        const rem = document.getElementById(prefix + 'RemoveAvatar');
+        if (rem) rem.value = '1';
+    }
+
+    // Live Webcam Stream functions
+    function openWebcamModal() {
+        const modal = document.getElementById('driverWebcamModal');
+        const video = document.getElementById('webcamVideo');
+        const loading = document.getElementById('webcamLoading');
+        const preview = document.getElementById('webcamSnapshotPreview');
+        const captureBtn = document.getElementById('webcamCaptureBtn');
+        const retakeBtn = document.getElementById('webcamRetakeBtn');
+        const confirmBtn = document.getElementById('webcamConfirmBtn');
+
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        if (loading) loading.classList.remove('hidden');
+        if (preview) preview.classList.add('hidden');
+        if (video) video.classList.remove('hidden');
+        if (captureBtn) captureBtn.classList.remove('hidden');
+        if (retakeBtn) retakeBtn.classList.add('hidden');
+        if (confirmBtn) confirmBtn.classList.add('hidden');
+
+        navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+        }).then(stream => {
+            webcamStream = stream;
+            video.srcObject = stream;
+            video.play();
+            if (loading) loading.classList.add('hidden');
+        }).catch(err => {
+            console.warn('Webcam stream unavailable, fallback to file camera input', err);
+            closeWebcamModal();
+            const camInput = document.getElementById(currentPhotoTarget + 'CameraInput');
+            if (camInput) camInput.click();
+        });
+    }
+
+    function closeWebcamModal() {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach(track => track.stop());
+            webcamStream = null;
+        }
+        const modal = document.getElementById('driverWebcamModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    }
+
+    function captureWebcamSnapshot() {
+        const video = document.getElementById('webcamVideo');
+        const canvas = document.getElementById('webcamCanvas');
+        const preview = document.getElementById('webcamSnapshotPreview');
+        const captureBtn = document.getElementById('webcamCaptureBtn');
+        const retakeBtn = document.getElementById('webcamRetakeBtn');
+        const confirmBtn = document.getElementById('webcamConfirmBtn');
+
+        if (!video || !canvas) return;
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+        if (preview) {
+            preview.src = dataUrl;
+            preview.classList.remove('hidden');
+        }
+        video.classList.add('hidden');
+        captureBtn.classList.add('hidden');
+        retakeBtn.classList.remove('hidden');
+        confirmBtn.classList.remove('hidden');
+    }
+
+    function retakeWebcamSnapshot() {
+        const video = document.getElementById('webcamVideo');
+        const preview = document.getElementById('webcamSnapshotPreview');
+        const captureBtn = document.getElementById('webcamCaptureBtn');
+        const retakeBtn = document.getElementById('webcamRetakeBtn');
+        const confirmBtn = document.getElementById('webcamConfirmBtn');
+
+        if (preview) preview.classList.add('hidden');
+        if (video) video.classList.remove('hidden');
+        captureBtn.classList.remove('hidden');
+        retakeBtn.classList.add('hidden');
+        confirmBtn.classList.add('hidden');
+    }
+
+    function confirmWebcamSnapshot() {
+        const canvas = document.getElementById('webcamCanvas');
+        if (!canvas) return;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+        const b64 = document.getElementById(currentPhotoTarget + 'AvatarBase64');
+        if (b64) b64.value = dataUrl;
+        const rem = document.getElementById(currentPhotoTarget + 'RemoveAvatar');
+        if (rem) rem.value = '0';
+
+        const cam = document.getElementById(currentPhotoTarget + 'CameraInput');
+        const gal = document.getElementById(currentPhotoTarget + 'GalleryInput');
+        if (cam) { cam.value = ''; cam.name = ''; }
+        if (gal) { gal.value = ''; gal.name = ''; }
+
+        if (currentPhotoTarget === 'doc') {
+            updateDriverAvatarPreview('doc', dataUrl, true);
+        } else if (currentPhotoTarget === 'add') {
+            const previewImg = document.getElementById('driverAvatarPreview');
+            const placeholder = document.getElementById('photoPlaceholder');
+            const livePreviewImg = document.getElementById('livePreviewImg');
+            const livePreviewInitials = document.getElementById('livePreviewInitials');
+
+            if (previewImg) { previewImg.src = dataUrl; previewImg.classList.remove('hidden'); }
+            if (placeholder) placeholder.classList.add('hidden');
+            if (livePreviewImg) { livePreviewImg.src = dataUrl; livePreviewImg.classList.remove('hidden'); }
+            if (livePreviewInitials) livePreviewInitials.classList.add('hidden');
+        }
+
+        closeWebcamModal();
+    }
+
+    // ==========================================
     // Manage Driver Documents & Renewals Modal
     // ==========================================
     function openManageDocsModal(driverOrId) {
@@ -3145,7 +3633,7 @@ require_once __DIR__ . '/../includes/header.php';
         document.getElementById('docDriverName').textContent = driver.full_name || 'سائق';
         document.getElementById('docDriverPhone').textContent = driver.phone || '—';
 
-        // Avatar
+        // Avatar in Hero
         const avatarBox = document.getElementById('docDriverAvatarBox');
         if (avatarBox) {
             if (driver.avatar_url) {
@@ -3154,6 +3642,23 @@ require_once __DIR__ . '/../includes/header.php';
                 avatarBox.innerHTML = '<span class="text-sm font-bold text-amber-400">' + (driver.full_name ? driver.full_name.charAt(0) : '?') + '</span>';
             }
         }
+
+        // Editable Avatar Preview in Photo Section
+        const editPlaceholder = document.getElementById('docEditAvatarPlaceholder');
+        if (editPlaceholder) {
+            editPlaceholder.textContent = (driver.full_name ? driver.full_name.charAt(0) : '?');
+        }
+        updateDriverAvatarPreview('doc', driver.avatar_url || null, false);
+
+        // Reset inputs and flags
+        const docCam = document.getElementById('docCameraInput');
+        const docGal = document.getElementById('docGalleryInput');
+        if (docCam) { docCam.value = ''; docCam.name = ''; }
+        if (docGal) { docGal.value = ''; docGal.name = ''; }
+        const docB64 = document.getElementById('docAvatarBase64');
+        if (docB64) docB64.value = '';
+        const docRem = document.getElementById('docRemoveAvatar');
+        if (docRem) docRem.value = '0';
 
         // Vehicle
         const vehElem = document.getElementById('docDriverVehicle');
@@ -3170,6 +3675,20 @@ require_once __DIR__ . '/../includes/header.php';
         if (ficheLink && driver.id) {
             ficheLink.href = 'driver_fiche.php?id=' + driver.id;
         }
+
+        // Professional Status fields
+        const docType = document.getElementById('docDriverType');
+        if (docType) docType.value = driver.driver_type || 'ajir';
+        const docStage = document.getElementById('docProbationStage');
+        if (docStage) docStage.value = driver.probation_stage || 'trial_1';
+        const docStatus = document.getElementById('docActivityStatus');
+        if (docStatus) docStatus.value = driver.activity_status || 'active';
+        const docVeh = document.getElementById('docAssignedVehicle');
+        if (docVeh) docVeh.value = driver.assigned_vehicle_id || '0';
+        const docEmail = document.getElementById('docEmail');
+        if (docEmail) docEmail.value = driver.email || '';
+        const docWilaya = document.getElementById('docWilaya');
+        if (docWilaya) docWilaya.value = driver.wilaya || '16 - الجزائر العاصمة';
 
         // Civil Status fields
         const docLast = document.getElementById('docLastName');

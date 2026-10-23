@@ -988,14 +988,6 @@ require_once __DIR__ . '/../includes/header.php';
                                 رقم العقد: <?= htmlspecialchars($driverContract['contract_number'] ?: 'CTR-' . $driverContract['id']) ?>
                             </span>
                         </div>
-                    </div>
-
-                    <div class="text-right sm:text-left text-xs font-num">
-                        <span class="text-slate-400 block text-[10px]">الأجر / الواجب الشهري:</span>
-                        <span class="text-lg font-black text-teal-700 dark:text-teal-300" dir="ltr">
-                            <?= !empty($driverContract['monthly_wage']) ? number_format($driverContract['monthly_wage'], 2) : '45,000.00' ?> دج
-                        </span>
-                    </div>
                 </div>
 
                 <!-- Contract Key Details Grid -->

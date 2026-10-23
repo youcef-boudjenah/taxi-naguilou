@@ -529,6 +529,10 @@ if ($pdo) {
     $f_sac         = trim($_GET['f_sac'] ?? ''); // 'all', 'valid', 'expired', 'none'
     $col_filter    = trim($_GET['col_filter'] ?? ''); // quick column selector
 
+    // Sorting: default to numeric door_number descending (باب: (02/22)-94 down to (02/22)-01)
+    $sort = strtolower(trim($_GET['sort'] ?? 'door'));
+    $dir  = strtolower(trim($_GET['dir'] ?? 'desc')) === 'asc' ? 'ASC' : 'DESC';
+
     $activeColFiltersCount = 0;
     if (!empty($f_vehicle)) $activeColFiltersCount++;
     if (!empty($f_door)) $activeColFiltersCount++;
@@ -543,8 +547,8 @@ if ($pdo) {
 
 
     // Also support composite exp_filter parameter (e.g. 'all_expired', 'all_soon', 'tc_expired', etc.)
-    if (!empty($_GET['exp_filter'])) {
-        $expParam = trim($_GET['exp_filter']);
+    $expParam = trim($_GET['exp_filter'] ?? '');
+    if (!empty($expParam)) {
         if ($expParam === 'all_alerts') {
             $filter = 'expiring'; $doc = 'all'; $scope = 'all';
         } elseif ($expParam === 'all_expired') {
@@ -579,7 +583,7 @@ if ($pdo) {
     }
 
     // Determine canonical currentExpFilter for syncing select dropdown
-    $currentExpFilter = 'all_alerts';
+    $currentExpFilter = ($filter === 'expiring') ? 'all_alerts' : 'all_fleet';
     if ($filter === 'expiring') {
         if ($doc === 'all') {
             if ($scope === 'expired') $currentExpFilter = 'all_expired';
@@ -664,16 +668,45 @@ if ($pdo) {
             $hasDoorCol = true;
         } catch (\Throwable $e) {}
 
-        $doorCondition = $hasDoorCol ? " OR v.door_number LIKE ?" : "";
-        $query .= " AND (v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR r.full_name LIKE ? OR r_leave.full_name LIKE ?$doorCondition)";
-        $params[] = "%$search%";
-        $params[] = "%$search%";
-        $params[] = "%$search%";
-        $params[] = "%$search%";
-        $params[] = "%$search%";
-        $params[] = "%$search%";
-        if ($hasDoorCol) {
-            $params[] = "%$search%";
+        $cleanSearch = trim($search);
+        $searchSlash = str_replace('-', '/', $cleanSearch);
+        $searchDash  = str_replace('/', '-', $cleanSearch);
+
+        if ($col_filter === 'vehicle') {
+            $query .= " AND (v.brand LIKE ? OR v.model LIKE ? OR v.plate_number LIKE ? OR v.plate_number LIKE ? OR v.plate_number LIKE ?)";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$searchDash%";
+            $params[] = "%$searchSlash%";
+        } elseif ($col_filter === 'door' && $hasDoorCol) {
+            $query .= " AND v.door_number LIKE ?";
+            $params[] = "%$cleanSearch%";
+        } elseif ($col_filter === 'driver') {
+            $query .= " AND (u.full_name LIKE ? OR u.phone LIKE ?)";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+        } elseif ($col_filter === 'relief') {
+            $query .= " AND (r.full_name LIKE ? OR r_leave.full_name LIKE ? OR r.phone LIKE ? OR r_leave.phone LIKE ?)";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+        } else {
+            $doorCondition = $hasDoorCol ? " OR v.door_number LIKE ?" : "";
+            $query .= " AND (v.plate_number LIKE ? OR v.plate_number LIKE ? OR v.plate_number LIKE ? OR v.brand LIKE ? OR v.model LIKE ? OR u.full_name LIKE ? OR u.phone LIKE ? OR r.full_name LIKE ? OR r_leave.full_name LIKE ?$doorCondition)";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$searchDash%";
+            $params[] = "%$searchSlash%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            $params[] = "%$cleanSearch%";
+            if ($hasDoorCol) {
+                $params[] = "%$cleanSearch%";
+            }
         }
     }
 
@@ -829,8 +862,8 @@ if ($pdo) {
         }
     }
 
-    // تصفية سريعة بحسب العمود المختار من القائمة المنسدلة
-    if (!empty($col_filter) && $col_filter !== 'all') {
+    // تصفية سريعة بحسب العمود المختار من القائمة المنسدلة (عند عدم إدخال نص بحث)
+    if (empty($search) && !empty($col_filter) && $col_filter !== 'all') {
         if ($col_filter === 'driver') {
             $query .= " AND v.current_driver_id IS NOT NULL";
         } elseif ($col_filter === 'relief') {
@@ -863,7 +896,19 @@ if ($pdo) {
         $params[] = $oId;
     }
 
-    $query .= " ORDER BY v.id DESC";
+    // Order By: Sort by numeric door_number descending (باب: (02/22)-94 down to (02/22)-01)
+    if ($sort === 'door') {
+        $doorOrderExpr = "CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED)";
+        $query .= " ORDER BY CASE WHEN v.door_number IS NULL OR v.door_number = '' THEN 1 ELSE 0 END ASC, {$doorOrderExpr} {$dir}, v.id DESC";
+    } elseif ($sort === 'plate') {
+        $query .= " ORDER BY v.plate_number {$dir}, v.id DESC";
+    } elseif ($sort === 'vehicle' || $sort === 'brand') {
+        $query .= " ORDER BY v.brand {$dir}, v.model {$dir}, v.id DESC";
+    } elseif ($sort === 'driver') {
+        $query .= " ORDER BY CASE WHEN u.full_name IS NULL OR u.full_name = '' THEN 1 ELSE 0 END ASC, u.full_name {$dir}, v.id DESC";
+    } else {
+        $query .= " ORDER BY v.id {$dir}";
+    }
 
     try {
         $stmt = $pdo->prepare($query);
@@ -878,7 +923,10 @@ if ($pdo) {
             $vehicles = $stmtF->fetchAll() ?: [];
         } catch (\Throwable $e2) {
             try {
-                $vehicles = $pdo->query("SELECT * FROM vehicles ORDER BY id DESC")->fetchAll() ?: [];
+                $fallbackSort = ($sort === 'door')
+                    ? "ORDER BY CASE WHEN door_number IS NULL OR door_number = '' THEN 1 ELSE 0 END ASC, CAST(SUBSTRING_INDEX(door_number, '-', -1) AS UNSIGNED) {$dir}, id DESC"
+                    : "ORDER BY id {$dir}";
+                $vehicles = $pdo->query("SELECT * FROM vehicles {$fallbackSort}")->fetchAll() ?: [];
             } catch (\Throwable $e3) {
                 $vehicles = [];
             }
@@ -1045,6 +1093,9 @@ if (isset($_GET['edit']) && $pdo) {
                 </label>
                 <select id="expFilterSelect" onchange="onExpFilterChange(this.value)" 
                         class="w-full sm:w-auto min-w-[260px] bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold rounded-lg border border-rose-300 dark:border-rose-700/80 px-3 py-1.5 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 shadow-2xs cursor-pointer">
+                    <optgroup label="🌐 حالة العرض الحالية">
+                        <option value="all_fleet" <?= $currentExpFilter === 'all_fleet' ? 'selected' : '' ?>>🚗 عرض كامل الأسطول (<?= $totalVehiclesCount ?> مركبة)</option>
+                    </optgroup>
                     <optgroup label="⚡ تصفية عامة حسب حالة الصلاحية">
                         <option value="all_alerts" <?= $currentExpFilter === 'all_alerts' ? 'selected' : '' ?>>🔔 كل التنبيهات (المنتهية والقريبة) — (<?= $expiringDocsCount ?> مركبة)</option>
                         <option value="all_expired" <?= $currentExpFilter === 'all_expired' ? 'selected' : '' ?>>🔴 جميع الوثائق المنتهية الصلاحية فقط — (<?= $totalExpiredDocsCount ?> مركبة)</option>
@@ -1159,102 +1210,138 @@ if (isset($_GET['edit']) && $pdo) {
     </div>
     <?php endif; ?>
 
-    <!-- Filter & Search Toolbar (Unified) -->
-    <div class="bg-white dark:bg-[#161d27] p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        <form method="GET" class="flex-1 w-full flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <div class="relative flex-1 sm:max-w-md">
+    <!-- Filter & Search Toolbar (Two-Tier Structured ERP Layout) -->
+    <div class="bg-white dark:bg-[#161d27] p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 text-xs">
+        
+        <!-- Tier 1: Primary Status & Expiration Filter Tabs (Scrollable & Non-Clipping) -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-2 pt-0.5 border-b border-slate-100 dark:border-slate-800/80">
+            <!-- 1. الكل -->
+            <a href="vehicles.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= ($filter === 'all' && empty($expParam)) ? 'bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
+                الكل (<?= $totalVehiclesCount ?>)
+            </a>
+
+            <!-- 2. نشطة -->
+            <a href="vehicles.php?filter=active<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'active' && empty($expParam)) ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800' ?>">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span>نشطة</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'active' && empty($expParam)) ? 'bg-white text-emerald-700' : 'bg-emerald-200 dark:bg-emerald-900/80 text-emerald-900 dark:text-emerald-100' ?>"><?= $activeVehiclesCount ?></span>
+            </a>
+
+            <!-- 3. معلقة -->
+            <a href="vehicles.php?filter=suspended<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'suspended' && empty($expParam)) ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-800' ?>">
+                <span>⏸️</span>
+                <span>معلقة</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'suspended' && empty($expParam)) ? 'bg-white text-rose-700' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-900 dark:text-rose-100' ?>"><?= $suspendedVehiclesCount ?></span>
+            </a>
+
+            <!-- 4. كل التنبيهات -->
+            <a href="vehicles.php?exp_filter=all_alerts<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'all') ? 'bg-rose-500 text-white shadow-xs' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200/60 dark:border-rose-800' ?>">
+                <span>🔔 كل التنبيهات</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'all') ? 'bg-white text-rose-600' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-800 dark:text-rose-100' ?>"><?= $expiringDocsCount ?></span>
+            </a>
+
+            <!-- 5. منتهية الصلاحية -->
+            <a href="vehicles.php?exp_filter=all_expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'expired') ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700' ?>">
+                <span class="w-2 h-2 rounded-full bg-rose-600"></span>
+                <span>منتهية</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'expired') ? 'bg-white text-rose-700 font-bold' : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300' ?>"><?= $totalExpiredDocsCount ?></span>
+            </a>
+
+            <!-- 6. قريبة الانتهاء -->
+            <a href="vehicles.php?exp_filter=all_soon<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'soon') ? 'bg-amber-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700' ?>">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>قريبة</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'soon') ? 'bg-white text-amber-700 font-bold' : 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300' ?>"><?= $totalSoonDocsCount ?></span>
+            </a>
+
+            <!-- 7. سائق بديل -->
+            <a href="vehicles.php?filter=relief<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'relief' && empty($expParam)) ? 'bg-amber-500 text-white shadow-xs' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 border border-amber-200/80 dark:border-amber-800' ?>">
+                <span>🔄 سائق بديل</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'relief' && empty($expParam)) ? 'bg-white text-amber-700' : 'bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100' ?>"><?= $reliefVehiclesCount ?></span>
+            </a>
+
+            <!-- 8. شاغرة -->
+            <a href="vehicles.php?filter=unassigned<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= ($filter === 'unassigned' && empty($expParam)) ? 'bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
+                شاغرة
+            </a>
+
+            <!-- 9. سلة المهملات -->
+            <a href="vehicles.php?filter=trash<?= !empty($search) ? '&search=' . urlencode($search) : '' ?><?= (!empty($col_filter) && $col_filter !== 'all') ? '&col_filter=' . urlencode($col_filter) : '' ?>" 
+               class="shrink-0 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'trash' && empty($expParam)) ? 'bg-rose-700 text-white shadow-xs' : 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-900/60' ?>">
+                <span>🗑️ سلة المهملات</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'trash' && empty($expParam)) ? 'bg-white text-rose-700 font-black' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-900 dark:text-rose-100' ?>"><?= $trashVehiclesCount ?></span>
+            </a>
+        </div>
+
+        <!-- Tier 2: Search Input, Column Scoper, Actions & Reset Button -->
+        <form method="GET" class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+            <?php if (!empty($expParam)): ?>
+                <input type="hidden" name="exp_filter" value="<?= htmlspecialchars($expParam) ?>">
+            <?php elseif ($filter !== 'all'): ?>
+                <input type="hidden" name="filter" value="<?= htmlspecialchars($filter) ?>">
+            <?php endif; ?>
+            <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
+            <input type="hidden" name="dir" value="<?= htmlspecialchars(strtolower($dir)) ?>">
+
+            <div class="relative flex-1 min-w-[260px]">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
-                       placeholder="ابحث برقم اللوحة، الماركة، رقم الباب، أو اسم السائق الأساسي / البديل..."
-                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                       placeholder="ابحث برقم اللوحة (09415-116-47)، الماركة، رقم الباب، أو اسم ورقم السائق..."
+                       class="w-full pr-9 pl-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
             </div>
 
-            <!-- قائمة تصفية الأعمدة السريعة -->
-            <select name="col_filter" onchange="this.form.submit()" title="تصفية سريعة بحسب العمود"
-                    class="px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 cursor-pointer">
-                <option value="all" <?= (empty($col_filter) || $col_filter === 'all') ? 'selected' : '' ?>>🔍 كل الأعمدة (الافتراضي)</option>
-                <option value="vehicle" <?= $col_filter === 'vehicle' ? 'selected' : '' ?>>🚗 1. المركبة (الماركة/اللوحة)</option>
-                <option value="door" <?= $col_filter === 'door' ? 'selected' : '' ?>>🚪 2. رقم الباب</option>
-                <option value="driver" <?= $col_filter === 'driver' ? 'selected' : '' ?>>👤 3. السائق المكلف</option>
-                <option value="relief" <?= $col_filter === 'relief' ? 'selected' : '' ?>>🔄 4. السائق البديل</option>
-                <option value="technical" <?= $col_filter === 'technical' ? 'selected' : '' ?>>📋 5. المراقبة التقنية</option>
-                <option value="insurance" <?= $col_filter === 'insurance' ? 'selected' : '' ?>>🛡️ 6. التأمين</option>
-                <option value="extinguisher" <?= $col_filter === 'extinguisher' ? 'selected' : '' ?>>🧯 7. قارورة الإطفاء</option>
-                <option value="gpl" <?= $col_filter === 'gpl' ? 'selected' : '' ?>>⛽ 8. GPL</option>
-                <option value="taximeter" <?= $col_filter === 'taximeter' ? 'selected' : '' ?>>⏱️ 9. العداد</option>
-            </select>
+            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+                <!-- قائمة تصفية الأعمدة السريعة -->
+                <select name="col_filter" onchange="this.form.submit()" title="تحديد عمود البحث أو التصفية"
+                        class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 cursor-pointer">
+                    <option value="all" <?= (empty($col_filter) || $col_filter === 'all') ? 'selected' : '' ?>>🔍 كل الأعمدة (الافتراضي)</option>
+                    <option value="vehicle" <?= $col_filter === 'vehicle' ? 'selected' : '' ?>>🚗 1. المركبة (الماركة/اللوحة)</option>
+                    <option value="door" <?= $col_filter === 'door' ? 'selected' : '' ?>>🚪 2. رقم الباب</option>
+                    <option value="driver" <?= $col_filter === 'driver' ? 'selected' : '' ?>>👤 3. السائق المكلف</option>
+                    <option value="relief" <?= $col_filter === 'relief' ? 'selected' : '' ?>>🔄 4. السائق البديل</option>
+                    <option value="technical" <?= $col_filter === 'technical' ? 'selected' : '' ?>>📋 5. المراقبة التقنية</option>
+                    <option value="insurance" <?= $col_filter === 'insurance' ? 'selected' : '' ?>>🛡️ 6. التأمين</option>
+                    <option value="extinguisher" <?= $col_filter === 'extinguisher' ? 'selected' : '' ?>>🧯 7. قارورة الإطفاء</option>
+                    <option value="gpl" <?= $col_filter === 'gpl' ? 'selected' : '' ?>>⛽ 8. GPL</option>
+                    <option value="taximeter" <?= $col_filter === 'taximeter' ? 'selected' : '' ?>>⏱️ 9. العداد</option>
+                </select>
 
-            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold hover:bg-slate-800 dark:hover:bg-amber-600 transition">بحث</button>
+                <button type="submit" class="px-4 py-2 rounded-xl bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold hover:bg-slate-800 dark:hover:bg-amber-600 transition shadow-2xs whitespace-nowrap">
+                    بحث 🔍
+                </button>
 
-            <!-- زر فتح لوحة الفلترة المتقدمة للأعمدة الـ 9 -->
-            <button type="button" onclick="toggleColumnFilterPanel()" 
-                    class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition border <?= $activeColFiltersCount > 0 ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200' ?>" 
-                    title="فتح لوحة تصفية الأعمدة التسعة">
-                <svg class="w-4 h-4 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-                </svg>
-                <span>فلتر الأعمدة الـ 9</span>
-                <?php if ($activeColFiltersCount > 0): ?>
-                    <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950 text-amber-400 font-num font-black"><?= $activeColFiltersCount ?></span>
+                <!-- زر فتح لوحة الفلترة المتقدمة للأعمدة الـ 9 -->
+                <button type="button" onclick="toggleColumnFilterPanel()" 
+                        class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition border whitespace-nowrap <?= $activeColFiltersCount > 0 ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700' ?>" 
+                        title="فتح لوحة تصفية الأعمدة التسعة">
+                    <svg class="w-4 h-4 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                    </svg>
+                    <span>فلتر الأعمدة الـ 9</span>
+                    <?php if ($activeColFiltersCount > 0): ?>
+                        <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-950 text-amber-400 font-num font-black"><?= $activeColFiltersCount ?></span>
+                    <?php endif; ?>
+                </button>
+
+                <?php if (!empty($search) || $filter !== 'all' || !empty($expParam) || $activeColFiltersCount > 0 || (!empty($col_filter) && $col_filter !== 'all')): ?>
+                    <a href="vehicles.php" 
+                       class="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 transition whitespace-nowrap shadow-2xs"
+                       title="إلغاء جميع الفلاتر والبحث والعودة لكامل الأسطول">
+                        <span>إلغاء الكل ✕</span>
+                    </a>
                 <?php endif; ?>
-            </button>
-
-            <?php if (!empty($search) || $filter !== 'all' || $activeColFiltersCount > 0): ?>
-                <a href="vehicles.php" class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline whitespace-nowrap">إلغاء الكل</a>
-            <?php endif; ?>
+            </div>
         </form>
-
-        <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-            <a href="vehicles.php?filter=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'all' ? 'bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
-                الكل (<?= $totalVehiclesCount ?>)
-            </a>
-            <a href="vehicles.php?filter=active<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'active' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800' ?>">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                <span>نشطة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'active' ? 'bg-white text-emerald-700' : 'bg-emerald-200 dark:bg-emerald-900/80 text-emerald-900 dark:text-emerald-100' ?>"><?= $activeVehiclesCount ?></span>
-            </a>
-            <a href="vehicles.php?filter=suspended<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'suspended' ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-800' ?>">
-                <span>⏸️</span>
-                <span>معلقة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'suspended' ? 'bg-white text-rose-700' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-900 dark:text-rose-100' ?>"><?= $suspendedVehiclesCount ?></span>
-            </a>
-            <a href="vehicles.php?exp_filter=all_alerts<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'all') ? 'bg-rose-500 text-white shadow-xs' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200/60 dark:border-rose-800' ?>">
-                <span>كل التنبيهات</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'all') ? 'bg-white text-rose-600' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-800 dark:text-rose-100' ?>"><?= $expiringDocsCount ?></span>
-            </a>
-            <a href="vehicles.php?exp_filter=all_expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'expired') ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700' ?>">
-                <span class="w-2 h-2 rounded-full bg-rose-600"></span>
-                <span>منتهية</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'expired') ? 'bg-white text-rose-700 font-bold' : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300' ?>"><?= $totalExpiredDocsCount ?></span>
-            </a>
-            <a href="vehicles.php?exp_filter=all_soon<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'soon') ? 'bg-amber-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700' ?>">
-                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                <span>قريبة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= ($filter === 'expiring' && $doc === 'all' && $scope === 'soon') ? 'bg-white text-amber-700 font-bold' : 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-300' ?>"><?= $totalSoonDocsCount ?></span>
-            </a>
-            <a href="vehicles.php?filter=relief<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'relief' ? 'bg-amber-500 text-white shadow-xs' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 border border-amber-200/80 dark:border-amber-800' ?>">
-                <span>سائق بديل</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'relief' ? 'bg-white text-amber-700' : 'bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100' ?>"><?= $reliefVehiclesCount ?></span>
-            </a>
-            <a href="vehicles.php?filter=unassigned<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'unassigned' ? 'bg-slate-900 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200' ?>">
-                شاغرة
-            </a>
-            <a href="vehicles.php?filter=trash<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'trash' ? 'bg-rose-700 text-white shadow-xs' : 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 hover:bg-rose-100 border border-rose-200 dark:border-rose-900/60' ?>">
-                <span>🗑️ سلة المهملات</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-num <?= $filter === 'trash' ? 'bg-white text-rose-700 font-black' : 'bg-rose-200 dark:bg-rose-900/80 text-rose-900 dark:text-rose-100' ?>"><?= $trashVehiclesCount ?></span>
-            </a>
-        </div>
     </div>
 
     <!-- 9-Column Advanced Filter Panel (المركبة، رقم الباب، السائق المكلف، السائق البديل، المراقبة التقنية، التأمين، قارورة الإطفاء، GPL، العداد) -->
@@ -1533,7 +1620,24 @@ if (isset($_GET['edit']) && $pdo) {
                 <thead class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                     <tr>
                         <th class="py-3 px-3.5 whitespace-nowrap sticky-col-start">المركبة</th>
-                        <th class="py-3 px-2.5 whitespace-nowrap">رقم الباب</th>
+                        <?php
+                        $nextDoorDir = ($sort === 'door' && $dir === 'DESC') ? 'asc' : 'desc';
+                        $doorSortUrl = 'vehicles.php?' . http_build_query(array_merge($_GET, ['sort' => 'door', 'dir' => $nextDoorDir]));
+                        ?>
+                        <th class="py-3 px-2.5 whitespace-nowrap">
+                            <a href="<?= htmlspecialchars($doorSortUrl) ?>" 
+                               class="inline-flex items-center gap-1.5 hover:text-amber-500 transition group cursor-pointer"
+                               title="ترتيب رقم الباب (حالياً: <?= $sort === 'door' ? ($dir === 'DESC' ? 'تنازلي من (02/22)-94 إلى 01' : 'تصاعدي من 01 إلى (02/22)-94') : 'انقر للترتيب' ?>)">
+                                <span>رقم الباب</span>
+                                <?php if ($sort === 'door'): ?>
+                                    <span class="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-black font-num border border-amber-500/30">
+                                        <?= $dir === 'DESC' ? '▼ تنازلي' : '▲ تصاعدي' ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span class="text-slate-400 group-hover:text-amber-500 text-[10px] opacity-60 group-hover:opacity-100 transition">↕</span>
+                                <?php endif; ?>
+                            </a>
+                        </th>
                         <th class="py-3 px-2.5 whitespace-nowrap">السائق المكلف</th>
                         <th class="py-3 px-2.5 whitespace-nowrap">السائق البديل</th>
                         <th class="py-3 px-2.5 whitespace-nowrap">المراقبة التقنية</th>
@@ -1820,6 +1924,14 @@ if (isset($_GET['edit']) && $pdo) {
                                                 </svg>
                                                 <span>كود بار وملصق السيارة 📱</span>
                                             </button>
+                                            <a href="<?= url('/dashboard/vehicle_sticker.php?id=' . (int)$v['id'] . '&print=1') ?>"
+                                               target="_blank"
+                                               class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition text-right whitespace-nowrap">
+                                                <svg class="w-4 h-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24-1.076-.672-2.072-1.265-2.946m12.09 0a15.42 15.42 0 00-1.265 2.946M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                                                </svg>
+                                                <span>طباعة الملصق مباشرة 🖨️</span>
+                                            </a>
 
                                             <!-- Toggle Vehicle Status (Active / Suspended) -->
                                             <?php if (is_admin() || is_owner()): ?>
@@ -1903,13 +2015,25 @@ if (isset($_GET['edit']) && $pdo) {
                     <?php else: ?>
                         <tr>
                             <td colspan="10" class="p-12 text-center text-slate-400 dark:text-slate-500">
-                                <div class="w-12 h-12 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
-                                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div class="w-14 h-14 mx-auto rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 mb-3.5 shadow-2xs">
+                                    <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V3.75m0 3.75a3 3 0 013 3v3.75m-6-6.75H6.75a2.25 2.25 0 00-2.25 2.25v6.75" />
                                     </svg>
                                 </div>
-                                <p class="text-sm font-semibold text-slate-600">لا توجد مركبات مطابقة لمعايير البحث</p>
-                                <p class="text-xs text-slate-400 mt-1">جرّب تغيير كلمات البحث أو إعادة ضبط التصفية</p>
+                                <p class="text-sm font-bold text-slate-700 dark:text-slate-200">لا توجد مركبات مطابقة لمعايير البحث والتصفية الحالية</p>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-md mx-auto">
+                                    جرّب تغيير كلمات البحث، أو إلغاء التصفية للعودة فوراً لكامل الأسطول النشط
+                                </p>
+                                <div class="mt-4 flex items-center justify-center gap-2 flex-wrap">
+                                    <a href="vehicles.php" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
+                                        <span>🔄 عرض كامل الأسطول (<?= $totalVehiclesCount ?> مركبة)</span>
+                                    </a>
+                                    <?php if (!empty($search)): ?>
+                                        <a href="vehicles.php?filter=<?= urlencode($filter) ?><?= !empty($expParam) ? '&exp_filter=' . urlencode($expParam) : '' ?>" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+                                            <span>مسح كلمة البحث فقط ✕</span>
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -2258,18 +2382,18 @@ if (isset($_GET['edit']) && $pdo) {
                 <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-[#111827]/70 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5 shadow-2xs">
                     <?php
                     $availableColors = [
-                        ['name' => 'أصفر (Jaune)', 'val' => 'Jaune', 'bg' => '#FACC15', 'aliases' => ['jaune', 'أصفر', 'اصفر']],
-                        ['name' => 'أبيض (Blanc)', 'val' => 'Blanc', 'bg' => '#FFFFFF', 'aliases' => ['blanc', 'أبيض', 'ابيض']],
-                        ['name' => 'رمادي (Gris)', 'val' => 'Gris', 'bg' => '#94A3B8', 'aliases' => ['gris', 'رمادي', 'رمادي فاتح']],
-                        ['name' => 'رمادي فضي (Gris Argenté)', 'val' => 'Gris Argenté', 'bg' => '#CBD5E1', 'aliases' => ['gris argenté', 'gris argente', 'فضي']],
-                        ['name' => 'رمادي داكن (Anthracite)', 'val' => 'Gris Anthracite', 'bg' => '#475569', 'aliases' => ['gris anthracite', 'رمادي داكن', 'فحمي']],
-                        ['name' => 'أسود (Noir)', 'val' => 'Noir', 'bg' => '#0F172A', 'aliases' => ['noir', 'أسود', 'اسود']],
-                        ['name' => 'أزرق (Bleu)', 'val' => 'Bleu', 'bg' => '#3B82F6', 'aliases' => ['bleu', 'أزرق', 'ازرق']],
-                        ['name' => 'أزرق داكن (Bleu Nuit)', 'val' => 'Bleu Nuit', 'bg' => '#1E3A8A', 'aliases' => ['bleu nuit', 'أزرق داكن', 'ازرق داكن', 'كحلي']],
-                        ['name' => 'أخضر (Vert)', 'val' => 'Vert', 'bg' => '#22C55E', 'aliases' => ['vert', 'أخضر', 'اخضر']],
-                        ['name' => 'أحمر (Rouge)', 'val' => 'Rouge', 'bg' => '#EF4444', 'aliases' => ['rouge', 'أحمر', 'احمر']],
-                        ['name' => 'بيج (Beige)', 'val' => 'Beige', 'bg' => '#E7D7C1', 'aliases' => ['beige', 'بيج']],
-                        ['name' => 'بني (Marron)', 'val' => 'Marron', 'bg' => '#78350F', 'aliases' => ['marron', 'بني']]
+                        ['name' => 'أصفر (Jaune)', 'val' => 'Jaune', 'bg' => '#FACC15', 'icon' => '🟡', 'aliases' => ['jaune', 'أصفر', 'اصفر']],
+                        ['name' => 'أبيض (Blanc)', 'val' => 'Blanc', 'bg' => '#FFFFFF', 'icon' => '⚪', 'aliases' => ['blanc', 'أبيض', 'ابيض']],
+                        ['name' => 'رمادي (Gris)', 'val' => 'Gris', 'bg' => '#94A3B8', 'icon' => '🔘', 'aliases' => ['gris', 'رمادي', 'رمادي فاتح']],
+                        ['name' => 'رمادي فضي (Gris Argenté)', 'val' => 'Gris Argenté', 'bg' => '#CBD5E1', 'icon' => '🥈', 'aliases' => ['gris argenté', 'gris argente', 'فضي']],
+                        ['name' => 'رمادي داكن (Anthracite)', 'val' => 'Gris Anthracite', 'bg' => '#475569', 'icon' => '⚫', 'aliases' => ['gris anthracite', 'رمادي داكن', 'فحمي']],
+                        ['name' => 'أسود (Noir)', 'val' => 'Noir', 'bg' => '#0F172A', 'icon' => '⬛', 'aliases' => ['noir', 'أسود', 'اسود']],
+                        ['name' => 'أزرق (Bleu)', 'val' => 'Bleu', 'bg' => '#3B82F6', 'icon' => '🔵', 'aliases' => ['bleu', 'أزرق', 'ازرق']],
+                        ['name' => 'أزرق داكن (Bleu Nuit)', 'val' => 'Bleu Nuit', 'bg' => '#1E3A8A', 'icon' => '🌌', 'aliases' => ['bleu nuit', 'أزرق داكن', 'ازرق داكن', 'كحلي']],
+                        ['name' => 'أخضر (Vert)', 'val' => 'Vert', 'bg' => '#22C55E', 'icon' => '🟢', 'aliases' => ['vert', 'أخضر', 'اخضر']],
+                        ['name' => 'أحمر (Rouge)', 'val' => 'Rouge', 'bg' => '#EF4444', 'icon' => '🔴', 'aliases' => ['rouge', 'أحمر', 'احمر']],
+                        ['name' => 'بيج (Beige)', 'val' => 'Beige', 'bg' => '#E7D7C1', 'icon' => '🟤', 'aliases' => ['beige', 'بيج']],
+                        ['name' => 'بني (Marron)', 'val' => 'Marron', 'bg' => '#78350F', 'icon' => '🪵', 'aliases' => ['marron', 'بني']]
                     ];
 
                     $curColor = trim($editVehicle['color'] ?? 'Jaune');
@@ -2288,8 +2412,8 @@ if (isset($_GET['edit']) && $pdo) {
                             <span class="w-2 h-2 rounded-full bg-amber-500"></span>
                             <span>لون السيارة المعتمد <span class="text-rose-500">*</span></span>
                         </label>
-                        <span class="text-[11px] text-slate-700 dark:text-slate-200 font-bold flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs" id="colorSelectedPreviewBadge">
-                            <span class="w-3 h-3 rounded-full border border-slate-300 dark:border-slate-600 shadow-2xs shrink-0" id="colorBadgeDot" style="background-color: <?= $activeBg ?>;"></span>
+                        <span class="text-[11px] text-slate-700 dark:text-slate-200 font-bold flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs" id="colorSelectedPreviewBadge">
+                            <span class="w-3.5 h-3.5 rounded-full shrink-0 shadow-2xs" id="colorBadgeDot" style="background-color: <?= $activeBg ?> !important;"></span>
                             <span id="colorBadgeText"><?= htmlspecialchars($curColor) ?></span>
                         </span>
                     </div>
@@ -2305,7 +2429,7 @@ if (isset($_GET['edit']) && $pdo) {
                                     $isSelected = (strcasecmp($curColor, $c['val']) === 0 || strcasecmp($curColor, $c['name']) === 0 || in_array($curColorLower, $c['aliases'], true));
                                     ?>
                                     <option value="<?= htmlspecialchars($c['val']) ?>" <?= $isSelected ? 'selected' : '' ?> data-bg="<?= $c['bg'] ?>">
-                                        <?= htmlspecialchars($c['name']) ?>
+                                        <?= $c['icon'] ?> <?= htmlspecialchars($c['name']) ?>
                                     </option>
                                 <?php endforeach; ?>
                                 <option value="custom">🎨 لون آخر مخصص...</option>
@@ -2320,14 +2444,14 @@ if (isset($_GET['edit']) && $pdo) {
                         </div>
 
                         <!-- Interactive Quick Color Dots / Swatches (7 cols, single horizontal bar) -->
-                        <div class="sm:col-span-7 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1" id="colorSwatchesContainer">
+                        <div class="sm:col-span-7 flex items-center gap-2 overflow-x-auto no-scrollbar py-1" id="colorSwatchesContainer">
                             <?php foreach ($availableColors as $c): ?>
                                 <?php $isBtnActive = (strcasecmp($curColor, $c['val']) === 0 || in_array($curColorLower, $c['aliases'], true)); ?>
                                 <button type="button" 
                                         onclick="selectColorSwatch('<?= htmlspecialchars($c['val'], ENT_QUOTES) ?>', '<?= $c['bg'] ?>')"
                                         title="<?= htmlspecialchars($c['name']) ?>"
-                                        class="color-swatch-btn w-6 h-6 rounded-full border border-slate-300 dark:border-slate-600 shadow-2xs hover:scale-125 focus:scale-125 focus:outline-none transition-transform cursor-pointer shrink-0 <?= $isBtnActive ? 'ring-2 ring-amber-500 scale-110' : '' ?>"
-                                        style="background-color: <?= $c['bg'] ?>;">
+                                        class="color-swatch-btn w-7 h-7 rounded-full shadow-2xs hover:scale-125 focus:scale-125 focus:outline-none transition-transform cursor-pointer shrink-0 <?= $isBtnActive ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-slate-900 scale-110' : '' ?>"
+                                        style="background-color: <?= $c['bg'] ?> !important;">
                                     <span class="sr-only"><?= htmlspecialchars($c['name']) ?></span>
                                 </button>
                             <?php endforeach; ?>
@@ -2553,7 +2677,7 @@ if (isset($_GET['edit']) && $pdo) {
 
         <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
             <?php if (is_admin()): ?>
-            <a href="/dashboard/settings.php#fleet-presets" target="_blank" class="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-semibold">
+            <a href="<?= url('/dashboard/settings.php#fleet-presets') ?>" target="_blank" class="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-semibold">
                 إدارة الإعدادات العامة ↗
             </a>
             <?php else: ?>
@@ -2625,29 +2749,36 @@ if (isset($_GET['edit']) && $pdo) {
                 </div>
             </div>
 
-            <!-- QR Code Canvas Display -->
-            <div class="flex justify-center py-1">
+            <!-- QR Code & Linear Barcode Display -->
+            <div class="flex flex-col items-center justify-center gap-2 py-1">
                 <div id="vehicleQrCodeContainer" class="p-2.5 bg-white rounded-2xl border-2 border-slate-200 shadow-sm inline-block"></div>
+                <!-- Linear Barcode (Code 128) -->
+                <div class="p-2 bg-white rounded-xl border border-slate-200 shadow-xs inline-flex flex-col items-center">
+                    <svg id="vehicleModalBarcodeSvg" class="max-w-[260px] h-11"></svg>
+                </div>
             </div>
 
             <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight select-none">
-                امسح الكود بكاميرا الهاتف للتأكد من صلاحية المركبة وتقييم السائق مباشرة للإدارة ⭐
+                امسح الرمز بكاميرا الهاتف للتحقق المباشر من صلاحية المركبة وسجلها الرقابي ⭐
             </p>
         </div>
 
         <!-- Action Buttons -->
         <div class="grid grid-cols-2 gap-2 pt-1 text-xs">
             <button type="button" onclick="printVehicleSticker()" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer">
-                <span>🖨️ طباعة الملصق</span>
+                <span>🖨️ طباعة الملصق (A5/A6)</span>
             </button>
             <button type="button" onclick="copyVehicleVerifyLink()" id="copyLinkBtn" class="py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer">
                 <span>📋 نسخ الرابط</span>
             </button>
         </div>
 
-        <div>
-            <a id="qrOpenVerifyPageBtn" href="#" target="_blank" class="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                <span>معاينة صفحة المسافر والتقييم ↗</span>
+        <div class="grid grid-cols-2 gap-2 pt-0.5">
+            <a id="qrOpenStickerPageBtn" href="#" target="_blank" class="py-2 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 font-bold text-xs flex items-center justify-center gap-1 transition">
+                <span>صفحة الملصق الرسمية ↗</span>
+            </a>
+            <a id="qrOpenVerifyPageBtn" href="#" target="_blank" class="py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition">
+                <span>معاينة صفحة المسافر ↗</span>
             </a>
         </div>
     </div>
@@ -2696,7 +2827,8 @@ if (isset($_GET['edit']) && $pdo) {
 </div>
 <?php endif; // is_admin || is_owner ?>
 
-<script src="/assets/js/qrcode.min.js"></script>
+<script src="<?= url('/assets/js/qrcode.min.js') ?>"></script>
+<script src="<?= url('/assets/js/JsBarcode.all.min.js') ?>"></script>
 <script>
 // Driver and Preset state
 const ALL_DRIVERS = <?= json_encode($drivers, JSON_UNESCAPED_UNICODE) ?>;
@@ -2755,7 +2887,7 @@ function fetchDriversAjax(slot, query) {
     const spinner = document.getElementById('driverSearchSpinner_' + slot);
     
     // Attempt live AJAX search endpoint
-    fetch('/dashboard/ajax_drivers.php?q=' + encodeURIComponent(query))
+    fetch('<?= url('/dashboard/ajax_drivers.php') ?>?q=' + encodeURIComponent(query))
         .then(res => res.json())
         .then(data => {
             if (spinner) spinner.classList.add('hidden');
@@ -3012,10 +3144,11 @@ function onColorSelectChanged(val) {
 
     if (val === 'custom') {
         if (input) {
+            input.classList.remove('hidden');
             input.value = '';
             input.focus();
         }
-        if (dot) dot.style.backgroundColor = '#CBD5E1';
+        if (dot) dot.style.setProperty('background-color', '#CBD5E1', 'important');
         if (text) text.textContent = 'مخصص';
         updateActiveColorSwatch('');
         return;
@@ -3023,9 +3156,10 @@ function onColorSelectChanged(val) {
 
     if (val && input) {
         input.value = val;
+        input.classList.add('hidden');
         const opt = select?.selectedOptions[0];
         const bg = opt?.getAttribute('data-bg') || '#FACC15';
-        if (dot) dot.style.backgroundColor = bg;
+        if (dot) dot.style.setProperty('background-color', bg, 'important');
         if (text) text.textContent = val;
         updateActiveColorSwatch(val);
     }
@@ -3037,7 +3171,10 @@ function selectColorSwatch(val, bg) {
     const dot = document.getElementById('colorBadgeDot');
     const text = document.getElementById('colorBadgeText');
 
-    if (input) input.value = val;
+    if (input) {
+        input.value = val;
+        input.classList.add('hidden');
+    }
     if (select) {
         let found = false;
         for (let i = 0; i < select.options.length; i++) {
@@ -3052,7 +3189,7 @@ function selectColorSwatch(val, bg) {
             if (customOpt) select.value = 'custom';
         }
     }
-    if (dot) dot.style.backgroundColor = bg;
+    if (dot) dot.style.setProperty('background-color', bg, 'important');
     if (text) text.textContent = val;
     updateActiveColorSwatch(val);
 }
@@ -3072,7 +3209,7 @@ function onColorInputChanged(val) {
             if (optVal && optVal.toLowerCase() === val.toLowerCase()) {
                 select.selectedIndex = i;
                 const bg = select.options[i].getAttribute('data-bg') || '#CBD5E1';
-                if (dot) dot.style.backgroundColor = bg;
+                if (dot) dot.style.setProperty('background-color', bg, 'important');
                 updateActiveColorSwatch(optVal);
                 matched = true;
                 break;
@@ -3081,7 +3218,7 @@ function onColorInputChanged(val) {
         if (!matched) {
             const customOpt = select.querySelector('option[value="custom"]');
             if (customOpt) select.value = 'custom';
-            if (dot) dot.style.backgroundColor = '#CBD5E1';
+            if (dot) dot.style.setProperty('background-color', '#CBD5E1', 'important');
             updateActiveColorSwatch('');
         }
     }
@@ -3092,9 +3229,9 @@ function updateActiveColorSwatch(activeVal) {
         const title = btn.getAttribute('title') || '';
         const onclickAttr = btn.getAttribute('onclick') || '';
         if (activeVal && (title.toLowerCase().includes(activeVal.toLowerCase()) || onclickAttr.toLowerCase().includes(activeVal.toLowerCase()))) {
-            btn.classList.add('ring-2', 'ring-amber-500', 'scale-110');
+            btn.classList.add('ring-2', 'ring-amber-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-110');
         } else {
-            btn.classList.remove('ring-2', 'ring-amber-500', 'scale-110');
+            btn.classList.remove('ring-2', 'ring-amber-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-110');
         }
     });
 }
@@ -3138,7 +3275,7 @@ function saveQuickPreset() {
     formData.append('brand', brand);
     formData.append('model', models);
 
-    fetch('/dashboard/ajax_vehicle_presets.php', {
+    fetch('<?= url('/dashboard/ajax_vehicle_presets.php') ?>', {
         method: 'POST',
         body: formData
     })
@@ -3396,6 +3533,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // ==========================================
 let currentQrCodeInstance = null;
 let currentVehicleVerifyUrl = '';
+let currentVehicleData = null;
 
 function onStatusRadioChange(status) {
     const box = document.getElementById('suspendedReasonBox');
@@ -3441,6 +3579,7 @@ function closeSuspendVehicleModal() {
 }
 
 function openVehicleQrModal(v) {
+    currentVehicleData = v;
     const modal = document.getElementById('vehicleQrModal');
     if (!modal) return;
 
@@ -3469,10 +3608,18 @@ function openVehicleQrModal(v) {
     }
 
     const host = window.location.origin;
-    currentVehicleVerifyUrl = `${host}/verify_vehicle.php?v=${encodeURIComponent(v.qr_code)}`;
+    const verifyBase = <?= json_encode(url('/verify_vehicle.php')) ?>;
+    const token = encodeURIComponent(v.qr_code || v.plate_number || v.id);
+    currentVehicleVerifyUrl = `${host}${verifyBase}?v=${token}`;
 
     const openBtn = document.getElementById('qrOpenVerifyPageBtn');
     if (openBtn) openBtn.href = currentVehicleVerifyUrl;
+
+    const stickerBtn = document.getElementById('qrOpenStickerPageBtn');
+    if (stickerBtn) {
+        const stickerBase = <?= json_encode(url('/dashboard/vehicle_sticker.php')) ?>;
+        stickerBtn.href = `${stickerBase}?id=${encodeURIComponent(v.id)}`;
+    }
 
     // Render QR Code
     const container = document.getElementById('vehicleQrCodeContainer');
@@ -3482,8 +3629,8 @@ function openVehicleQrModal(v) {
             try {
                 currentQrCodeInstance = new QRCode(container, {
                     text: currentVehicleVerifyUrl,
-                    width: 170,
-                    height: 170,
+                    width: 160,
+                    height: 160,
                     colorDark: '#0f172a',
                     colorLight: '#ffffff',
                     correctLevel: QRCode.CorrectLevel.H
@@ -3494,6 +3641,26 @@ function openVehicleQrModal(v) {
             }
         } else {
             container.innerHTML = `<span class="text-xs text-slate-500 font-mono">${currentVehicleVerifyUrl}</span>`;
+        }
+    }
+
+    // Render Linear Barcode (Code 128)
+    const barcodeVal = (v.qr_code && v.qr_code.trim()) ? v.qr_code.trim() : (v.plate_number || ('TAXI-' + v.id));
+    const barcodeSvg = document.getElementById('vehicleModalBarcodeSvg');
+    if (barcodeSvg && typeof JsBarcode !== 'undefined') {
+        try {
+            JsBarcode(barcodeSvg, barcodeVal, {
+                format: "CODE128",
+                width: 1.6,
+                height: 38,
+                displayValue: true,
+                fontSize: 11,
+                font: "monospace",
+                lineColor: "#0f172a",
+                margin: 4
+            });
+        } catch (e) {
+            console.error("Barcode render error:", e);
         }
     }
 
@@ -3526,50 +3693,20 @@ function copyVehicleVerifyLink() {
 }
 
 function printVehicleSticker() {
-    const sticker = document.getElementById('printableVehicleSticker');
-    if (!sticker) return;
-    const printWindow = window.open('', '_blank', 'width=650,height=750');
-    if (!printWindow) {
-        window.print();
-        return;
-    }
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html lang="ar" dir="rtl">
-        <head>
-            <meta charset="UTF-8">
-            <title>ملصق سيارة الأجرة - تاكسي نقيلو</title>
-            <style>
-                body { font-family: system-ui, -apple-system, sans-serif; background: #fff; margin: 0; padding: 20px; display: flex; justify-content: center; }
-                .sticker-box { width: 340px; border: 3px solid #0f172a; border-radius: 18px; padding: 18px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-                .header { background: #f59e0b; color: #0f172a; padding: 8px 12px; border-radius: 10px; font-weight: 900; font-size: 14px; margin-bottom: 12px; }
-                .grid { display: flex; gap: 8px; margin-bottom: 12px; }
-                .cell { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px; }
-                .cell-lbl { font-size: 10px; color: #64748b; font-weight: bold; }
-                .cell-val { font-size: 15px; font-weight: 900; font-family: monospace; }
-                .info { font-size: 13px; font-weight: bold; color: #1e293b; margin-bottom: 12px; }
-                .qr { display: flex; justify-content: center; margin-bottom: 10px; }
-                .qr img, .qr canvas { max-width: 170px; height: auto; }
-                .footer { font-size: 10px; color: #64748b; line-height: 1.3; }
-                @media print {
-                    body { padding: 0; }
-                    .sticker-box { page-break-inside: avoid; }
-                }
-            </style>
-        </head>
-        <body onload="window.print(); window.close();">
-            <div class="sticker-box">
-                ${sticker.innerHTML}
-            </div>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
+    if (!currentVehicleData || !currentVehicleData.id) return;
+    const stickerBase = <?= json_encode(url('/dashboard/vehicle_sticker.php')) ?>;
+    const stickerUrl = `${stickerBase}?id=${encodeURIComponent(currentVehicleData.id)}&print=1`;
+    window.open(stickerUrl, '_blank', 'width=750,height=850,menubar=no,toolbar=no,location=no,status=no');
 }
 
 function onExpFilterChange(val) {
+    const sortParam = <?= json_encode(($sort !== 'door' || $dir !== 'DESC') ? '&sort=' . urlencode($sort) . '&dir=' . urlencode(strtolower($dir)) : '') ?>;
+    if (val === 'all_fleet') {
+        window.location.href = 'vehicles.php' + (sortParam ? '?' + sortParam.substring(1) : '');
+        return;
+    }
     const searchParam = <?= json_encode(!empty($search) ? '&search=' . urlencode($search) : '') ?>;
-    window.location.href = 'vehicles.php?exp_filter=' + encodeURIComponent(val) + searchParam;
+    window.location.href = 'vehicles.php?exp_filter=' + encodeURIComponent(val) + searchParam + sortParam;
 }
 
 function toggleColumnFilterPanel() {

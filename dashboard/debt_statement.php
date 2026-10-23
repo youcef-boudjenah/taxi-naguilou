@@ -375,11 +375,11 @@ $refCode = 'EXT-' . date('Y') . '-' . str_pad($realDebtId ?: $driverUserId, 4, '
                                 <td class="py-2.5 px-3 font-sans text-slate-900 dark:text-slate-200 font-medium">
                                     <?= htmlspecialchars($item['label']) ?>
                                     <?php if (!empty($item['sub_id'])): ?>
-                                    <a href="invoice.php?type=subscription&id=<?= $item['sub_id'] ?>" target="_blank" class="no-print mr-1 inline-flex items-center text-[10px] text-amber-600 hover:underline">
+                                    <a href="<?= url('/dashboard/invoice.php?type=subscription&id=' . (int)$item['sub_id']) ?>" target="_blank" class="no-print mr-1 inline-flex items-center text-[10px] text-amber-600 hover:underline">
                                         [فاتورة]
                                     </a>
                                     <?php elseif (!empty($item['vers_id'])): ?>
-                                    <a href="invoice.php?type=versement&id=<?= $item['vers_id'] ?>" target="_blank" class="no-print mr-1 inline-flex items-center text-[10px] text-emerald-600 hover:underline">
+                                    <a href="<?= url('/dashboard/invoice.php?type=versement&id=' . (int)$item['vers_id']) ?>" target="_blank" class="no-print mr-1 inline-flex items-center text-[10px] text-emerald-600 hover:underline">
                                         [وصل قبض]
                                     </a>
                                     <?php endif; ?>

@@ -88,17 +88,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmt->execute([$driverId, $vehicleId, $startDate, $endDate, $monthlyWage, $status, $notes, $contractId]);
             
-            if ($status === 'signed' && $vehicleId) {
-                $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
+            if ($status === 'signed') {
+                $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ? AND deleted_at IS NULL")->execute([$driverId]);
+                if ($vehicleId) {
+                    $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $vehicleId]);
+                }
             }
 
             log_audit($pdo, 'contract_updated', 'contracts', $contractId, "تعديل بيانات العقد رقم $contractId");
-            set_flash('success', "تم تعديل بيانات العقد بنجاح");
+            set_flash('success', "تم تعديل وتجديد بيانات العقد بنجاح.");
         } catch (\Throwable $e) {
             set_flash('error', 'حدث خطأ أثناء تعديل العقد: ' . $e->getMessage());
         }
     } else {
         set_flash('error', 'يرجى تحديد السائق المكلف بالعقد');
+    }
+    redirect('/dashboard/contracts.php');
+}
+
+// Handle Terminate Contract with Specific Clauses & Archive Driver
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'terminate_contract') {
+    require_csrf_token();
+    $contractId = intval($_POST['contract_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+    $clause = trim($_POST['termination_clause'] ?? 'article_14');
+    $clauseTitles = [
+        'article_14' => 'المادة 14: ارتكاب خطأ جسيم تجاه الزبون أو أثناء العمل',
+        'article_12' => 'المادة 12: استقالة السائق الأجير مع الإشعار المسبق (شهر واحد)',
+        'article_13' => 'المادة 13: انتهاء المشروع أو حدوث طارئ يمنع مزاولة النشاط',
+        'article_07' => 'المادة 07: وضع حد لعلاقة العمل أثناء الفترة التجريبية (خلال 6 أشهر)',
+        'article_10_11' => 'المادتان 10 و 11: مخالفة النظام الداخلي أو التسبب بأضرار مادية بالمركبة',
+        'amiable' => 'فسخ العقد بالتراضي والاتفاق المتبادل بين الطرفين',
+        'custom' => 'فسخ العقد بموجب بند قانوني مخصص أو سبب معلن'
+    ];
+    $clauseTitle = $clauseTitles[$clause] ?? 'فسخ العقد بموجب القانون 90-11';
+    $termDate = !empty($_POST['termination_date']) ? $_POST['termination_date'] : date('Y-m-d');
+    $details = trim($_POST['termination_notes'] ?? '');
+
+    if ($contractId > 0 && $driverId > 0) {
+        try {
+            $pdo->beginTransaction();
+
+            // 1. Mark contract as terminated and append legal termination record to notes
+            $noteAppend = "\n[تم فسخ العقد بتاريخ $termDate - البند: $clauseTitle" . ($details ? " - السند/التفاصيل: $details" : "") . "]";
+            $stmtTerm = $pdo->prepare("
+                UPDATE contracts 
+                SET status = 'terminated', 
+                    notes = CONCAT(COALESCE(notes, ''), ?) 
+                WHERE id = ?
+            ");
+            $stmtTerm->execute([$noteAppend, $contractId]);
+
+            // 2. Unassign driver from all vehicles
+            $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+            $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE replacement_driver_id = ?")->execute([$driverId]);
+
+            // 3. Freeze driver account & transfer to archive / recycle bin
+            $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?")->execute([$driverId]);
+            soft_delete_entity($pdo, 'users', $driverId, "فسخ العقد رقم $contractId: $clauseTitle");
+
+            $pdo->commit();
+            log_audit($pdo, 'contract_terminated', 'contracts', $contractId, "فسخ العقد رقم $contractId للسائق $driverId بناءً على: $clauseTitle ونقل السائق للأرشيف");
+            set_flash('success', "تم فسخ العقد بنجاح طبقاً لـ ($clauseTitle) وإلغاء تخصيص المركبة وإحالة السائق إلى الأرشيف وسلة المهملات.");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء فسخ العقد: ' . $e->getMessage());
+        }
+    } else {
+        set_flash('error', 'بيانات العقد أو السائق غير مكتملة.');
+    }
+    redirect('/dashboard/contracts.php');
+}
+
+// Handle Archive Expired Driver
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'archive_expired_driver') {
+    require_csrf_token();
+    $contractId = intval($_POST['contract_id'] ?? 0);
+    $driverId = intval($_POST['driver_id'] ?? 0);
+
+    if ($driverId > 0) {
+        try {
+            $pdo->beginTransaction();
+            // 1. Unassign vehicles
+            $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+            $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE replacement_driver_id = ?")->execute([$driverId]);
+
+            // 2. Freeze driver and move to archive
+            $pdo->prepare("UPDATE users SET status = 'suspended' WHERE id = ?")->execute([$driverId]);
+            soft_delete_entity($pdo, 'users', $driverId, "أرشفة السائق لانتهاء العقد رقم $contractId وعدم التجديد");
+
+            $pdo->commit();
+            log_audit($pdo, 'driver_archived_expired_contract', 'users', $driverId, "إحالة السائق $driverId للأرشيف لانتهاء العقد رقم $contractId");
+            set_flash('success', "تمت إحالة السائق بنجاح إلى الأرشيف وسلة المهملات لانتهاء مدة عقده وعدم التجديد.");
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            set_flash('error', 'حدث خطأ أثناء أرشفة السائق: ' . $e->getMessage());
+        }
     }
     redirect('/dashboard/contracts.php');
 }
@@ -121,6 +210,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     redirect('/dashboard/contracts.php');
 }
+
+// Auto-freeze drivers whose active contract has expired and have no newer active signed contract
+try {
+    $pdo->exec("
+        UPDATE users u
+        SET u.status = 'suspended'
+        WHERE u.role = 'driver'
+          AND u.status = 'active'
+          AND u.deleted_at IS NULL
+          AND u.id IN (
+              SELECT c.driver_id FROM contracts c
+              WHERE c.deleted_at IS NULL
+              GROUP BY c.driver_id
+              HAVING MAX(c.end_date) < CURDATE()
+          )
+    ");
+} catch (\Throwable $e) {}
 
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
@@ -157,7 +263,7 @@ if (is_owner() && !is_admin()) {
 $sql = "
     SELECT c.*, 
            v.plate_number, v.brand, v.model, v.door_number,
-           u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license,
+           u.full_name as driver_name, u.phone as driver_phone, u.license_number as driver_license, u.status as driver_status,
            TIMESTAMPDIFF(YEAR, c.start_date, c.end_date) as duration_years,
            DATEDIFF(c.end_date, CURDATE()) as days_remaining
     FROM contracts c
@@ -431,7 +537,14 @@ if ($pdo) {
 
                                 <!-- Driver -->
                                 <td class="p-3.5 whitespace-nowrap">
-                                    <div class="font-bold text-slate-900 dark:text-slate-100 text-[13px]"><?= htmlspecialchars($c['driver_name']) ?></div>
+                                    <div class="font-bold text-slate-900 dark:text-slate-100 text-[13px] flex items-center gap-1.5 flex-wrap">
+                                        <span><?= htmlspecialchars($c['driver_name']) ?></span>
+                                        <?php if ($c['status'] === 'terminated'): ?>
+                                            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">مفسوخ (بالأرشيف)</span>
+                                        <?php elseif ($isExpired): ?>
+                                            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700">مجمد لانتهاء العقد</span>
+                                        <?php endif; ?>
+                                    </div>
                                     <div class="mt-1" dir="ltr">
                                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold font-num bg-slate-100/90 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
                                             <?= htmlspecialchars($c['driver_phone']) ?>
@@ -472,7 +585,11 @@ if ($pdo) {
                                         <span class="px-2 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px]">
                                             <?= $durYears ?> <?= $durYears > 1 ? 'سنوات' : 'سنة' ?>
                                         </span>
-                                        <?php if ($isExpired): ?>
+                                        <?php if ($c['status'] === 'terminated'): ?>
+                                            <span class="text-[10px] text-rose-700 dark:text-rose-300 font-bold bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900/50">
+                                                فسخ رسمي
+                                            </span>
+                                        <?php elseif ($isExpired): ?>
                                             <span class="text-[10px] text-rose-600 dark:text-rose-400 font-bold font-num bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900/50">
                                                 منتهي منذ <?= abs($daysRemaining) ?> يوم
                                             </span>
@@ -489,9 +606,15 @@ if ($pdo) {
 
                                 <!-- Status -->
                                 <td class="p-3.5 whitespace-nowrap text-center">
-                                    <?php if ($isExpired): ?>
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60">
-                                            <span>منتهي الصلاحية</span>
+                                    <?php if ($c['status'] === 'terminated'): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-200 border border-rose-300 dark:border-rose-800">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                                            <span>مفسوخ رسمياً (Résilié)</span>
+                                        </span>
+                                    <?php elseif ($isExpired): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-100 text-slate-800 dark:bg-slate-800/80 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                                            <span>منتهي الصلاحية (مجمد)</span>
                                         </span>
                                     <?php elseif ($isExpiringSoon): ?>
                                         <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 dark:border-amber-800 animate-pulse">
@@ -519,7 +642,8 @@ if ($pdo) {
                                             </svg>
                                         </button>
 
-                                        <div class="table-dropdown-menu hidden w-60 min-w-[240px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
+                                        <div class="table-dropdown-menu hidden w-64 min-w-[250px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
+                                            <!-- Option 1: Renew Contract (+3 years) for expired or expiring soon -->
                                             <?php if ($isExpiringSoon || $isExpired): ?>
                                             <button type="button"
                                                     onclick='openEditContractModal(<?= json_encode([
@@ -537,10 +661,28 @@ if ($pdo) {
                                                 <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                                                 </svg>
-                                                <span>تجديد العقد (+3 سنوات)</span>
+                                                <span>تجديد العقد (+3 سنوات وإلغاء التجميد)</span>
                                             </button>
                                             <?php endif; ?>
 
+                                            <!-- Option 2: Archive driver if contract is expired -->
+                                            <?php if ($isExpired && $c['status'] !== 'terminated'): ?>
+                                            <form method="POST" action="" onsubmit="return confirm('تأكيد: هل أنت متأكد من رغبتك في إرسال هذا السائق إلى الأرشيف وسلة المهملات لانتهاء مدة عقده وعدم التجديد؟')" class="w-full">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="archive_expired_driver">
+                                                <input type="hidden" name="contract_id" value="<?= $c['id'] ?>">
+                                                <input type="hidden" name="driver_id" value="<?= $c['driver_id'] ?>">
+                                                <button type="submit"
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-200 bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold transition text-right cursor-pointer">
+                                                    <svg class="w-4 h-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                                                    </svg>
+                                                    <span>إرسال السائق للأرشيف</span>
+                                                </button>
+                                            </form>
+                                            <?php endif; ?>
+
+                                            <!-- View Contract -->
                                             <a href="contract_view.php?id=<?= $c['id'] ?>"
                                                class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-slate-800 dark:text-slate-100 hover:bg-amber-50 dark:hover:bg-amber-900/30 hover:text-amber-800 dark:hover:text-amber-300 font-bold transition">
                                                 <svg class="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -550,6 +692,7 @@ if ($pdo) {
                                                 <span>معاينة وطباعة العقد</span>
                                             </a>
 
+                                            <!-- Edit Contract -->
                                             <button type="button"
                                                     onclick='openEditContractModal(<?= json_encode([
                                                         "id" => (int)$c["id"],
@@ -569,18 +712,31 @@ if ($pdo) {
                                                 <span>تعديل بنود العقد</span>
                                             </button>
 
+                                            <!-- Option 3: Terminate Contract with Clauses & send driver to archive -->
+                                            <?php if ($c['status'] !== 'terminated'): ?>
+                                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                            <button type="button"
+                                                    onclick="openTerminateContractModal(<?= (int)$c['id'] ?>, '<?= htmlspecialchars($c['contract_number'], ENT_QUOTES) ?>', <?= (int)$c['driver_id'] ?>, '<?= htmlspecialchars($c['driver_name'], ENT_QUOTES) ?>', '<?= htmlspecialchars($c['plate_number'] ?? '', ENT_QUOTES) ?>')"
+                                                    class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-700 dark:text-rose-400 bg-rose-50/70 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 font-black transition text-right cursor-pointer">
+                                                <svg class="w-4 h-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                </svg>
+                                                <span>فسخ العقد وإحالة السائق للأرشيف</span>
+                                            </button>
+                                            <?php endif; ?>
+
                                             <?php if (is_admin()): ?>
                                             <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذا العقد نهائياً من السجل؟')" class="w-full">
+                                            <form method="POST" action="" onsubmit="return confirm('هل أنت متأكد من رغبتك في نقل هذا العقد إلى سلة المهملات والأرشيف؟')" class="w-full">
                                                 <?= csrf_field() ?>
                                                 <input type="hidden" name="action" value="delete_contract">
                                                 <input type="hidden" name="contract_id" value="<?= $c['id'] ?>">
                                                 <button type="submit"
-                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold transition text-right cursor-pointer">
+                                                        class="table-dropdown-item w-full flex items-center gap-2 px-3 py-2 rounded-xl text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-semibold transition text-right cursor-pointer">
                                                     <svg class="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                                                     </svg>
-                                                    <span>حذف العقد</span>
+                                                    <span>حذف العقد إلى المهملات</span>
                                                 </button>
                                             </form>
                                             <?php endif; ?>
@@ -611,7 +767,7 @@ if ($pdo) {
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
                 <h3 class="font-bold text-slate-900 text-lg">إصدار عقد عمل وانتساب نظامي</h3>
-                <span class="text-xs text-slate-500">يتضمن المواد الـ 16 الإلزامية طبقاً لأحكام القانون 90-11 ومفتشية العمل</span>
+                <span class="text-xs text-slate-500">مديرية النقل ولاية أدرار • يتضمن المواد الـ 16 الإلزامية طبقاً لأحكام القانون 90-11</span>
             </div>
             <button onclick="document.getElementById('newContractModal').classList.add('hidden'); document.getElementById('newContractModal').classList.remove('flex');" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -851,19 +1007,15 @@ function recalculateContractEndDate() {
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">الأجر الشهري (دج) <span class="text-rose-500">*</span></label>
-                    <input type="number" step="100" name="monthly_wage" id="editContractWage" required class="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-num focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1.5">الوضعية القانونية <span class="text-rose-500">*</span></label>
-                    <select name="status" id="editContractStatus" class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-                        <option value="signed">ساري وموثق (Signé)</option>
-                        <option value="draft">مسودة (Brouillon)</option>
-                        <option value="terminated">ملغى / منتهي (Résilié)</option>
-                    </select>
-                </div>
+            <input type="hidden" name="monthly_wage" id="editContractWage" value="45000">
+
+            <div>
+                <label class="block font-bold text-slate-700 mb-1.5">الوضعية القانونية <span class="text-rose-500">*</span></label>
+                <select name="status" id="editContractStatus" class="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                    <option value="signed">ساري وموثق (Signé)</option>
+                    <option value="draft">مسودة (Brouillon)</option>
+                    <option value="terminated">ملغى / منتهي (Résilié)</option>
+                </select>
             </div>
 
             <div>
@@ -879,7 +1031,123 @@ function recalculateContractEndDate() {
     </div>
 </div>
 
+<!-- Modal: Terminate Contract with Legal Clauses & Archive Driver -->
+<div id="terminateContractModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-[#161d27] max-w-lg w-full rounded-2xl p-6 sm:p-7 border border-rose-200 dark:border-rose-900/60 shadow-2xl space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                </span>
+                <div>
+                    <h3 class="font-black text-slate-900 dark:text-white text-base">فسخ العقد وإحالة السائق للأرشيف</h3>
+                    <span id="termContractNumLabel" class="text-xs font-mono font-bold text-rose-700 dark:text-rose-400"></span>
+                </div>
+            </div>
+            <button onclick="closeTerminateContractModal()" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="" class="space-y-4 text-xs">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="terminate_contract">
+            <input type="hidden" name="contract_id" id="termContractId">
+            <input type="hidden" name="driver_id" id="termDriverId">
+
+            <!-- Driver & Vehicle Summary Card -->
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-500 dark:text-slate-400 font-semibold">السائق المعني:</span>
+                    <strong id="termDriverName" class="text-slate-950 dark:text-white font-black text-sm"></strong>
+                </div>
+                <div class="flex items-center justify-between text-[11px]" id="termVehicleRow">
+                    <span class="text-slate-500 dark:text-slate-400 font-semibold">المركبة الحالية:</span>
+                    <span id="termVehiclePlate" class="font-mono font-bold text-slate-800 dark:text-slate-200"></span>
+                </div>
+            </div>
+
+            <!-- Termination Clause Selection -->
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">بند / سبب فسخ العقد (قانون 90-11) <span class="text-rose-500">*</span></label>
+                <select name="termination_clause" id="termClauseSelect" required class="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2332] text-xs font-semibold focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
+                    <option value="article_14">المادة 14: ارتكاب خطأ جسيم تجاه الزبون أو أثناء تأدية المهام</option>
+                    <option value="article_12">المادة 12: استقالة السائق الأجير مع استيفاء فترة الإشعار المسبق (شهر واحد)</option>
+                    <option value="article_13">المادة 13: انتهاء المشروع أو حدوث طارئ يمنع مزاولة النشاط</option>
+                    <option value="article_07">المادة 07: وضع حد لعلاقة العمل أثناء الفترة التجريبية (خلال 6 أشهر)</option>
+                    <option value="article_10_11">المادتان 10 و 11: مخالفة أحكام النظام الداخلي أو التسبب بأضرار مادية بالمركبة</option>
+                    <option value="amiable">فسخ العقد بالتراضي والاتفاق المتبادل بين الطرفين</option>
+                    <option value="custom">بند قانوني مخصص أو سبب آخر...</option>
+                </select>
+            </div>
+
+            <!-- Termination Date -->
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">تاريخ سريان الفسخ <span class="text-rose-500">*</span></label>
+                <input type="date" name="termination_date" value="<?= date('Y-m-d') ?>" required class="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2332] text-xs font-num focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
+            </div>
+
+            <!-- Detailed Notes -->
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">ملاحظات وسند الفسخ (رقم المحضر / تقرير المعاينة)</label>
+                <textarea name="termination_notes" id="termNotes" rows="2.5" placeholder="أدخل تفاصيل ومبررات قرار الفسخ أو رقم المحضر والسند القانوني..." class="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2332] text-xs focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"></textarea>
+            </div>
+
+            <!-- Warning Notice -->
+            <div class="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-[11px] text-rose-800 dark:text-rose-300 space-y-1">
+                <div class="font-bold flex items-center gap-1.5">
+                    <span>⚠️</span>
+                    <span>الإجراءات التلقائية المترتبة على الفسخ:</span>
+                </div>
+                <ul class="list-disc list-inside space-y-0.5 text-[10px] text-rose-700 dark:text-rose-400">
+                    <li>تحويل حالة العقد رسمياً إلى <strong>مفسوخ (Terminé)</strong> مع توثيق السند والسبب.</li>
+                    <li>إلغاء تخصيص أي مركبة مرتبطة بالسائق لتصبح متاحة لسائق آخر فوراً.</li>
+                    <li>تجميد حساب السائق ونقل ملفه مباشرة إلى <strong>الأرشيف وسلة المهملات</strong>.</li>
+                </ul>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onclick="closeTerminateContractModal()" class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition">إلغاء</button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black transition shadow-xs flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                    <span>تأكيد الفسخ وإحالة السائق للأرشيف</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+function openTerminateContractModal(contractId, contractNumber, driverId, driverName, vehiclePlate) {
+    document.getElementById('termContractId').value = contractId || '';
+    document.getElementById('termContractNumLabel').textContent = contractNumber ? `عقد رقم: ${contractNumber}` : '';
+    document.getElementById('termDriverId').value = driverId || '';
+    document.getElementById('termDriverName').textContent = driverName || '';
+    const vehRow = document.getElementById('termVehicleRow');
+    const vehPlate = document.getElementById('termVehiclePlate');
+    if (vehiclePlate) {
+        vehPlate.textContent = vehiclePlate;
+        vehRow.classList.remove('hidden');
+    } else {
+        vehPlate.textContent = 'بدون مركبة معينة';
+    }
+    const modal = document.getElementById('terminateContractModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeTerminateContractModal() {
+    const modal = document.getElementById('terminateContractModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
 function openEditContractModal(data) {
     document.getElementById('editContractId').value = data.id || '';
     document.getElementById('editContractNumLabel').textContent = data.contract_number ? `رقم العقد: ${data.contract_number}` : '';

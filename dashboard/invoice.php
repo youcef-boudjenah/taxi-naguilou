@@ -87,6 +87,42 @@ if ($type === 'subscription') {
             'notes' => 'تسديد وصل مالي رسمي لصالح مؤسسة تاكسي نقيلو'
         ];
     }
+} elseif ($type === 'debt') {
+    $stmt = $pdo->prepare("
+        SELECT d.*, u.full_name as driver_name, u.phone as driver_phone, u.wilaya as driver_wilaya,
+               u.card_number, u.license_number,
+               v.brand, v.model, v.plate_number, v.door_number
+        FROM driver_debts d
+        LEFT JOIN users u ON u.id = d.driver_id
+        LEFT JOIN vehicles v ON (v.current_driver_id = u.id)
+        WHERE d.id = ?
+    ");
+    $stmt->execute([$invoiceId]);
+    $dbRec = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($dbRec) {
+        $invoiceData = [
+            'num' => 'DETTE-' . date('Y', strtotime($dbRec['created_at'] ?? 'now')) . '-' . str_pad($dbRec['id'], 5, '0', STR_PAD_LEFT),
+            'date' => date('Y-m-d H:i', strtotime($dbRec['created_at'] ?? 'now')),
+            'period' => date('Y-m', strtotime($dbRec['created_at'] ?? 'now')),
+            'driver_name' => $dbRec['driver_name'] ?? 'سائق معتمد',
+            'driver_phone' => $dbRec['driver_phone'] ?? '',
+            'driver_wilaya' => $dbRec['driver_wilaya'] ?? '16 - الجزائر',
+            'card_number' => $dbRec['card_number'] ?? 'LIV-2026-XX',
+            'license_number' => $dbRec['license_number'] ?? 'PERMIS-XX',
+            'vehicle_brand' => $dbRec['brand'] ?? 'Renault',
+            'vehicle_model' => $dbRec['model'] ?? 'Symbol',
+            'plate_number' => $dbRec['plate_number'] ?? '00000-116-16',
+            'door_number' => $dbRec['door_number'] ?? '01',
+            'space_fee' => 0.00,
+            'vehicle_fee' => floatval($dbRec['total_debt'] ?? 0.00),
+            'total_due' => floatval($dbRec['total_debt'] ?? 0.00),
+            'paid_amount' => floatval($dbRec['paid_amount'] ?? 0.00),
+            'status' => ($dbRec['remaining_debt'] <= 0) ? 'regle' : (($dbRec['paid_amount'] > 0) ? 'partiel' : 'en_attente'),
+            'payment_method' => 'سند مالي مقيد',
+            'notes' => $dbRec['notes'] ?? 'كشف حساب مستحقات ودين معتمد'
+        ];
+    }
 }
 
 // Fallback if not found

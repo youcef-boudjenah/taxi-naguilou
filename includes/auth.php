@@ -68,6 +68,14 @@ function current_user() {
     ];
 }
 
+function is_super_admin(): bool {
+    return is_logged_in() && (($_SESSION['user_role'] ?? '') === 'super_admin');
+}
+
+function require_super_admin() {
+    require_role(['super_admin']);
+}
+
 function is_admin() {
     $role = $_SESSION['user_role'] ?? '';
     return in_array($role, ['super_admin', 'admin']);

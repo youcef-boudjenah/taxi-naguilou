@@ -40,6 +40,9 @@ function url(string $path = ''): string {
         return !empty($base) ? $base . '/' : '/';
     }
     $path = '/' . ltrim($path, '/');
+    if (!empty($base) && (strpos($path, $base . '/') === 0 || $path === $base)) {
+        return $path;
+    }
     return $base . $path;
 }
 
@@ -179,7 +182,8 @@ function initAllTables(PDO $pdo) {
         'transmission_slips', 'driver_debts', 'versements', 'night_watch', 
         'driver_schedules', 'insurance_policies', 'driver_subscriptions', 
         'leads', 'notifications', 'settings', 'audit_logs', 
-        'cnas_declarations', 'traveler_reports', 'traveler_passengers'
+        'cnas_declarations', 'traveler_reports', 'traveler_passengers',
+        'driver_ratings', 'vehicle_scans', 'messages', 'newsletter'
     ];
 
     try {
@@ -210,6 +214,7 @@ function initAllTables(PDO $pdo) {
         status ENUM('active', 'pending', 'suspended') DEFAULT 'active',
         subscription_type VARCHAR(30) DEFAULT 'unlimited',
         subscription_expires_at DATE NULL,
+        custom_vehicle_fee DECIMAL(10, 2) NULL DEFAULT NULL,
         driver_type VARCHAR(50) DEFAULT 'ajir',
         probation_stage VARCHAR(50) DEFAULT 'trial_1',
         activity_start_date DATE NULL,
@@ -560,6 +565,33 @@ function initAllTables(PDO $pdo) {
         FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
         FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Internal Messages (نظام المراسلة الداخلية)
+    CREATE TABLE IF NOT EXISTS messages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        sender_id INT NOT NULL,
+        receiver_id INT NOT NULL,
+        message TEXT NOT NULL,
+        attachment_url VARCHAR(255) NULL,
+        attachment_name VARCHAR(255) NULL,
+        is_read TINYINT(1) NOT NULL DEFAULT 0,
+        read_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted_by_sender TINYINT(1) NOT NULL DEFAULT 0,
+        deleted_by_receiver TINYINT(1) NOT NULL DEFAULT 0,
+        INDEX idx_sender_receiver (sender_id, receiver_id),
+        INDEX idx_receiver_read (receiver_id, is_read),
+        INDEX idx_created (created_at),
+        FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Newsletter Subscriptions (النشرة البريدية)
+    CREATE TABLE IF NOT EXISTS newsletter (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(150) NOT NULL UNIQUE,
+        subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
     $queries = array_filter(array_map('trim', explode(';', $schema)));
@@ -608,6 +640,7 @@ function migrateDriverFicheFields(PDO $pdo): void {
             'taxi_contract_end' => "DATE NULL AFTER `taxi_contract_start`",
             'subscription_type' => "VARCHAR(30) DEFAULT 'unlimited' AFTER `status`",
             'subscription_expires_at' => "DATE NULL AFTER `subscription_type`",
+            'custom_vehicle_fee' => "DECIMAL(10, 2) NULL DEFAULT NULL AFTER `subscription_expires_at`",
             'qr_token' => "VARCHAR(64) UNIQUE NULL AFTER `password_hash`"
         ];
 
@@ -1183,6 +1216,10 @@ function seedDefaultData(PDO $pdo) {
             ['discount_prepay_6m', '1000.00', 'billing'],
             ['discount_prepay_9m', '1500.00', 'billing'],
             ['discount_prepay_12m', '2000.00', 'billing'],
+            ['discount_prepay_3m_enabled', '1', 'billing'],
+            ['discount_prepay_6m_enabled', '1', 'billing'],
+            ['discount_prepay_9m_enabled', '1', 'billing'],
+            ['discount_prepay_12m_enabled', '1', 'billing'],
             ['alert_threshold_days', '30', 'alerts'],
             ['app_timezone', 'Africa/Algiers', 'system'],
             ['app_currency', 'دج (DZD)', 'system'],

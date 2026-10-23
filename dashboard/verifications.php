@@ -105,11 +105,11 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
         </div>
 
         <div class="flex items-center gap-2">
-            <a href="/dashboard/driver_fiche.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs">
+            <a href="<?= url('/dashboard/driver_fiche.php') ?>" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs">
                 <span>البطاقة الفنية للسائق</span>
                 <span class="text-amber-400 font-num">↗</span>
             </a>
-            <a href="/dashboard/drivers.php" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition shadow-xs">
+            <a href="<?= url('/dashboard/drivers.php') ?>" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition shadow-xs">
                 <span>سجل السائقين</span>
             </a>
         </div>
@@ -258,7 +258,7 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
                                 </td>
                                 <td class="p-3.5 whitespace-nowrap text-center">
                                     <div class="flex items-center justify-center gap-1.5">
-                                        <a href="/dashboard/driver_fiche.php?id=<?= $drv['id'] ?>" target="_blank"
+                                        <a href="<?= url('/dashboard/driver_fiche.php?id=' . $drv['id']) ?>" target="_blank"
                                            class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition" title="معاينة البطاقة الفنية">
                                             معاينة
                                         </a>
@@ -382,7 +382,7 @@ $totalExpiringDocs = count($pendingDrivers) + count($pendingVehicles) - $totalPe
                                             </button>
                                         </form>
                                         <?php else: ?>
-                                        <a href="/dashboard/vehicles.php" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition">
+                                        <a href="<?= url('/dashboard/vehicles.php') ?>" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition">
                                             تحديث الوثائق
                                         </a>
                                         <?php endif; ?>

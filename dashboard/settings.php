@@ -212,6 +212,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// 4. Handle Instant AJAX Toggle Discount Offer
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_discount_offer' && $pdo) {
+    require_csrf_token();
+    if (!is_admin()) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'message' => 'عذراً، فقط مدير المنصة مخول بتعديل إعدادات العروض والخصومات.']);
+        exit;
+    }
+    $offer = trim($_POST['offer'] ?? '');
+    $enabled = ($_POST['enabled'] ?? '1') === '1' ? '1' : '0';
+    $validOffers = ['3m', '6m', '9m', '12m'];
+    if (in_array($offer, $validOffers)) {
+        $settingKey = "discount_prepay_{$offer}_enabled";
+        update_setting($pdo, $settingKey, $enabled, 'billing');
+        $labelOffer = [
+            '3m' => '3 أشهر',
+            '6m' => '6 أشهر',
+            '9m' => '9 أشهر',
+            '12m' => '12 شهراً'
+        ][$offer] ?? $offer;
+        $statusText = $enabled === '1' ? 'تفعيل' : 'تعطيل وإيقاف';
+        log_audit($pdo, 'discount_offer_toggled', 'settings', null, "{$statusText} عرض خصم الدفع المسبق لـ {$labelOffer}");
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => true,
+            'offer' => $offer,
+            'enabled' => $enabled,
+            'message' => $enabled === '1' ? "تم تفعيل عرض الخصم لـ {$labelOffer} بنجاح." : "تم تعطيل وإيقاف عرض الخصم لـ {$labelOffer}."
+        ]);
+        exit;
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'message' => 'بيانات العرض غير صالحة.']);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     require_csrf_token();
     if (!is_admin()) {
@@ -240,6 +276,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             'discount_prepay_6m' => trim($_POST['discount_prepay_6m'] ?? '1000.00'),
             'discount_prepay_9m' => trim($_POST['discount_prepay_9m'] ?? '1500.00'),
             'discount_prepay_12m' => trim($_POST['discount_prepay_12m'] ?? '2000.00'),
+            'discount_prepay_3m_enabled' => (isset($_POST['discount_prepay_3m_enabled']) && $_POST['discount_prepay_3m_enabled'] === '1') ? '1' : '0',
+            'discount_prepay_6m_enabled' => (isset($_POST['discount_prepay_6m_enabled']) && $_POST['discount_prepay_6m_enabled'] === '1') ? '1' : '0',
+            'discount_prepay_9m_enabled' => (isset($_POST['discount_prepay_9m_enabled']) && $_POST['discount_prepay_9m_enabled'] === '1') ? '1' : '0',
+            'discount_prepay_12m_enabled' => (isset($_POST['discount_prepay_12m_enabled']) && $_POST['discount_prepay_12m_enabled'] === '1') ? '1' : '0',
             'alert_threshold_days' => trim($_POST['alert_threshold_days'] ?? '30'),
             'douxe_ai_enabled' => isset($_POST['douxe_ai_enabled']) ? '1' : '0',
         ];
@@ -317,6 +357,9 @@ if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
     $vehiclePresets = $defaultPresets;
     update_setting($pdo, 'vehicle_brands_models', json_encode($defaultPresets, JSON_UNESCAPED_UNICODE), 'fleet');
 }
+
+$pageTitle = 'إعدادات المنصة والهوية | Paramètres & SAAS';
+require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="space-y-6">
@@ -488,103 +531,136 @@ if (!is_array($vehiclePresets) || empty($vehiclePresets)) {
                     </span>
                 </div>
 
-                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                     <table class="w-full text-right text-xs">
-                        <thead class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                        <thead class="bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-800">
                             <tr>
-                                <th class="p-3 w-2/3">الميزة</th>
-                                <th class="p-3 w-1/3">القيمة</th>
+                                <th class="p-3 w-1/2">الميزة أو العرض</th>
+                                <th class="p-3 w-1/4 text-center">حالة العرض</th>
+                                <th class="p-3 w-1/4 text-left">القيمة / الخصم المطبق</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                <td class="p-3 font-bold text-slate-800 dark:text-slate-200">
                                     تنبيه المستندات (بالأيام)
-                                    <span class="block text-[10px] text-slate-400 font-normal">عدد الأيام قبل انتهاء التأمين أو الفحص التقني لإظهار تنبيه النظام</span>
+                                    <span class="block text-[10px] text-slate-400 dark:text-slate-500 font-normal">عدد الأيام قبل انتهاء التأمين أو الفحص التقني لإظهار تنبيه النظام</span>
                                 </td>
-                                <td class="p-3">
+                                <td class="p-3 text-center">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">إعداد أساسي</span>
+                                </td>
+                                <td class="p-3 text-left">
                                     <input type="number" name="alert_threshold_days" value="<?= htmlspecialchars($settings['alert_threshold_days'] ?? '30') ?>" required
-                                           class="w-full max-w-[200px] px-3 py-2 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 text-left" dir="ltr">
+                                           class="w-full max-w-[200px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 dark:text-white text-left" dir="ltr">
                                 </td>
                             </tr>
-                            <tr class="hover:bg-slate-50/50 bg-amber-50/20">
-                                <td class="p-3 font-bold text-slate-800">
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 bg-amber-50/20 dark:bg-amber-950/20">
+                                <td class="p-3 font-bold text-slate-800 dark:text-slate-200">
                                     اشتراك المركبة شهرياً (دج/مركبة)
-                                    <span class="block text-[10px] text-slate-400 font-normal">المستحق الشهري عن كل مركبة مسجلة ومرتبطة بأسطول المنصة</span>
+                                    <span class="block text-[10px] text-slate-400 dark:text-slate-500 font-normal">المستحق الشهري عن كل مركبة مسجلة ومرتبطة بأسطول المنصة</span>
                                 </td>
-                                <td class="p-3">
+                                <td class="p-3 text-center">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">اشتراك ثابت</span>
+                                </td>
+                                <td class="p-3 text-left">
                                     <div class="relative max-w-[200px]">
                                         <input type="number" step="100" name="fee_vehicle_monthly" value="<?= htmlspecialchars($settings['fee_vehicle_monthly'] ?? '5000.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 text-left" dir="ltr">
+                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 dark:text-white text-left" dir="ltr">
                                         <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
                                     </div>
                                 </td>
                             </tr>
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                <td class="p-3 font-bold text-slate-800 dark:text-slate-200">
                                     اشتراك فضاء السائق شهرياً (دج)
-                                    <span class="block text-[10px] text-slate-400 font-normal">رسم اشتراك حساب وتطبيق السائق (Espace Chauffeur)</span>
+                                    <span class="block text-[10px] text-slate-400 dark:text-slate-500 font-normal">رسم اشتراك حساب وتطبيق السائق (Espace Chauffeur)</span>
                                 </td>
-                                <td class="p-3">
+                                <td class="p-3 text-center">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">اشتراك ثابت</span>
+                                </td>
+                                <td class="p-3 text-left">
                                     <div class="relative max-w-[200px]">
                                         <input type="number" step="100" name="fee_space_monthly" value="<?= htmlspecialchars($settings['fee_space_monthly'] ?? '1000.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 text-left" dir="ltr">
+                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-slate-900 dark:text-white text-left" dir="ltr">
                                         <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
                                     </div>
                                 </td>
                             </tr>
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
-                                    خصم الدفع المسبق لـ 3 أشهر / شهرياً (دج)
-                                    <span class="block text-[10px] text-slate-400 font-normal">الخصم المطبق شهرياً عند تسوية 3 أشهر مسبقاً (رباعي)</span>
+                            <?php
+                            $discountOffers = [
+                                '3m' => [
+                                    'title' => 'خصم الدفع المسبق لـ 3 أشهر / شهرياً (دج)',
+                                    'subtitle' => 'الخصم المطبق شهرياً عند تسوية 3 أشهر مسبقاً (رباعي)',
+                                    'default_amount' => '500.00',
+                                    'key' => 'discount_prepay_3m',
+                                    'enabled_key' => 'discount_prepay_3m_enabled'
+                                ],
+                                '6m' => [
+                                    'title' => 'خصم الدفع المسبق لـ 6 أشهر / شهرياً (دج)',
+                                    'subtitle' => 'الخصم المطبق شهرياً عند تسوية نصف سنوية مسبقة',
+                                    'default_amount' => '1000.00',
+                                    'key' => 'discount_prepay_6m',
+                                    'enabled_key' => 'discount_prepay_6m_enabled'
+                                ],
+                                '9m' => [
+                                    'title' => 'خصم الدفع المسبق لـ 9 أشهر / شهرياً (دج)',
+                                    'subtitle' => 'الخصم المطبق شهرياً عند تسوية 9 أشهر مسبقة',
+                                    'default_amount' => '1500.00',
+                                    'key' => 'discount_prepay_9m',
+                                    'enabled_key' => 'discount_prepay_9m_enabled'
+                                ],
+                                '12m' => [
+                                    'title' => 'خصم الدفع المسبق لـ 12 شهراً / شهرياً (دج)',
+                                    'subtitle' => 'الخصم المطبق شهرياً عند تسوية سنة كاملة مسبقاً (اشتراك سنوي)',
+                                    'default_amount' => '2000.00',
+                                    'key' => 'discount_prepay_12m',
+                                    'enabled_key' => 'discount_prepay_12m_enabled'
+                                ],
+                            ];
+                            foreach ($discountOffers as $slug => $offer):
+                                $isEnabled = ($settings[$offer['enabled_key']] ?? '1') === '1';
+                                $val = $settings[$offer['key']] ?? $offer['default_amount'];
+                            ?>
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition <?= $isEnabled ? 'bg-emerald-50/15 dark:bg-emerald-950/20' : 'bg-slate-50/40 dark:bg-slate-900/40' ?>" id="row_offer_<?= $slug ?>">
+                                <td class="p-3 font-bold text-slate-800 dark:text-slate-200">
+                                    <div class="flex items-center gap-2">
+                                        <span><?= htmlspecialchars($offer['title']) ?></span>
+                                        <span id="badge_status_<?= $slug ?>" class="px-2 py-0.5 rounded-full text-[10px] font-bold <?= $isEnabled ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300' ?>">
+                                            <?= $isEnabled ? 'متاح' : 'معطّل' ?>
+                                        </span>
+                                    </div>
+                                    <span class="block text-[10px] text-slate-400 dark:text-slate-500 font-normal mt-0.5"><?= htmlspecialchars($offer['subtitle']) ?></span>
                                 </td>
-                                <td class="p-3">
-                                    <div class="relative max-w-[200px]">
-                                        <input type="number" step="50" name="discount_prepay_3m" value="<?= htmlspecialchars($settings['discount_prepay_3m'] ?? '500.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-emerald-700 text-left" dir="ltr">
+                                <td class="p-3 text-center whitespace-nowrap">
+                                    <!-- Hidden input for standard form submission -->
+                                    <input type="hidden" name="<?= $offer['enabled_key'] ?>" id="hidden_<?= $offer['enabled_key'] ?>" value="<?= $isEnabled ? '1' : '0' ?>">
+                                    
+                                    <!-- Interactive Toggle Button -->
+                                    <button type="button" 
+                                            onclick="toggleDiscountOffer('<?= $slug ?>')" 
+                                            id="btn_toggle_<?= $slug ?>" 
+                                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs border cursor-pointer select-none <?= $isEnabled ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700' ?>"
+                                            title="<?= $isEnabled ? 'انقر لتعطيل وإيقاف هذا العرض' : 'انقر لتفعيل هذا العرض' ?>">
+                                        <span class="w-8 h-4.5 rounded-full p-0.5 transition flex items-center <?= $isEnabled ? 'bg-emerald-500 justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start' ?>" id="switch_track_<?= $slug ?>">
+                                            <span class="w-3.5 h-3.5 rounded-full bg-white shadow-xs transition" id="switch_thumb_<?= $slug ?>"></span>
+                                        </span>
+                                        <span id="label_toggle_<?= $slug ?>"><?= $isEnabled ? 'مفعّل' : 'معطّل' ?></span>
+                                    </button>
+                                    <span id="saved_feedback_<?= $slug ?>" class="hidden text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">✓ تم التحديث</span>
+                                </td>
+                                <td class="p-3 text-left">
+                                    <div class="relative max-w-[200px]" id="wrapper_input_<?= $slug ?>">
+                                        <input type="number" step="50" name="<?= $offer['key'] ?>" id="input_<?= $offer['key'] ?>" 
+                                               value="<?= htmlspecialchars($val) ?>" required
+                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-emerald-700 dark:text-emerald-400 text-left transition <?= $isEnabled ? '' : 'opacity-40 pointer-events-none bg-slate-100 dark:bg-slate-900/60' ?>" dir="ltr">
                                         <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
                                     </div>
+                                    <span id="text_status_hint_<?= $slug ?>" class="text-[10px] font-normal block mt-1 <?= $isEnabled ? 'text-slate-400 dark:text-slate-500' : 'text-rose-500 dark:text-rose-400 font-bold' ?>">
+                                        <?= $isEnabled ? 'عرض مفعّل ونشط' : 'العرض موقف حالياً' ?>
+                                    </span>
                                 </td>
                             </tr>
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
-                                    خصم الدفع المسبق لـ 6 أشهر / شهرياً (دج)
-                                    <span class="block text-[10px] text-slate-400 font-normal">الخصم المطبق شهرياً عند تسوية نصف سنوية مسبقة</span>
-                                </td>
-                                <td class="p-3">
-                                    <div class="relative max-w-[200px]">
-                                        <input type="number" step="50" name="discount_prepay_6m" value="<?= htmlspecialchars($settings['discount_prepay_6m'] ?? '1000.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-emerald-700 text-left" dir="ltr">
-                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
-                                    خصم الدفع المسبق لـ 9 أشهر / شهرياً (دج)
-                                    <span class="block text-[10px] text-slate-400 font-normal">الخصم المطبق شهرياً عند تسوية 9 أشهر مسبقة</span>
-                                </td>
-                                <td class="p-3">
-                                    <div class="relative max-w-[200px]">
-                                        <input type="number" step="50" name="discount_prepay_9m" value="<?= htmlspecialchars($settings['discount_prepay_9m'] ?? '1500.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-emerald-700 text-left" dir="ltr">
-                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr class="hover:bg-slate-50/50">
-                                <td class="p-3 font-bold text-slate-800">
-                                    خصم الدفع المسبق لـ 12 شهراً / شهرياً (دج)
-                                    <span class="block text-[10px] text-slate-400 font-normal">الخصم المطبق شهرياً عند تسوية سنة كاملة مسبقاً (اشتراك سنوي)</span>
-                                </td>
-                                <td class="p-3">
-                                    <div class="relative max-w-[200px]">
-                                        <input type="number" step="50" name="discount_prepay_12m" value="<?= htmlspecialchars($settings['discount_prepay_12m'] ?? '2000.00') ?>" required
-                                               class="w-full px-3 py-2 pr-12 rounded-lg border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num font-bold text-emerald-700 text-left" dir="ltr">
-                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج</span>
-                                    </div>
-                                </td>
-                            </tr>
+                            <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
@@ -1079,6 +1155,92 @@ function validateWipeConfirmation(val) {
     if (btn) {
         btn.disabled = !(clean === 'تأكيد' || clean.toUpperCase() === 'DELETE');
     }
+}
+
+// Toggle Prepayment Discount Offer (Activate / Deactivate)
+function toggleDiscountOffer(slug) {
+    const hidden = document.getElementById('hidden_discount_prepay_' + slug + '_enabled');
+    const btn = document.getElementById('btn_toggle_' + slug);
+    const track = document.getElementById('switch_track_' + slug);
+    const label = document.getElementById('label_toggle_' + slug);
+    const badge = document.getElementById('badge_status_' + slug);
+    const input = document.getElementById('input_discount_prepay_' + slug);
+    const hint = document.getElementById('text_status_hint_' + slug);
+    const row = document.getElementById('row_offer_' + slug);
+    const feedback = document.getElementById('saved_feedback_' + slug);
+    if (!hidden || !btn) return;
+
+    const isCurrentlyActive = hidden.value === '1';
+    const nextState = !isCurrentlyActive;
+    hidden.value = nextState ? '1' : '0';
+
+    // Update UI immediately (Optimistic UI)
+    if (nextState) {
+        btn.className = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs border cursor-pointer select-none bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800";
+        btn.title = "انقر لتعطيل وإيقاف هذا العرض";
+        if (track) track.className = "w-8 h-4.5 rounded-full p-0.5 transition flex items-center bg-emerald-500 justify-end";
+        if (label) label.textContent = "مفعّل";
+        if (badge) {
+            badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300";
+            badge.textContent = "متاح";
+        }
+        if (input) {
+            input.classList.remove('opacity-40', 'pointer-events-none', 'bg-slate-100', 'dark:bg-slate-900/60');
+        }
+        if (hint) {
+            hint.className = "text-[10px] text-slate-400 dark:text-slate-500 font-normal block mt-1";
+            hint.textContent = "عرض مفعّل ونشط";
+        }
+        if (row) {
+            row.classList.remove('bg-slate-50/40', 'dark:bg-slate-900/40');
+            row.classList.add('bg-emerald-50/15', 'dark:bg-emerald-950/20');
+        }
+    } else {
+        btn.className = "inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs border cursor-pointer select-none bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700";
+        btn.title = "انقر لتفعيل هذا العرض";
+        if (track) track.className = "w-8 h-4.5 rounded-full p-0.5 transition flex items-center bg-slate-300 dark:bg-slate-600 justify-start";
+        if (label) label.textContent = "معطّل";
+        if (badge) {
+            badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300";
+            badge.textContent = "معطّل";
+        }
+        if (input) {
+            input.classList.add('opacity-40', 'pointer-events-none', 'bg-slate-100', 'dark:bg-slate-900/60');
+        }
+        if (hint) {
+            hint.className = "text-[10px] text-rose-500 dark:text-rose-400 font-bold block mt-1";
+            hint.textContent = "العرض موقف حالياً";
+        }
+        if (row) {
+            row.classList.remove('bg-emerald-50/15', 'dark:bg-emerald-950/20');
+            row.classList.add('bg-slate-50/40', 'dark:bg-slate-900/40');
+        }
+    }
+
+    // AJAX Auto-Save in background
+    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+    const fd = new FormData();
+    fd.append('action', 'toggle_discount_offer');
+    fd.append('offer', slug);
+    fd.append('enabled', nextState ? '1' : '0');
+    fd.append('csrf_token', csrfToken);
+
+    fetch('settings.php', {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (feedback) {
+            feedback.textContent = nextState ? '✓ تم التفعيل' : '✓ تم الإيقاف';
+            feedback.classList.remove('hidden');
+            setTimeout(() => { feedback.classList.add('hidden'); }, 2500);
+        }
+    })
+    .catch(err => {
+        console.warn('Auto-save notice:', err);
+    });
 }
 </script>
 

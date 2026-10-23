@@ -355,7 +355,7 @@ foreach ($rows as $r) {
 
         <!-- Company & Status Filters -->
         <div class="flex items-center gap-2 w-full sm:w-auto">
-            <select onchange="location.href='/dashboard/insurance.php?company=' + this.value + '&status=<?= urlencode($filterStatus) ?>'" 
+            <select onchange="location.href='<?= url('/dashboard/insurance.php') ?>?company=' + this.value + '&status=<?= urlencode($filterStatus) ?>'" 
                     class="px-3 py-1.5 rounded-lg border border-slate-200 font-semibold text-xs bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 <option value="all" <?= $filterCompany === 'all' ? 'selected' : '' ?>>كل الشركات</option>
                 <option value="SAA" <?= $filterCompany === 'SAA' ? 'selected' : '' ?>>SAA (الشركة الوطنية)</option>

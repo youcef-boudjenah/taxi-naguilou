@@ -1,7 +1,7 @@
 <?php
 // dashboard/audit_logs.php - Security Audit Trail & Activity Monitoring
 $pageTitle = 'سجل التدقيق والرقابة الأمنية';
-require_once __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/auth.php';
 require_admin();
 
 $pdo = getDBConnection();
@@ -90,6 +90,8 @@ if ($pdo) {
         $logs = [];
     }
 }
+
+require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="space-y-6">

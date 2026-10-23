@@ -97,15 +97,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                 $status = 'suspended';
             }
 
+            // Handle Avatar Photo (File upload from mobile camera/gallery OR base64 stream OR removal)
+            $avatarUrl = null;
+            $removeAvatar = !empty($_POST['remove_avatar']) && $_POST['remove_avatar'] == '1';
+
+            if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+                $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+                $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, $allowedExts)) {
+                    $destDir = __DIR__ . '/../uploads/drivers';
+                    if (!is_dir($destDir)) {
+                        mkdir($destDir, 0777, true);
+                    }
+                    $fileName = 'driver_' . time() . '_' . rand(100, 999) . '.' . $ext;
+                    if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
+                        $avatarUrl = '/uploads/drivers/' . $fileName;
+                    }
+                }
+            } elseif (!empty($_POST['avatar_base64']) && str_starts_with($_POST['avatar_base64'], 'data:image/')) {
+                $destDir = __DIR__ . '/../uploads/drivers';
+                if (!is_dir($destDir)) {
+                    mkdir($destDir, 0777, true);
+                }
+                $rawParts = explode(',', $_POST['avatar_base64']);
+                if (count($rawParts) === 2) {
+                    $imgData = base64_decode($rawParts[1]);
+                    if ($imgData !== false) {
+                        $fileName = 'driver_cam_' . time() . '_' . rand(100, 999) . '.jpg';
+                        if (file_put_contents($destDir . '/' . $fileName, $imgData) !== false) {
+                            $avatarUrl = '/uploads/drivers/' . $fileName;
+                        }
+                    }
+                }
+            }
+
             if ($userId > 0 && !empty($fullName)) {
+                $upSql = "UPDATE users SET full_name = ?, email = ?, phone = ?, role = ?, status = ?, subscription_type = ?, subscription_expires_at = ?";
+                $upParams = [$fullName, $email, $phone, $role, $status, $subscriptionType, $subscriptionExpiresAt];
+
                 if (!empty($password)) {
                     $passHash = password_hash($password, PASSWORD_BCRYPT);
-                    $stmtUp = $pdo->prepare("UPDATE users SET full_name = ?, email = ?, phone = ?, role = ?, status = ?, subscription_type = ?, subscription_expires_at = ?, password_hash = ? WHERE id = ?");
-                    $stmtUp->execute([$fullName, $email, $phone, $role, $status, $subscriptionType, $subscriptionExpiresAt, $passHash, $userId]);
-                } else {
-                    $stmtUp = $pdo->prepare("UPDATE users SET full_name = ?, email = ?, phone = ?, role = ?, status = ?, subscription_type = ?, subscription_expires_at = ? WHERE id = ?");
-                    $stmtUp->execute([$fullName, $email, $phone, $role, $status, $subscriptionType, $subscriptionExpiresAt, $userId]);
+                    $upSql .= ", password_hash = ?";
+                    $upParams[] = $passHash;
                 }
+                if ($avatarUrl !== null) {
+                    $upSql .= ", avatar_url = ?";
+                    $upParams[] = $avatarUrl;
+                } elseif ($removeAvatar) {
+                    $upSql .= ", avatar_url = NULL";
+                }
+                $upSql .= " WHERE id = ?";
+                $upParams[] = $userId;
+
+                $stmtUp = $pdo->prepare($upSql);
+                $stmtUp->execute($upParams);
+
                 log_audit($pdo, 'user_updated', 'users', $userId, "تعديل بيانات المستخدم: $fullName ($role) | نوع الاشتراك: $subscriptionType حتى " . ($subscriptionExpiresAt ?? 'دائم'));
                 $message = "تم تعديل بيانات المستخدم $fullName بنجاح.";
                 $messageType = 'success';
@@ -456,6 +502,7 @@ $roleCounts = [
                                                         "full_name" => $u["full_name"],
                                                         "email" => $u["email"] ?? "",
                                                         "phone" => $u["phone"] ?? "",
+                                                        "avatar_url" => !empty($u["avatar_url"]) ? url($u["avatar_url"]) : "",
                                                         "role" => $u["role"],
                                                         "status" => $u["status"],
                                                         "subscription_type" => $u["subscription_type"] ?? "unlimited",
@@ -689,10 +736,39 @@ $roleCounts = [
             <button onclick="closeEditUserModal()" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
         </div>
 
-        <form method="POST" action="" class="space-y-3 text-xs">
+        <form method="POST" action="" enctype="multipart/form-data" class="space-y-3.5 text-xs">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="edit_user">
             <input type="hidden" name="user_id" id="editUserId">
+
+            <!-- Photo Upload & Camera Action Center -->
+            <div class="flex items-center gap-3.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div class="relative shrink-0">
+                    <div id="editUserAvatarPreviewBox" class="w-16 h-16 rounded-xl bg-white border-2 border-dashed border-amber-300 overflow-hidden flex items-center justify-center text-slate-400 shadow-2xs">
+                        <span id="editUserAvatarPlaceholder" class="text-xl font-black text-amber-500">?</span>
+                        <img id="editUserAvatarImg" src="" alt="صورة المستخدم" class="w-full h-full object-cover hidden">
+                    </div>
+                    <span id="editUserAvatarNewBadge" class="hidden absolute -top-1 -right-1 px-1 py-0.5 rounded bg-emerald-500 text-white text-[8px] font-bold shadow-xs">جديدة ✓</span>
+                </div>
+                <div class="flex-1 space-y-1.5">
+                    <p class="font-bold text-slate-800 text-xs">الصورة الشخصية (Photo)</p>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <button type="button" onclick="triggerUserCamera()" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
+                            <span>📸 بالكاميرا</span>
+                        </button>
+                        <button type="button" onclick="triggerUserGallery()" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
+                            <span>📁 من المعرض</span>
+                        </button>
+                        <button type="button" id="editUserRemoveAvatarBtn" onclick="removeUserPhoto()" class="hidden px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 font-bold text-[11px] transition cursor-pointer">
+                            <span>حذف</span>
+                        </button>
+                    </div>
+                </div>
+                <input type="file" id="editUserCameraInput" accept="image/*" capture="environment" class="hidden" onchange="onUserPhotoSelected(this)">
+                <input type="file" id="editUserGalleryInput" accept="image/png,image/jpeg,image/webp,image/*" class="hidden" onchange="onUserPhotoSelected(this)">
+                <input type="hidden" name="avatar_base64" id="editUserAvatarBase64" value="">
+                <input type="hidden" name="remove_avatar" id="editUserRemoveAvatar" value="0">
+            </div>
 
             <div>
                 <label class="block font-bold text-slate-700 mb-1">الاسم واللقب *</label>
@@ -903,6 +979,78 @@ $roleCounts = [
 
 <script src="<?= url('/assets/js/qrcode.min.js') ?>"></script>
 <script>
+function triggerUserCamera() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                  || (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+    const camInput = document.getElementById('editUserCameraInput');
+    if (isMobile && camInput) {
+        camInput.click();
+        return;
+    }
+    if (camInput) camInput.click();
+}
+
+function triggerUserGallery() {
+    const galInput = document.getElementById('editUserGalleryInput');
+    if (galInput) galInput.click();
+}
+
+function onUserPhotoSelected(inputElem) {
+    if (!inputElem.files || !inputElem.files[0]) return;
+    const file = inputElem.files[0];
+
+    const cam = document.getElementById('editUserCameraInput');
+    const gal = document.getElementById('editUserGalleryInput');
+    if (cam) cam.name = '';
+    if (gal) gal.name = '';
+    inputElem.name = 'avatar';
+
+    const b64 = document.getElementById('editUserAvatarBase64');
+    if (b64) b64.value = '';
+    const rem = document.getElementById('editUserRemoveAvatar');
+    if (rem) rem.value = '0';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        updateUserAvatarPreview(e.target.result, true);
+    };
+    reader.readAsDataURL(file);
+}
+
+function updateUserAvatarPreview(imgSrc, isNew = false) {
+    const img = document.getElementById('editUserAvatarImg');
+    const placeholder = document.getElementById('editUserAvatarPlaceholder');
+    const badge = document.getElementById('editUserAvatarNewBadge');
+    const removeBtn = document.getElementById('editUserRemoveAvatarBtn');
+
+    if (imgSrc) {
+        if (img) { img.src = imgSrc; img.classList.remove('hidden'); }
+        if (placeholder) placeholder.classList.add('hidden');
+        if (removeBtn) removeBtn.classList.remove('hidden');
+        if (badge) {
+            if (isNew) badge.classList.remove('hidden');
+            else badge.classList.add('hidden');
+        }
+    } else {
+        if (img) { img.src = ''; img.classList.add('hidden'); }
+        if (placeholder) placeholder.classList.remove('hidden');
+        if (removeBtn) removeBtn.classList.add('hidden');
+        if (badge) badge.classList.add('hidden');
+    }
+}
+
+function removeUserPhoto() {
+    updateUserAvatarPreview(null, false);
+    const cam = document.getElementById('editUserCameraInput');
+    const gal = document.getElementById('editUserGalleryInput');
+    if (cam) { cam.value = ''; cam.name = ''; }
+    if (gal) { gal.value = ''; gal.name = ''; }
+    const b64 = document.getElementById('editUserAvatarBase64');
+    if (b64) b64.value = '';
+    const rem = document.getElementById('editUserRemoveAvatar');
+    if (rem) rem.value = '1';
+}
+
 function openEditUserModal(data) {
     document.getElementById('editUserId').value = data.id || '';
     document.getElementById('editUserFullName').value = data.full_name || '';
@@ -910,6 +1058,23 @@ function openEditUserModal(data) {
     document.getElementById('editUserPhone').value = data.phone || '';
     document.getElementById('editUserRole').value = data.role || 'driver';
     document.getElementById('editUserStatus').value = data.status || 'active';
+
+    // Avatar Preview
+    const placeholder = document.getElementById('editUserAvatarPlaceholder');
+    if (placeholder) {
+        placeholder.textContent = (data.full_name ? data.full_name.charAt(0) : '?');
+    }
+    updateUserAvatarPreview(data.avatar_url || null, false);
+
+    // Reset photo inputs
+    const cam = document.getElementById('editUserCameraInput');
+    const gal = document.getElementById('editUserGalleryInput');
+    if (cam) { cam.value = ''; cam.name = ''; }
+    if (gal) { gal.value = ''; gal.name = ''; }
+    const b64 = document.getElementById('editUserAvatarBase64');
+    if (b64) b64.value = '';
+    const rem = document.getElementById('editUserRemoveAvatar');
+    if (rem) rem.value = '0';
 
     const subType = data.subscription_type || 'unlimited';
     const subExp = data.subscription_expires_at || '';

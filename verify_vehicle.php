@@ -31,20 +31,23 @@ if (!empty($token)) {
     $stmt->execute([$token]);
     $vehicle = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // If token wasn't found, try matching by plate_number or id as fallback for testing
-    if (!$vehicle && is_numeric($token)) {
-        $stmt2 = $pdo->prepare("
+    // If token wasn't found by exact qr_code, try matching by plate_number, door_number or id as fallback
+    if (!$vehicle) {
+        $cleanToken = trim($token);
+        $cleanPlateDash = str_replace('/', '-', $cleanToken);
+        $cleanPlateSlash = str_replace('-', '/', $cleanToken);
+        $stmtFall = $pdo->prepare("
             SELECT v.*, 
                    u.full_name as driver_name, u.phone as driver_phone, u.card_number as driver_card, u.avatar_url as driver_avatar, u.activity_status as driver_status,
                    r.full_name as repl_name, r.phone as repl_phone, r.card_number as repl_card, r.avatar_url as repl_avatar
             FROM vehicles v
             LEFT JOIN users u ON v.current_driver_id = u.id
             LEFT JOIN users r ON v.replacement_driver_id = r.id
-            WHERE v.id = ?
+            WHERE v.plate_number = ? OR v.plate_number = ? OR v.door_number = ? OR v.id = ?
             LIMIT 1
         ");
-        $stmt2->execute([intval($token)]);
-        $vehicle = $stmt2->fetch(PDO::FETCH_ASSOC);
+        $stmtFall->execute([$cleanPlateDash, $cleanPlateSlash, $cleanToken, is_numeric($cleanToken) ? intval($cleanToken) : 0]);
+        $vehicle = $stmtFall->fetch(PDO::FETCH_ASSOC);
     }
 }
 
