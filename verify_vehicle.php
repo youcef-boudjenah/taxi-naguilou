@@ -4,51 +4,122 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/auth.php';
 
 $pdo = getDBConnection();
-$token = trim($_GET['v'] ?? '');
-$vehicle = null;
-$driver = null;
-$replacementDriver = null;
-$scanLogged = false;
-$ratingSubmitted = false;
-$ratingError = null;
+// Support all query parameter variations (v, id, token, code, plate, door, search)
+$rawToken = trim($_GET['v'] ?? $_GET['id'] ?? $_GET['token'] ?? $_GET['code'] ?? $_GET['plate'] ?? $_GET['door'] ?? $_POST['v'] ?? '');
+$vehicle = resolve_vehicle($pdo, $rawToken);
 
-if (!$pdo) {
-    die("تعذر الاتصال بقاعدة البيانات. يرجى المحاولة لاحقاً.");
-}
+/**
+ * Robust Vehicle Resolver:
+ * Supports exact qr_code, prefix qr_code, plate numbers (slashes/dashes/spaces),
+ * door numbers (e.g. 90 or (02/22)-90), tokens (TN-V001, TAXI-1), full URLs, and driver cards.
+ */
+function resolve_vehicle(PDO $pdo, string $input): ?array {
+    $input = trim($input);
+    if ($input === '') return null;
 
-// 1. Resolve vehicle by qr_code or by ID if numeric token fallback
-if (!empty($token)) {
-    $stmt = $pdo->prepare("
+    // Handle full scanned URLs (e.g. https://domain.com/verify_vehicle.php?v=XYZ)
+    if (strpos($input, 'http') === 0 || strpos($input, 'v=') !== false) {
+        $parsed = parse_url($input, PHP_URL_QUERY);
+        if ($parsed) {
+            parse_str($parsed, $params);
+            if (!empty($params['v'])) $input = trim($params['v']);
+            elseif (!empty($params['id'])) $input = trim($params['id']);
+            elseif (!empty($params['plate'])) $input = trim($params['plate']);
+            elseif (!empty($params['door'])) $input = trim($params['door']);
+        }
+    }
+
+    $baseSelect = "
         SELECT v.*, 
                u.full_name as driver_name, u.phone as driver_phone, u.card_number as driver_card, u.avatar_url as driver_avatar, u.activity_status as driver_status,
                r.full_name as repl_name, r.phone as repl_phone, r.card_number as repl_card, r.avatar_url as repl_avatar
         FROM vehicles v
         LEFT JOIN users u ON v.current_driver_id = u.id
         LEFT JOIN users r ON v.replacement_driver_id = r.id
-        WHERE v.qr_code = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$token]);
-    $vehicle = $stmt->fetch(PDO::FETCH_ASSOC);
+    ";
 
-    // If token wasn't found by exact qr_code, try matching by plate_number, door_number or id as fallback
-    if (!$vehicle) {
-        $cleanToken = trim($token);
-        $cleanPlateDash = str_replace('/', '-', $cleanToken);
-        $cleanPlateSlash = str_replace('-', '/', $cleanToken);
-        $stmtFall = $pdo->prepare("
-            SELECT v.*, 
-                   u.full_name as driver_name, u.phone as driver_phone, u.card_number as driver_card, u.avatar_url as driver_avatar, u.activity_status as driver_status,
-                   r.full_name as repl_name, r.phone as repl_phone, r.card_number as repl_card, r.avatar_url as repl_avatar
-            FROM vehicles v
-            LEFT JOIN users u ON v.current_driver_id = u.id
-            LEFT JOIN users r ON v.replacement_driver_id = r.id
-            WHERE v.plate_number = ? OR v.plate_number = ? OR v.door_number = ? OR v.id = ?
+    // 1. Exact or prefix match on qr_code
+    try {
+        $stmt = $pdo->prepare("$baseSelect WHERE LOWER(v.qr_code) = LOWER(?) LIMIT 1");
+        $stmt->execute([$input]);
+        $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($veh) return $veh;
+
+        $stmt = $pdo->prepare("$baseSelect WHERE v.qr_code LIKE CONCAT(?, '%') LIMIT 1");
+        $stmt->execute([$input]);
+        $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($veh) return $veh;
+    } catch (\Throwable $e) {}
+
+    // 2. Exact or normalized Plate Number (handling dashes, slashes, spaces)
+    $cleanPlate = preg_replace('/[\s\/\-\.]+/', '', $input);
+    $dashPlate = str_replace('/', '-', $input);
+    $slashPlate = str_replace('-', '/', $input);
+
+    try {
+        $stmt = $pdo->prepare("
+            $baseSelect 
+            WHERE v.plate_number = ? 
+               OR v.plate_number = ? 
+               OR v.plate_number = ?
+               OR REPLACE(REPLACE(REPLACE(v.plate_number, '-', ''), '/', ''), ' ', '') = ?
             LIMIT 1
         ");
-        $stmtFall->execute([$cleanPlateDash, $cleanPlateSlash, $cleanToken, is_numeric($cleanToken) ? intval($cleanToken) : 0]);
-        $vehicle = $stmtFall->fetch(PDO::FETCH_ASSOC);
+        $stmt->execute([$input, $dashPlate, $slashPlate, $cleanPlate]);
+        $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($veh) return $veh;
+    } catch (\Throwable $e) {}
+
+    // 3. Match on Door Number (e.g. 90, (02/22)-90, 02/22-90)
+    try {
+        $stmt = $pdo->prepare("
+            $baseSelect 
+            WHERE v.door_number = ?
+               OR v.door_number LIKE CONCAT('%-', ?)
+               OR v.door_number LIKE CONCAT('%/', ?)
+               OR v.door_number LIKE CONCAT('%)-', ?)
+            LIMIT 1
+        ");
+        $stmt->execute([$input, $input, $input, $input]);
+        $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($veh) return $veh;
+    } catch (\Throwable $e) {}
+
+    // 4. Token pattern 'TN-V{id}', 'TAXI-{id}', 'V{id}'
+    if (preg_match('/^(?:TN[-_]V?|TAXI[-_]?|V[-_]?)0*([1-9]\d*)/i', $input, $m)) {
+        try {
+            $stmt = $pdo->prepare("$baseSelect WHERE v.id = ? LIMIT 1");
+            $stmt->execute([(int)$m[1]]);
+            $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($veh) return $veh;
+        } catch (\Throwable $e) {}
     }
+
+    // 5. Match on Driver's Card Number, Driver Phone, or Driver's qr_token
+    try {
+        $stmt = $pdo->prepare("
+            $baseSelect 
+            WHERE (u.card_number = ? OR u.phone = ? OR u.qr_token = ?)
+              AND v.deleted_at IS NULL
+            ORDER BY (v.status = 'active') DESC, v.id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$input, $input, $input]);
+        $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($veh) return $veh;
+    } catch (\Throwable $e) {}
+
+    // 6. Direct numeric ID fallback
+    if (is_numeric($input) && intval($input) > 0) {
+        try {
+            $stmt = $pdo->prepare("$baseSelect WHERE v.id = ? LIMIT 1");
+            $stmt->execute([intval($input)]);
+            $veh = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($veh) return $veh;
+        } catch (\Throwable $e) {}
+    }
+
+    return null;
 }
 
 // Check active approved leave for replacement driver
@@ -244,17 +315,26 @@ $plateFormatted = $vehicle ? str_replace('/', '-', $vehicle['plate_number']) : '
         <?php if (!$vehicle): ?>
             <!-- Vehicle Not Found Card -->
             <div class="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-8 text-center space-y-4">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center text-3xl">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center text-3xl border border-amber-200">
                     ⚠️
                 </div>
                 <div class="space-y-1">
                     <h2 class="text-lg font-bold text-slate-900">رمز الاستجابة غير صحيح أو منتهي الصلاحية</h2>
-                    <p class="text-xs text-slate-500 leading-relaxed">
-                        تعذر العثور على مركبة تطابق رمز الاستجابة السريعة (QR Code). يرجى التأكد من مسح الرمز الملصق على الزجاج الجانبي أو الواجهة الداخلية لسيارة الأجرة.
+                    <p class="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                        تعذر العثور على مركبة تطابق الرمز الممسوح. يمكنك إدخال <strong>رقم الباب</strong> أو <strong>رقم لوحة الترقيم</strong> للتحقق مباشرة:
                     </p>
                 </div>
+
+                <!-- Direct Search Form -->
+                <form method="GET" action="<?= url('/verify_vehicle.php') ?>" class="mt-4 max-w-sm mx-auto flex items-center gap-2">
+                    <input type="text" name="v" value="<?= htmlspecialchars($rawToken) ?>" placeholder="أدخل رقم الباب (مثال: 90) أو اللوحة..." class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition" required autofocus>
+                    <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black text-xs transition shadow-sm whitespace-nowrap cursor-pointer">
+                        تحقق 🔍
+                    </button>
+                </form>
+
                 <div class="pt-2">
-                    <a href="/" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition">
+                    <a href="<?= url('/') ?>" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition">
                         <span>العودة للرئيسية</span>
                         <span dir="ltr">←</span>
                     </a>

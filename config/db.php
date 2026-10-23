@@ -143,10 +143,12 @@ function getDBConnection() {
     $schemaLock = __DIR__ . '/../uploads/.schema_migrated_v250';
     $needsMigration = !file_exists($schemaLock);
     if (!$needsMigration) {
-        // Double check: if lock exists but database is missing deleted_at on users or driver_debts, re-run!
+        // Double check: if lock exists but database is missing deleted_at or qr_code or custom_vehicle_fee, re-run!
         try {
             $colCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
-            if (empty($colCheck)) {
+            $qrCheck = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'qr_code'")->fetch();
+            $feeCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'custom_vehicle_fee'")->fetch();
+            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck)) {
                 $needsMigration = true;
             }
         } catch (\Throwable $e) {}

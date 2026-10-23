@@ -28,6 +28,15 @@ if (!$vehicle) {
     die("تعذر العثور على سجل المركبة المطلوب.");
 }
 
+// Ensure vehicle permanently has a valid qr_code
+if (empty($vehicle['qr_code'])) {
+    $generatedQr = 'TN-V' . str_pad($vehicle['id'], 3, '0', STR_PAD_LEFT) . '-' . substr(md5($vehicle['id'] . ($vehicle['plate_number'] ?? '') . 'taxi_salt'), 0, 6);
+    try {
+        $pdo->prepare("UPDATE vehicles SET qr_code = ? WHERE id = ?")->execute([$generatedQr, $vehicle['id']]);
+        $vehicle['qr_code'] = $generatedQr;
+    } catch (\Throwable $e) {}
+}
+
 $qrToken = !empty($vehicle['qr_code']) ? $vehicle['qr_code'] : ('TN-V' . str_pad($vehicle['id'], 3, '0', STR_PAD_LEFT));
 $verifyUrl = absolute_url('/verify_vehicle.php?v=' . urlencode($qrToken));
 $barcodeText = !empty($vehicle['plate_number']) ? str_replace('/', '-', $vehicle['plate_number']) : ('TN-V' . str_pad($vehicle['id'], 3, '0', STR_PAD_LEFT));
