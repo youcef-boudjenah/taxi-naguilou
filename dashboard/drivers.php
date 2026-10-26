@@ -258,174 +258,258 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Update Driver Documents & Renewals (إدارة وتجديد وثائق السائق)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_driver_docs') {
+    $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') 
+        || isset($_POST['ajax']) 
+        || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
+
     require_csrf_token();
+
     if (!is_admin() && !is_owner()) {
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'عذراً، فقط إدارة المنصة ومالك الأسطول مخولان بتحديث وثائق وتراخيص السائقين.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         set_flash('error', 'عذراً، فقط إدارة المنصة ومالك الأسطول مخولان بتحديث وثائق وتراخيص السائقين.');
         redirect('/dashboard/drivers.php');
     }
     $driverId = intval($_POST['driver_id'] ?? 0);
-    if ($driverId > 0) {
-        $cleanDate = function($val) {
-            return (!empty($val) && $val !== '0000-00-00') ? trim($val) : null;
-        };
+    if ($driverId <= 0) {
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'رقم السائق غير صالح أو غير محدد.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        set_flash('error', 'رقم السائق غير صالح.');
+        redirect('/dashboard/drivers.php');
+    }
 
-        $firstName = trim($_POST['first_name'] ?? '');
-        $lastName = trim($_POST['last_name'] ?? '');
-        $email = trim($_POST['email'] ?? '');
-        $wilaya = trim($_POST['wilaya'] ?? '');
-        $birthDate = $cleanDate($_POST['birth_date'] ?? null);
-        $birthPlace = trim($_POST['birth_place'] ?? '');
-        $fatherName = trim($_POST['father_name'] ?? '');
-        $motherName = trim($_POST['mother_name'] ?? '');
-        $phone = trim($_POST['phone'] ?? '');
-        $address = trim($_POST['address'] ?? '');
+    $cleanDate = function($val) {
+        return (!empty($val) && $val !== '0000-00-00') ? trim($val) : null;
+    };
 
-        $driverType = in_array($_POST['driver_type'] ?? '', ['ajir', 'replacement']) ? $_POST['driver_type'] : null;
-        $probStage = in_array($_POST['probation_stage'] ?? '', ['trial_1', 'trial_2', 'trial_3', 'official']) ? $_POST['probation_stage'] : null;
-        $actStatus = in_array($_POST['activity_status'] ?? '', ['active', 'on_leave', 'suspended']) ? $_POST['activity_status'] : null;
+    $firstName = trim($_POST['first_name'] ?? '');
+    $lastName = trim($_POST['last_name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $wilaya = trim($_POST['wilaya'] ?? '');
+    $birthDate = $cleanDate($_POST['birth_date'] ?? null);
+    $birthPlace = trim($_POST['birth_place'] ?? '');
+    $fatherName = trim($_POST['father_name'] ?? '');
+    $motherName = trim($_POST['mother_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $address = trim($_POST['address'] ?? '');
 
-        $licNum = trim($_POST['license_number'] ?? '');
-        $licIssue = $cleanDate($_POST['license_issue_date'] ?? null);
-        $licPlace = trim($_POST['license_issue_place'] ?? '');
-        $licExp = $cleanDate($_POST['license_expiry'] ?? null);
-
-        $medStart = $cleanDate($_POST['medical_exam_start'] ?? null);
-        $medExp = $cleanDate($_POST['medical_cert_expiry'] ?? null);
-        $medEnd = $cleanDate($_POST['medical_exam_end'] ?? null) ?: $medExp;
-        if (empty($medExp) && !empty($medEnd)) $medExp = $medEnd;
-        if (empty($medEnd) && !empty($medExp)) $medEnd = $medExp;
-
-        $cardNum = trim($_POST['card_number'] ?? '');
-        $taxiStart = $cleanDate($_POST['taxi_contract_start'] ?? null);
-        $taxiEnd = $cleanDate($_POST['taxi_contract_end'] ?? null);
-
-        // Handle Avatar Photo (File Upload from mobile camera/gallery OR base64 snapshot OR removal)
-        $avatarUrl = null;
-        $removeAvatar = !empty($_POST['remove_avatar']) && $_POST['remove_avatar'] == '1';
-
-        if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
-            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, $allowedExts)) {
-                $destDir = __DIR__ . '/../uploads/drivers';
-                if (!is_dir($destDir)) {
-                    mkdir($destDir, 0777, true);
-                }
-                $fileName = 'driver_' . time() . '_' . rand(100, 999) . '.' . $ext;
-                if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
-                    $avatarUrl = '/uploads/drivers/' . $fileName;
-                }
+    // Duplicate email check
+    if (!empty($email)) {
+        $chkStmt = $pdo->prepare("SELECT id, full_name FROM users WHERE email = ? AND id != ? LIMIT 1");
+        $chkStmt->execute([$email, $driverId]);
+        $dupUser = $chkStmt->fetch();
+        if ($dupUser) {
+            $msg = 'البريد الإلكتروني (' . htmlspecialchars($email) . ') مسجل بالفعل لسائق أو مستخدم آخر (' . htmlspecialchars($dupUser['full_name']) . '). يرجى استخدام بريد إلكتروني مختلف.';
+            if ($isAjax) {
+                while (ob_get_level()) { ob_end_clean(); }
+                header('Content-Type: application/json; charset=utf-8');
+                http_response_code(422);
+                echo json_encode(['success' => false, 'message' => $msg], JSON_UNESCAPED_UNICODE);
+                exit;
             }
-        } elseif (!empty($_POST['avatar_base64']) && str_starts_with($_POST['avatar_base64'], 'data:image/')) {
+            set_flash('error', $msg);
+            $retFilter = trim($_POST['return_filter'] ?? '');
+            redirect('/dashboard/drivers.php' . (!empty($retFilter) ? '?filter=' . urlencode($retFilter) : ''));
+        }
+    }
+
+    $driverType = in_array($_POST['driver_type'] ?? '', ['ajir', 'replacement']) ? $_POST['driver_type'] : null;
+    $probStage = in_array($_POST['probation_stage'] ?? '', ['trial_1', 'trial_2', 'trial_3', 'official']) ? $_POST['probation_stage'] : null;
+    $actStatus = in_array($_POST['activity_status'] ?? '', ['active', 'on_leave', 'suspended']) ? $_POST['activity_status'] : null;
+
+    $licNum = trim($_POST['license_number'] ?? '');
+    $licIssue = $cleanDate($_POST['license_issue_date'] ?? null);
+    $licPlace = trim($_POST['license_issue_place'] ?? '');
+    $licExp = $cleanDate($_POST['license_expiry'] ?? null);
+
+    $medStart = $cleanDate($_POST['medical_exam_start'] ?? null);
+    $medExp = $cleanDate($_POST['medical_cert_expiry'] ?? null);
+    $medEnd = $cleanDate($_POST['medical_exam_end'] ?? null) ?: $medExp;
+    if (empty($medExp) && !empty($medEnd)) $medExp = $medEnd;
+    if (empty($medEnd) && !empty($medExp)) $medEnd = $medExp;
+
+    $cardNum = trim($_POST['card_number'] ?? '');
+    $taxiStart = $cleanDate($_POST['taxi_contract_start'] ?? null);
+    $taxiEnd = $cleanDate($_POST['taxi_contract_end'] ?? null);
+
+    // Handle Avatar Photo (File Upload from mobile camera/gallery OR base64 snapshot OR removal)
+    $avatarUrl = null;
+    $removeAvatar = !empty($_POST['remove_avatar']) && $_POST['remove_avatar'] == '1';
+
+    if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+        $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+        $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, $allowedExts)) {
             $destDir = __DIR__ . '/../uploads/drivers';
             if (!is_dir($destDir)) {
                 mkdir($destDir, 0777, true);
             }
-            $rawParts = explode(',', $_POST['avatar_base64']);
-            if (count($rawParts) === 2) {
-                $imgData = base64_decode($rawParts[1]);
-                if ($imgData !== false) {
-                    $fileName = 'driver_cam_' . time() . '_' . rand(100, 999) . '.jpg';
-                    if (file_put_contents($destDir . '/' . $fileName, $imgData) !== false) {
-                        $avatarUrl = '/uploads/drivers/' . $fileName;
-                    }
+            $fileName = 'driver_' . time() . '_' . rand(100, 999) . '.' . $ext;
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], $destDir . '/' . $fileName)) {
+                $avatarUrl = '/uploads/drivers/' . $fileName;
+            }
+        }
+    } elseif (!empty($_POST['avatar_base64']) && str_starts_with($_POST['avatar_base64'], 'data:image/')) {
+        $destDir = __DIR__ . '/../uploads/drivers';
+        if (!is_dir($destDir)) {
+            mkdir($destDir, 0777, true);
+        }
+        $rawParts = explode(',', $_POST['avatar_base64']);
+        if (count($rawParts) === 2) {
+            $imgData = base64_decode($rawParts[1]);
+            if ($imgData !== false) {
+                $fileName = 'driver_cam_' . time() . '_' . rand(100, 999) . '.jpg';
+                if (file_put_contents($destDir . '/' . $fileName, $imgData) !== false) {
+                    $avatarUrl = '/uploads/drivers/' . $fileName;
+                }
+            }
+        }
+    }
+
+    try {
+        $sqlUp = "
+            UPDATE users SET 
+                birth_date = ?, birth_place = ?, father_name = ?, mother_name = ?, address = ?,
+                license_number = ?, license_issue_date = ?, license_issue_place = ?, license_expiry = ?,
+                medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?,
+                card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?,
+                first_name = ?, last_name = ?
+        ";
+        $upParams = [
+            $birthDate, $birthPlace, $fatherName, $motherName, $address,
+            $licNum, $licIssue, $licPlace, $licExp,
+            $medStart, $medExp, $medEnd,
+            $cardNum, $taxiStart, $taxiEnd,
+            $firstName ?: null, $lastName ?: null
+        ];
+
+        $compName = trim(($lastName ? $lastName . ' ' : '') . $firstName);
+        if (empty($compName) && !empty($_POST['full_name'])) {
+            $compName = trim($_POST['full_name']);
+        }
+        if (!empty($compName)) {
+            $sqlUp .= ", full_name = ?";
+            $upParams[] = $compName;
+        }
+        if (!empty($phone)) {
+            $sqlUp .= ", phone = ?";
+            $upParams[] = $phone;
+        }
+        if (!empty($email)) {
+            $sqlUp .= ", email = ?";
+            $upParams[] = $email;
+        }
+        if (!empty($wilaya)) {
+            $sqlUp .= ", wilaya = ?";
+            $upParams[] = $wilaya;
+        }
+        if ($driverType !== null) {
+            $sqlUp .= ", driver_type = ?";
+            $upParams[] = $driverType;
+        }
+        if ($probStage !== null) {
+            $sqlUp .= ", probation_stage = ?";
+            $upParams[] = $probStage;
+        }
+        if ($actStatus !== null) {
+            $sqlUp .= ", activity_status = ?";
+            $upParams[] = $actStatus;
+        }
+        if ($avatarUrl !== null) {
+            $sqlUp .= ", avatar_url = ?";
+            $upParams[] = $avatarUrl;
+        } elseif ($removeAvatar) {
+            $sqlUp .= ", avatar_url = NULL";
+        }
+
+        if (is_admin()) {
+            $sqlUp .= " WHERE id = ?";
+            $upParams[] = $driverId;
+        } else {
+            $sqlUp .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
+            $upParams[] = $driverId;
+        }
+
+        $stmtUp = $pdo->prepare($sqlUp);
+        $stmtUp->execute($upParams);
+
+        // Handle Assigned Vehicle update if present
+        if (isset($_POST['assigned_vehicle_id'])) {
+            $newVehId = intval($_POST['assigned_vehicle_id']);
+            // Check currently assigned vehicle
+            $curStmt = $pdo->prepare("SELECT id FROM vehicles WHERE current_driver_id = ?");
+            $curStmt->execute([$driverId]);
+            $curVehId = (int)$curStmt->fetchColumn();
+
+            if ($newVehId !== $curVehId) {
+                $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
+                if ($newVehId > 0) {
+                    $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $newVehId]);
                 }
             }
         }
 
-        try {
-            $sqlUp = "
-                UPDATE users SET 
-                    birth_date = ?, birth_place = ?, father_name = ?, mother_name = ?, address = ?,
-                    license_number = ?, license_issue_date = ?, license_issue_place = ?, license_expiry = ?,
-                    medical_exam_start = ?, medical_cert_expiry = ?, medical_exam_end = ?,
-                    card_number = ?, taxi_contract_start = ?, taxi_contract_end = ?,
-                    first_name = ?, last_name = ?
-            ";
-            $upParams = [
-                $birthDate, $birthPlace, $fatherName, $motherName, $address,
-                $licNum, $licIssue, $licPlace, $licExp,
-                $medStart, $medExp, $medEnd,
-                $cardNum, $taxiStart, $taxiEnd,
-                $firstName ?: null, $lastName ?: null
-            ];
-
-            $compName = trim(($lastName ? $lastName . ' ' : '') . $firstName);
-            if (!empty($compName)) {
-                $sqlUp .= ", full_name = ?";
-                $upParams[] = $compName;
-            }
-            if (!empty($phone)) {
-                $sqlUp .= ", phone = ?";
-                $upParams[] = $phone;
-            }
-            if (!empty($email)) {
-                $sqlUp .= ", email = ?";
-                $upParams[] = $email;
-            }
-            if (!empty($wilaya)) {
-                $sqlUp .= ", wilaya = ?";
-                $upParams[] = $wilaya;
-            }
-            if ($driverType !== null) {
-                $sqlUp .= ", driver_type = ?";
-                $upParams[] = $driverType;
-            }
-            if ($probStage !== null) {
-                $sqlUp .= ", probation_stage = ?";
-                $upParams[] = $probStage;
-            }
-            if ($actStatus !== null) {
-                $sqlUp .= ", activity_status = ?";
-                $upParams[] = $actStatus;
-            }
-            if ($avatarUrl !== null) {
-                $sqlUp .= ", avatar_url = ?";
-                $upParams[] = $avatarUrl;
-            } elseif ($removeAvatar) {
-                $sqlUp .= ", avatar_url = NULL";
-            }
-
-            if (is_admin()) {
-                $sqlUp .= " WHERE id = ?";
-                $upParams[] = $driverId;
-            } else {
-                $sqlUp .= " WHERE id = ? AND (role = 'driver' OR role = 'owner')";
-                $upParams[] = $driverId;
-            }
-
-            $stmtUp = $pdo->prepare($sqlUp);
-            $stmtUp->execute($upParams);
-
-            // Handle Assigned Vehicle update if present
-            if (isset($_POST['assigned_vehicle_id'])) {
-                $newVehId = intval($_POST['assigned_vehicle_id']);
-                // Check currently assigned vehicle
-                $curStmt = $pdo->prepare("SELECT id FROM vehicles WHERE current_driver_id = ?");
-                $curStmt->execute([$driverId]);
-                $curVehId = (int)$curStmt->fetchColumn();
-
-                if ($newVehId !== $curVehId) {
-                    $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
-                    if ($newVehId > 0) {
-                        $pdo->prepare("UPDATE vehicles SET current_driver_id = ? WHERE id = ?")->execute([$driverId, $newVehId]);
-                    }
-                }
-            }
-
-            // Sync with signed labor contract if dates exist
-            if (!empty($taxiStart) && !empty($taxiEnd)) {
-                try {
-                    $pdo->prepare("UPDATE contracts SET start_date = ?, end_date = ? WHERE driver_id = ? AND status = 'signed' ORDER BY id DESC LIMIT 1")
-                        ->execute([$taxiStart, $taxiEnd, $driverId]);
-                } catch (\Throwable $e) {}
-            }
-
-            log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث الحالة المدنية والصورة والوثائق الرسمية للسائق رقم $driverId");
-            set_flash('success', 'تم حفظ وتحديث بيانات السائق وصورته والوثائق الرسمية بنجاح');
-        } catch (\Throwable $e) {
-            set_flash('error', 'حدث خطأ أثناء تحديث بيانات ووثائق السائق: ' . $e->getMessage());
+        // Sync with signed labor contract if dates exist
+        if (!empty($taxiStart) && !empty($taxiEnd)) {
+            try {
+                $pdo->prepare("UPDATE contracts SET start_date = ?, end_date = ? WHERE driver_id = ? AND status = 'signed' ORDER BY id DESC LIMIT 1")
+                    ->execute([$taxiStart, $taxiEnd, $driverId]);
+            } catch (\Throwable $e) {}
         }
+
+        log_audit($pdo, 'driver_docs_updated', 'users', $driverId, "تحديث الحالة المدنية والصورة والوثائق الرسمية للسائق رقم $driverId");
+
+        // Fetch refreshed driver info for client
+        $stmtRefresh = $pdo->prepare("
+            SELECT u.*, 
+                   MAX(CASE WHEN v.current_driver_id = u.id THEN v.id ELSE NULL END) as assigned_vehicle_id,
+                   MAX(v.plate_number) as plate_number, 
+                   MAX(v.brand) as brand, 
+                   MAX(v.model) as model, 
+                   MAX(v.door_number) as door_number
+            FROM users u
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+            WHERE u.id = ?
+            GROUP BY u.id
+        ");
+        $stmtRefresh->execute([$driverId]);
+        $updatedDriver = $stmtRefresh->fetch(PDO::FETCH_ASSOC);
+
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'message' => 'تم حفظ وتحديث بيانات وهوية ووثائق السائق بنجاح ✓',
+                'driver' => $updatedDriver
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        set_flash('success', 'تم حفظ وتحديث بيانات السائق وصورته والوثائق الرسمية بنجاح');
+    } catch (\Throwable $e) {
+        error_log("drivers.php update_driver_docs error: " . $e->getMessage());
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'حدث خطأ أثناء حفظ وتحديث بيانات السائق: ' . $e->getMessage()
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        set_flash('error', 'حدث خطأ أثناء تحديث بيانات ووثائق السائق: ' . $e->getMessage());
     }
     $retFilter = trim($_POST['return_filter'] ?? '');
     redirect('/dashboard/drivers.php' . (!empty($retFilter) ? '?filter=' . urlencode($retFilter) : ''));
@@ -747,7 +831,7 @@ if ($pdo) {
             $params[] = "%$search%";
         }
 
-        $sql .= " GROUP BY u.id ORDER BY u.id DESC";
+        $sql .= " GROUP BY u.id ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END, CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC, MAX(v.door_number) ASC, u.id ASC";
         $stmtD = $pdo->prepare($sql);
         $stmtD->execute($params);
         $allDrivers = $stmtD->fetchAll() ?: [];
@@ -777,14 +861,14 @@ if ($pdo) {
                 $fParams[] = "%$search%";
                 $fParams[] = "%$search%";
             }
-            $fSql .= " GROUP BY u.id ORDER BY u.id DESC";
+            $fSql .= " GROUP BY u.id ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END, CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC, MAX(v.door_number) ASC, u.id ASC";
             $stmtF = $pdo->prepare($fSql);
             $stmtF->execute($fParams);
             $allDrivers = $stmtF->fetchAll() ?: [];
         } catch (\Throwable $e2) {
             error_log("drivers.php - Fallback drivers query error: " . $e2->getMessage());
             try {
-                $allDrivers = $pdo->query("SELECT * FROM users WHERE role = 'driver' ORDER BY id DESC")->fetchAll() ?: [];
+                $allDrivers = $pdo->query("SELECT * FROM users WHERE role = 'driver' ORDER BY id ASC")->fetchAll() ?: [];
             } catch (\Throwable $e3) {
                 $allDrivers = [];
             }
@@ -1345,6 +1429,12 @@ require_once __DIR__ . '/../includes/header.php';
                                         </div>
                                         <div class="space-y-0.5">
                                             <div class="flex items-center gap-1.5 flex-wrap">
+                                                <?php 
+                                                $cleanDoorSeq = !empty($d['door_number']) ? trim(str_replace(['(', ')', '/'], ['', '', '-'], $d['door_number'])) : sprintf('D-%02d', (int)$d['id']);
+                                                ?>
+                                                <span class="px-1.5 py-0.2 rounded font-mono font-bold text-[10px] bg-slate-900 text-amber-400 dark:bg-amber-400 dark:text-slate-950 shadow-2xs border border-amber-400/30" title="رقم التسجيل والباب المرجعي">
+                                                    <?= htmlspecialchars($cleanDoorSeq) ?>
+                                                </span>
                                                 <a href="driver_fiche.php?id=<?= $d['id'] ?>" class="font-bold text-slate-900 dark:text-white text-xs hover:text-amber-600 dark:hover:text-amber-400 transition">
                                                     <?= htmlspecialchars($d['clean_name'] ?? $d['full_name']) ?>
                                                 </a>
@@ -2385,11 +2475,14 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
 
         <!-- Modal Form Body -->
-        <form method="POST" action="" id="manageDocsForm" enctype="multipart/form-data" class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
+        <form method="POST" action="<?= url('/dashboard/drivers.php') ?>" id="manageDocsForm" enctype="multipart/form-data" novalidate class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_driver_docs">
             <input type="hidden" name="driver_id" id="docDriverId" value="">
             <input type="hidden" name="return_filter" value="<?= htmlspecialchars($filter) ?>">
+
+            <!-- Live Alert Box for Async Feedback -->
+            <div id="manageDocsAlert" class="hidden p-3 rounded-xl text-xs font-bold transition"></div>
 
             <!-- 0. الصورة الشخصية والوضعية المهنية -->
             <div class="p-4 rounded-2xl bg-gradient-to-br from-slate-50 via-amber-50/25 to-slate-50 border border-slate-200/90 shadow-2xs space-y-3.5">
@@ -2498,7 +2591,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block font-bold text-slate-700 mb-1">البريد الإلكتروني (Email)</label>
-                        <input type="email" name="email" id="docEmail" placeholder="driver@taxinaguilou.dz" dir="ltr" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                        <input type="text" inputmode="email" name="email" id="docEmail" placeholder="driver@taxinaguilou.dz" dir="ltr" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                     </div>
                     <div>
                         <label class="block font-bold text-slate-700 mb-1">الولاية (Wilaya)</label>
@@ -3690,11 +3783,32 @@ require_once __DIR__ . '/../includes/header.php';
         const docWilaya = document.getElementById('docWilaya');
         if (docWilaya) docWilaya.value = driver.wilaya || '16 - الجزائر العاصمة';
 
+        // Reset Alert Box
+        const alertBox = document.getElementById('manageDocsAlert');
+        if (alertBox) {
+            alertBox.classList.add('hidden');
+            alertBox.className = 'hidden p-3 rounded-xl text-xs font-bold transition';
+            alertBox.textContent = '';
+        }
+
         // Civil Status fields
+        let lName = driver.last_name || '';
+        let fName = driver.first_name || '';
+        if (!lName && !fName && driver.full_name) {
+            const parts = driver.full_name.trim().split(/\s+/);
+            if (parts.length > 1) {
+                lName = parts[0];
+                fName = parts.slice(1).join(' ');
+            } else {
+                lName = parts[0] || '';
+                fName = parts[0] || '';
+            }
+        }
+
         const docLast = document.getElementById('docLastName');
-        if (docLast) docLast.value = driver.last_name || '';
+        if (docLast) docLast.value = lName;
         const docFirst = document.getElementById('docFirstName');
-        if (docFirst) docFirst.value = driver.first_name || '';
+        if (docFirst) docFirst.value = fName;
         const docBirthDate = document.getElementById('docBirthDate');
         if (docBirthDate) docBirthDate.value = driver.birth_date || '';
         const docBirthPlace = document.getElementById('docBirthPlace');
@@ -3921,6 +4035,137 @@ require_once __DIR__ . '/../includes/header.php';
         }, 150);
     });
     <?php endif; endif; ?>
+
+    // Live Floating Toast for Driver Actions
+    function showDriverToast(msg, type) {
+        type = type || 'success';
+        let toast = document.getElementById('driverLiveToast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'driverLiveToast';
+            document.body.appendChild(toast);
+        }
+        toast.className = 'fixed bottom-5 left-5 z-[9999] px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold transition-all duration-300 transform pointer-events-auto ' + 
+            (type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white');
+        toast.innerHTML = (type === 'success' ? '<span>✓</span> ' : '<span>✕</span> ') + '<span>' + msg + '</span>';
+        setTimeout(() => {
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+        }, 10);
+        setTimeout(() => {
+            toast.classList.remove('translate-y-0', 'opacity-100');
+            toast.classList.add('translate-y-10', 'opacity-0');
+        }, 3500);
+    }
+
+    // AJAX Submission handler for Manage Docs Form
+    document.getElementById('manageDocsForm')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const form = this;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const origBtnContent = submitBtn ? submitBtn.innerHTML : '';
+        const alertBox = document.getElementById('manageDocsAlert');
+        if (alertBox) {
+            alertBox.classList.add('hidden');
+            alertBox.className = 'hidden p-3 rounded-xl text-xs font-bold transition';
+            alertBox.textContent = '';
+        }
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="inline-block animate-spin">⏳</span> <span>جاري حفظ وتثبيت البيانات...</span>';
+        }
+
+        const formData = new FormData(form);
+        formData.append('ajax', '1');
+
+        const csrfVal = form.querySelector('input[name="csrf_token"]')?.value || '';
+        const reqHeaders = {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        };
+        if (csrfVal) {
+            reqHeaders['X-CSRF-TOKEN'] = csrfVal;
+        }
+
+        const targetUrl = form.getAttribute('action') || window.location.pathname || 'drivers.php';
+
+        fetch(targetUrl, {
+            method: 'POST',
+            body: formData,
+            headers: reqHeaders
+        })
+        .then(async response => {
+            const rawText = await response.text();
+            let data = null;
+            try {
+                data = JSON.parse(rawText);
+            } catch(e) {
+                if (response.redirected && (response.url.includes('login') || rawText.includes('تسجيل الدخول'))) {
+                    setTimeout(() => { window.location.href = '/auth/login.php'; }, 1500);
+                    throw new Error('انتهت صلاحية جلسة العمل، جاري تحويلك لصفحة تسجيل الدخول...');
+                }
+                if (response.status === 403 || response.status === 401) {
+                    throw new Error('انتهت صلاحية الجلسة أو لا تملك الصلاحية الكافية. يرجى تحديث الصفحة وإعادة المحاولة.');
+                }
+                const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+                if (stripped.length > 0 && stripped.length < 180) {
+                    throw new Error(stripped);
+                }
+                throw new Error('حدث خطأ في استجابة الخادم (رمز الحالة ' + response.status + '). يرجى تحديث الصفحة والمحاولة ثانية.');
+            }
+            if (!response.ok || !data.success) {
+                if (data && data.redirect) {
+                    setTimeout(() => { window.location.href = data.redirect; }, 1500);
+                }
+                throw new Error(data.message || 'تعذر حفظ البيانات، يرجى المحاولة ثانية.');
+            }
+            return data;
+        })
+        .then(data => {
+            if (submitBtn) {
+                submitBtn.classList.remove('bg-slate-900', 'hover:bg-slate-800');
+                submitBtn.classList.add('bg-emerald-600', 'text-white');
+                submitBtn.innerHTML = '<svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg><span>تم الحفظ والتحديث بنجاح ✓</span>';
+            }
+            if (alertBox) {
+                alertBox.className = 'p-3 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200';
+                alertBox.textContent = '✓ ' + (data.message || 'تم حفظ بيانات السائق بنجاح');
+                alertBox.classList.remove('hidden');
+                form.scrollTop = 0;
+            }
+
+            // Update client cache
+            const driverId = parseInt(document.getElementById('docDriverId').value, 10);
+            if (driverId && window.DRIVERS_MAP && window.DRIVERS_MAP[driverId]) {
+                const d = window.DRIVERS_MAP[driverId];
+                if (data.driver) {
+                    Object.assign(d, data.driver);
+                }
+            }
+
+            showDriverToast(data.message || 'تم حفظ وتحديث بيانات السائق بنجاح ✓', 'success');
+
+            setTimeout(function() {
+                closeManageDocsModal();
+                window.location.reload();
+            }, 750);
+        })
+        .catch(err => {
+            if (alertBox) {
+                alertBox.className = 'p-3 rounded-xl text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200';
+                alertBox.textContent = '✕ ' + err.message;
+                alertBox.classList.remove('hidden');
+                form.scrollTop = 0;
+            } else {
+                alert('تعذر الحفظ: ' + err.message);
+            }
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = origBtnContent;
+            }
+        });
+    });
 
     // Client-side lightweight cache for modal popups
     window.DRIVERS_MAP = <?= json_encode($clientDriversMap ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>;

@@ -14,7 +14,22 @@ function is_logged_in() {
 }
 
 function require_login() {
+    $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') 
+        || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+        || !empty($_POST['ajax']);
+
     if (!is_logged_in()) {
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(401);
+            echo json_encode([
+                'success' => false,
+                'message' => 'انتهت جلسة العمل الخاصة بك، يرجى تسجيل الدخول مجدداً.',
+                'redirect' => url('/auth/login.php')
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         redirect('/auth/login.php');
         exit;
     }
@@ -40,6 +55,13 @@ function require_login() {
 
                     if ($u['status'] !== 'active') {
                         logout_user();
+                        if ($isAjax) {
+                            while (ob_get_level()) { ob_end_clean(); }
+                            header('Content-Type: application/json; charset=utf-8');
+                            http_response_code(403);
+                            echo json_encode(['success' => false, 'message' => 'تم تجميد حسابك لانتهاء فترة الصلاحية أو بقرار إداري.'], JSON_UNESCAPED_UNICODE);
+                            exit;
+                        }
                         set_flash('error', 'تم تجميد حسابك لانتهاء فترة الصلاحية أو بقرار إداري. يرجى التواصل مع إدارة المنصة.');
                         redirect('/auth/login.php');
                         exit;
@@ -113,6 +135,16 @@ function has_role($roles): bool {
 function require_role($roles) {
     require_login();
     if (!has_role($roles)) {
+        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') 
+            || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+            || !empty($_POST['ajax']);
+        if ($isAjax) {
+            while (ob_get_level()) { ob_end_clean(); }
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'عذراً، هذا الإجراء يتطلب صلاحيات مخصصة ولا يمكنك تنفيذه.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         set_flash('error', 'عذراً، هذا القسم يتطلب صلاحيات مخصصة ولا يمكنك الوصول إليه.');
         redirect('/dashboard/index.php');
         exit;
@@ -146,6 +178,19 @@ function verify_csrf_token(?string $token = null): bool {
 function require_csrf_token(): void {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!verify_csrf_token()) {
+            $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') 
+                || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+                || !empty($_POST['ajax']);
+            if ($isAjax) {
+                while (ob_get_level()) { ob_end_clean(); }
+                header('Content-Type: application/json; charset=utf-8');
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'انتهت صلاحية جلسة العمل أو رمز الأمان غير مطابق (CSRF Token). يرجى تحديث الصفحة والمحاولة مجدداً.'
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
             set_flash('error', 'انتهت صلاحية جلسة العمل أو رمز الأمان غير مطابق (CSRF Token Invalid). يرجى المحاولة مجدداً.');
             $referer = $_SERVER['HTTP_REFERER'] ?? '/dashboard/index.php';
             header("Location: " . $referer);

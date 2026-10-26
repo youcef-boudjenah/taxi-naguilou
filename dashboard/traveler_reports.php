@@ -173,7 +173,7 @@ if (isset($_GET['print_id']) && $pdo) {
 }
 
 // Main Dashboard Layout
-$pageTitle = 'محاضر ودفاتر المسافرين (PV de Voyageurs)';
+$pageTitle = 'الأمر بالمهمة (PV)';
 require_once __DIR__ . '/../includes/header.php';
 
 // Handle Form Actions (Add, Edit, Delete Trip Manifest)
@@ -318,19 +318,41 @@ if ($pdo) {
         }
 
         $stmtR = $pdo->prepare("
-            SELECT r.*, v.plate_number, v.brand, v.model, u.full_name as driver_name, u.phone as driver_phone,
+            SELECT r.*, v.plate_number, v.brand, v.model, v.door_number, u.full_name as driver_name, u.phone as driver_phone,
                    (SELECT COUNT(*) FROM traveler_passengers WHERE report_id = r.id) as registered_passengers
             FROM traveler_reports r
             JOIN vehicles v ON r.vehicle_id = v.id
             JOIN users u ON r.driver_id = u.id
             WHERE " . implode(' AND ', $whereRep) . "
-            ORDER BY r.departure_date DESC, r.departure_time DESC
+            ORDER BY CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                     v.door_number ASC,
+                     r.departure_date DESC, r.departure_time DESC
         ");
         $stmtR->execute($paramsRep);
         $reports = $stmtR ? $stmtR->fetchAll() : [];
 
-        $vehiclesList = $pdo->query("SELECT id, brand, model, plate_number FROM vehicles WHERE status = 'active' ORDER BY brand ASC")->fetchAll();
-        $driversList = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll();
+        $vehiclesList = $pdo->query("
+            SELECT id, brand, model, plate_number, door_number 
+            FROM vehicles 
+            WHERE status = 'active' 
+            ORDER BY CASE WHEN door_number IS NOT NULL AND door_number != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(door_number, '-', -1) AS UNSIGNED) ASC,
+                     door_number ASC,
+                     brand ASC
+        ")->fetchAll();
+
+        $driversList = $pdo->query("
+            SELECT u.id, u.full_name, u.phone, MAX(v.door_number) as door_number
+            FROM users u
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+            WHERE u.role = 'driver' AND u.status = 'active'
+            GROUP BY u.id, u.full_name, u.phone
+            ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                     MAX(v.door_number) ASC,
+                     u.id ASC
+        ")->fetchAll();
     } catch (\Throwable $e) {
         error_log("traveler_reports fetch error: " . $e->getMessage());
     }
@@ -342,15 +364,15 @@ if ($pdo) {
     <!-- Top Action Banner -->
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h2 class="text-lg font-black text-slate-900">محاضر ودفاتر المسافرين (PV de Voyageurs)</h2>
-            <p class="text-xs text-slate-500 mt-1">تنظيم الرحلات ما بين الولايات، تسجيل هويات الركاب (بطاقات التعريف CNI)، وإصدار أوراق العبور الرسمية المعتمدة.</p>
+            <h2 class="text-lg font-black text-slate-900">الأمر بالمهمة (PV)</h2>
+            <p class="text-xs text-slate-500 mt-1">أوامر المهمة، تنظيم الرحلات ما بين الولايات، تسجيل هويات الركاب (بطاقات التعريف CNI)، وإصدار أوراق العبور الرسمية المعتمدة.</p>
         </div>
         <?php if (is_admin()): ?>
         <div class="flex items-center gap-2">
             <button onclick="document.getElementById('newReportModal').classList.remove('hidden')"
                     class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-2">
                 <span>➕</span>
-                <span>إصدار محضر سفر جديد</span>
+                <span>إصدار أمر بمهمة جديد</span>
             </button>
         </div>
         <?php endif; ?>
@@ -366,7 +388,7 @@ if ($pdo) {
     <!-- Reports Table -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="p-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 class="text-xs font-extrabold text-slate-800">قائمة محاضر النقل النظامية بين الولايات</h3>
+            <h3 class="text-xs font-extrabold text-slate-800">قائمة أوامر المهمة ومحاضر النقل النظامية</h3>
             <span class="text-[11px] text-slate-400">دفتر شروط النقل العمومي للأشخاص</span>
         </div>
 
@@ -416,7 +438,12 @@ if ($pdo) {
                                     <div class="text-[10px] text-slate-400">من: <?= htmlspecialchars($r['departure_station']) ?></div>
                                 </td>
                                 <td class="p-4">
-                                    <div class="font-bold text-slate-800 dark:text-slate-100"><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?></div>
+                                    <div class="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                        <span><?= htmlspecialchars($r['brand'] . ' ' . $r['model']) ?></span>
+                                        <?php if (!empty($r['door_number'])): ?>
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/15 text-amber-800 dark:text-amber-300 font-num border border-amber-500/30" dir="ltr">🚪 <?= htmlspecialchars($r['door_number']) ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                     <div class="flex items-center gap-1.5 mt-0.5">
                                         <span class="table-num-badge bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 text-[10px] font-bold" dir="ltr">🚗 <?= htmlspecialchars($r['plate_number']) ?></span>
                                         <span class="text-[10px] text-slate-500">السائق: <?= htmlspecialchars($r['driver_name']) ?></span>
@@ -505,7 +532,7 @@ if ($pdo) {
                     <select name="vehicle_id" required class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
                         <option value="">-- اختر سيارة الأجرة --</option>
                         <?php foreach ($vehiclesList as $v): ?>
-                            <option value="<?= $v['id'] ?>"><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (<?= htmlspecialchars($v['plate_number']) ?>)</option>
+                            <option value="<?= $v['id'] ?>"><?= !empty($v['door_number']) ? '[' . htmlspecialchars($v['door_number']) . '] ' : '' ?><?= htmlspecialchars($v['brand'] . ' ' . $v['model']) ?> (<?= htmlspecialchars($v['plate_number']) ?>)</option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -514,7 +541,7 @@ if ($pdo) {
                     <select name="driver_id" required class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
                         <option value="">-- اختر السائق المعتمد --</option>
                         <?php foreach ($driversList as $d): ?>
-                            <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
+                            <option value="<?= $d['id'] ?>"><?= !empty($d['door_number']) ? '[' . htmlspecialchars($d['door_number']) . '] ' : '' ?><?= htmlspecialchars($d['full_name']) ?> (<?= htmlspecialchars($d['phone']) ?>)</option>
                         <?php endforeach; ?>
                     </select>
                 </div>

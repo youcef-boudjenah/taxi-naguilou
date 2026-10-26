@@ -529,9 +529,9 @@ if ($pdo) {
     $f_sac         = trim($_GET['f_sac'] ?? ''); // 'all', 'valid', 'expired', 'none'
     $col_filter    = trim($_GET['col_filter'] ?? ''); // quick column selector
 
-    // Sorting: default to numeric door_number descending (باب: (02/22)-94 down to (02/22)-01)
+    // Sorting: default to numeric door_number ascending matching drivers.php (01 up to 94)
     $sort = strtolower(trim($_GET['sort'] ?? 'door'));
-    $dir  = strtolower(trim($_GET['dir'] ?? 'desc')) === 'asc' ? 'ASC' : 'DESC';
+    $dir  = strtolower(trim($_GET['dir'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
 
     $activeColFiltersCount = 0;
     if (!empty($f_vehicle)) $activeColFiltersCount++;
@@ -1621,7 +1621,7 @@ if (isset($_GET['edit']) && $pdo) {
                     <tr>
                         <th class="py-3 px-3.5 whitespace-nowrap sticky-col-start">المركبة</th>
                         <?php
-                        $nextDoorDir = ($sort === 'door' && $dir === 'DESC') ? 'asc' : 'desc';
+                        $nextDoorDir = ($sort === 'door' && $dir === 'ASC') ? 'desc' : 'asc';
                         $doorSortUrl = 'vehicles.php?' . http_build_query(array_merge($_GET, ['sort' => 'door', 'dir' => $nextDoorDir]));
                         ?>
                         <th class="py-3 px-2.5 whitespace-nowrap">

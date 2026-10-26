@@ -39,6 +39,40 @@ if (is_owner() && !is_admin() && (int)($contract['owner_id'] ?? 0) !== (int)$_SE
     redirect('/dashboard/contracts.php');
 }
 
+// Handle Save/Update Dynamic DTW Accreditation
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_dtw') {
+    require_csrf_token();
+    $newDtwNum = trim($_POST['dtw_number'] ?? '16');
+    $newDtwYear = trim($_POST['dtw_year'] ?? '2024');
+    try {
+        $stmtUp = $pdo->prepare("UPDATE contracts SET dtw_number = ?, dtw_year = ? WHERE id = ?");
+        $stmtUp->execute([$newDtwNum, $newDtwYear, $contractId]);
+        if (isset($_POST['ajax']) || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => true, 'dtw_number' => $newDtwNum, 'dtw_year' => $newDtwYear]);
+            exit;
+        }
+        set_flash('success', 'تم حفظ رقم وسنة اعتماد DTW بنجاح');
+    } catch (\Throwable $e) {
+        if (isset($_POST['ajax'])) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+        set_flash('error', 'خطأ أثناء حفظ الاعتماد: ' . $e->getMessage());
+    }
+    redirect('/dashboard/contract_view.php?id=' . $contractId);
+    exit;
+}
+
+// Company legal & headquarters metadata from settings
+$company = get_company_meta($pdo);
+
+// Dynamic DTW accreditation values
+$defaultWilayaNum = preg_match('/^(\d+)/', $company['wilaya_raw'] ?? '', $m) ? $m[1] : '01';
+$dtwNumber = htmlspecialchars($_GET['dtw_num'] ?? (!empty($contract['dtw_number']) ? $contract['dtw_number'] : $defaultWilayaNum));
+$dtwYear = htmlspecialchars($_GET['dtw_year'] ?? (!empty($contract['dtw_year']) ? $contract['dtw_year'] : date('Y', strtotime($contract['start_date'] ?? 'now'))));
+
 // Format duration and dates
 $d1 = !empty($contract['start_date']) ? new DateTime($contract['start_date']) : new DateTime();
 $d2 = !empty($contract['end_date']) ? new DateTime($contract['end_date']) : (clone $d1)->modify('+5 years');
@@ -92,8 +126,19 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
 </head>
 <body class="bg-slate-100 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 min-h-screen py-8 px-4 transition-colors">
 
+    <?php $flash = get_flash(); if ($flash): ?>
+    <div class="max-w-4xl mx-auto mb-5 no-print">
+        <div class="p-4 rounded-xl flex items-center justify-between gap-3 text-xs font-bold <?= $flash['type'] === 'success' ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-800 dark:text-rose-300 border border-rose-500/30' ?>">
+            <div class="flex items-center gap-2">
+                <span><?= $flash['type'] === 'success' ? '✓' : '✕' ?></span>
+                <span><?= htmlspecialchars($flash['message']) ?></span>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Top Action Toolbar (Hidden in print) -->
-    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+    <div class="max-w-4xl mx-auto mb-6 flex items-center justify-between no-print bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex-wrap gap-3">
         <div class="flex items-center gap-3">
             <?php if (!is_driver()): ?>
             <a href="contracts.php" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
@@ -110,9 +155,29 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
                 <span>العودة إلى البطاقة الفنية</span>
             </a>
             <?php endif; ?>
+
+            <?php if ($contract['status'] === 'terminated'): ?>
+            <a href="contract_termination.php?id=<?= $contractId ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition shadow-xs">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                <span>📜 محضر وبوردرورو الفسخ</span>
+            </a>
+            <?php endif; ?>
+
             <span class="text-xs font-bold text-slate-600 dark:text-slate-400">رقم العقد: <span class="font-num text-slate-900 dark:text-white font-mono inline-block font-black" dir="ltr"><?= htmlspecialchars($contract['contract_number']) ?></span></span>
         </div>
         <div class="flex items-center gap-2">
+            <!-- Dynamic Accreditation Inputs (Toolbar) -->
+            <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+                <span class="font-bold text-slate-600 dark:text-slate-300">اعتماد DTW:</span>
+                <input type="text" id="toolbarDtwNum" value="<?= $dtwNumber ?>" oninput="syncDtwFromToolbar()" class="w-12 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold font-num text-xs focus:ring-1 focus:ring-amber-500" placeholder="الرقم" title="رقم الاعتماد / البوردرورو">
+                <span class="text-slate-400">/</span>
+                <input type="text" id="toolbarDtwYear" value="<?= $dtwYear ?>" oninput="syncDtwFromToolbar()" class="w-14 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-center font-bold font-num text-xs focus:ring-1 focus:ring-amber-500" placeholder="السنة" title="سنة الاعتماد">
+                <button type="button" onclick="saveDtwAccreditation()" id="saveDtwBtn" class="px-2 py-0.5 rounded bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold hover:bg-slate-800 transition text-[11px] cursor-pointer" title="حفظ وتثبيت الاعتماد">
+                    حفظ
+                </button>
+            </div>
             <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-xs flex items-center gap-2 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
@@ -126,18 +191,64 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
     <!-- Official Document Paper -->
     <div class="contract-paper max-w-4xl mx-auto bg-white dark:bg-[#161d27] p-8 sm:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md space-y-6 text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-relaxed">
         
+        <?php if ($contract['status'] === 'terminated'): 
+            $termDateFormatted = !empty($contract['termination_date']) ? date('d/m/Y', strtotime($contract['termination_date'])) : '—';
+            $clauseTitle = !empty($contract['termination_clause']) ? $contract['termination_clause'] : 'فسخ العقد طبقاً للقانون 90-11 المنظم لعلاقات العمل';
+        ?>
+        <!-- Official Termination Alert Banner (Screen) -->
+        <div class="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500 text-rose-900 dark:text-rose-100 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs no-print">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center text-xl font-black shrink-0 shadow-xs">
+                    ✕
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-black text-sm text-rose-950 dark:text-white">تنبيه قانوني: تم فسخ هذا العقد رسمياً</span>
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white">عقد مفسوخ</span>
+                    </div>
+                    <div class="text-xs text-rose-800 dark:text-rose-300 font-bold mt-1">
+                        تاريخ سريان الفسخ: <strong class="font-num text-rose-950 dark:text-white" dir="ltr"><?= $termDateFormatted ?></strong> • السند والسبب: <strong class="text-rose-950 dark:text-white"><?= htmlspecialchars($clauseTitle) ?></strong>
+                        <?php if (!empty($contract['termination_notes'])): ?>
+                            <span class="block text-[11px] font-normal text-rose-700 dark:text-rose-400 mt-0.5">ملاحظات وسند الفسخ: <?= htmlspecialchars($contract['termination_notes']) ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                <a href="contract_termination.php?id=<?= $contractId ?>&tab=document" 
+                   class="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition shadow-xs flex items-center gap-1.5">
+                    <span>📜 فتح محضر الفسخ الرسمي</span>
+                    <span>←</span>
+                </a>
+                <a href="contract_termination.php?id=<?= $contractId ?>&tab=slip" 
+                   class="px-3.5 py-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-slate-800 text-rose-800 dark:text-rose-200 text-xs font-black transition">
+                    <span>📋 بوردرورو DTW</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Official Termination Banner (Print Mode) -->
+        <div class="hidden print:block border-2 border-rose-600 p-2.5 rounded-lg text-center text-rose-800 font-black text-xs">
+            ⚠️ تنبيه رسمي: هذا العقد تم فسخه رسمياً وإلغاؤه بتاريخ <?= $termDateFormatted ?> بموجب محضر الفسخ المعتمد وبوردرورو مديرية النقل.
+        </div>
+        <?php endif; ?>
+
         <!-- Republic Official Header with Logo -->
         <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
                 <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-2 border-amber-400 dark:border-amber-500 shadow-md shrink-0 p-1 bg-white">
                 <div class="text-center space-y-1.5 flex-1">
                     <h1 class="text-base sm:text-xl font-black text-slate-950 dark:text-white">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
-                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل ولاية أدرار</h2>
-                    <div class="text-xs sm:text-sm font-black text-amber-700 dark:text-amber-400 font-num">EURL TAXI NAGUILOU Services</div>
+                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل لولاية <?= htmlspecialchars($company['wilaya_clean']) ?></h2>
+                    <div class="text-xs sm:text-sm font-black text-amber-700 dark:text-amber-400 font-num"><?= htmlspecialchars($company['name']) ?></div>
                 </div>
-                <div class="w-24 text-center text-xs text-slate-600 dark:text-slate-400 font-num shrink-0">
+                <div class="w-28 text-center text-xs text-slate-600 dark:text-slate-400 font-num shrink-0">
                     <div class="font-bold">اعتماد DTW</div>
-                    <div class="font-black text-slate-950 dark:text-white text-sm" dir="ltr">16/2024</div>
+                    <div class="font-black text-slate-950 dark:text-white text-sm flex items-center justify-center gap-0.5" dir="ltr">
+                        <span id="dtwNumDisplay" contenteditable="true" oninput="syncDtwFromDoc()" class="hover:bg-amber-50 dark:hover:bg-amber-950/40 px-1 rounded transition border-b border-dashed border-slate-400 print:border-none cursor-text" title="انقر لتعديل رقم الاعتماد"><?= $dtwNumber ?></span>
+                        <span>/</span>
+                        <span id="dtwYearDisplay" contenteditable="true" oninput="syncDtwFromDoc()" class="hover:bg-amber-50 dark:hover:bg-amber-950/40 px-1 rounded transition border-b border-dashed border-slate-400 print:border-none cursor-text" title="انقر لتعديل سنة الاعتماد"><?= $dtwYear ?></span>
+                    </div>
                 </div>
             </div>
             <div class="text-center pt-2">
@@ -154,9 +265,15 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
         <div class="space-y-3 bg-slate-50 dark:bg-[#1a2332] p-5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs sm:text-sm">
             <div class="leading-relaxed">
                 <strong class="font-black text-slate-900 dark:text-slate-200">الطرف الأول (المستخدم / صاحب رخصة الاستغلال):</strong><br>
-                السيد/المؤسسة: <strong class="text-slate-950 dark:text-white font-black text-sm sm:text-base"><?= htmlspecialchars($contract['owner_name']) ?></strong>، 
-                الهاتف: <strong class="font-num font-mono inline-block text-slate-950 dark:text-white font-black text-sm" dir="ltr"><?= htmlspecialchars($contract['owner_phone']) ?></strong>، 
-                المقيم بـ: <strong class="text-slate-950 dark:text-white font-bold"><?= htmlspecialchars($contract['owner_wilaya']) ?></strong>.
+                المؤسسة: <strong class="text-slate-950 dark:text-white font-black text-sm sm:text-base"><?= htmlspecialchars($company['name']) ?></strong>، 
+                العنوان والمقر الاجتماعي (Siège Social): <strong class="text-slate-950 dark:text-white font-bold"><?= htmlspecialchars($company['address']) ?></strong>، 
+                الهاتف: <strong class="font-num font-mono inline-block text-slate-950 dark:text-white font-black text-sm" dir="ltr"><?= htmlspecialchars(!empty($company['phone']) ? $company['phone'] : (!empty($contract['owner_phone']) ? $contract['owner_phone'] : '0663.55.00.42')) ?></strong>
+                <?php if (!empty($company['rc'])): ?>
+                    • السجل التجاري (RC): <strong class="font-num inline-block text-slate-950 dark:text-white font-bold" dir="ltr"><?= htmlspecialchars($company['rc']) ?></strong>
+                <?php endif; ?>
+                <?php if (!empty($company['nif'])): ?>
+                    • الرقم الجبائي (NIF): <strong class="font-num inline-block text-slate-950 dark:text-white font-bold" dir="ltr"><?= htmlspecialchars($company['nif']) ?></strong>
+                <?php endif; ?>.
             </div>
             <div class="border-t border-slate-200 dark:border-slate-800 pt-3 leading-relaxed">
                 <strong class="font-black text-slate-900 dark:text-slate-200">الطرف الثاني (العامل / سائق سيارة الأجرة):</strong><br>
@@ -192,7 +309,7 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
 
             <div>
                 <strong class="font-black text-slate-950 dark:text-white">المادة 02:</strong>
-                بموجب هذا العقد يتم تشغيل السيد / <strong class="font-black text-slate-950 dark:text-white text-sm"><?= htmlspecialchars($contract['driver_name']) ?></strong>، بصفته: سائقا أجيرا من طرف : <strong class="font-black text-slate-950 dark:text-white">مؤسسة تاكسي نقيلو لسيارات الأجرة</strong> لمدة زمنية محدودة تحت سلطة ومراقبة المستخدم أو المسؤول الذي يعين لغرض حسن سير المهام المسندة إليه.
+                بموجب هذا العقد يتم تشغيل السيد / <strong class="font-black text-slate-950 dark:text-white text-sm"><?= htmlspecialchars($contract['driver_name']) ?></strong>، بصفته: سائقا أجيرا من طرف : <strong class="font-black text-slate-950 dark:text-white"><?= htmlspecialchars($company['name']) ?></strong> لمدة زمنية محدودة تحت سلطة ومراقبة المستخدم أو المسؤول الذي يعين لغرض حسن سير المهام المسندة إليه.
             </div>
 
             <div>
@@ -274,7 +391,7 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
             </div>
 
             <div class="space-y-10">
-                <span class="font-black text-slate-950 dark:text-slate-100 text-sm sm:text-base">تأشيرة وختم منصة تاكسي نقيلو</span>
+                <span class="font-black text-slate-950 dark:text-slate-100 text-sm sm:text-base">تأشيرة وختم <?= htmlspecialchars($company['name']) ?></span>
                 <div class="w-20 h-20 rounded-full border-2 border-dashed border-amber-500 mx-auto flex items-center justify-center text-xs text-amber-800 dark:text-amber-400 font-black bg-amber-50/50 dark:bg-amber-950/20">
                     موثق رقمياً
                 </div>
@@ -283,5 +400,58 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
 
     </div>
 
+    <script>
+    function syncDtwFromToolbar() {
+        const num = document.getElementById('toolbarDtwNum').value;
+        const yr = document.getElementById('toolbarDtwYear').value;
+        document.getElementById('dtwNumDisplay').textContent = num;
+        document.getElementById('dtwYearDisplay').textContent = yr;
+    }
+
+    function syncDtwFromDoc() {
+        const num = document.getElementById('dtwNumDisplay').textContent.trim();
+        const yr = document.getElementById('dtwYearDisplay').textContent.trim();
+        document.getElementById('toolbarDtwNum').value = num;
+        document.getElementById('toolbarDtwYear').value = yr;
+    }
+
+    async function saveDtwAccreditation() {
+        const num = document.getElementById('toolbarDtwNum').value.trim();
+        const yr = document.getElementById('toolbarDtwYear').value.trim();
+        const btn = document.getElementById('saveDtwBtn');
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.textContent = 'جاري الحفظ...';
+
+        const formData = new FormData();
+        formData.append('csrf_token', '<?= csrf_token() ?>');
+        formData.append('action', 'update_dtw');
+        formData.append('dtw_number', num);
+        formData.append('dtw_year', yr);
+        formData.append('ajax', '1');
+
+        try {
+            const res = await fetch('', { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } });
+            const json = await res.json();
+            if (json.success) {
+                btn.textContent = 'تم الحفظ ✓';
+                btn.classList.add('bg-emerald-600', 'text-white');
+                setTimeout(() => {
+                    btn.textContent = 'حفظ';
+                    btn.classList.remove('bg-emerald-600', 'text-white');
+                    btn.disabled = false;
+                }, 1800);
+            } else {
+                alert('حدث خطأ: ' + (json.error || 'تعذر الحفظ'));
+                btn.disabled = false;
+                btn.innerHTML = oldText;
+            }
+        } catch (e) {
+            alert('تعذر الاتصال بالخادم لحفظ التعديل.');
+            btn.disabled = false;
+            btn.innerHTML = oldText;
+        }
+    }
+    </script>
 </body>
 </html>

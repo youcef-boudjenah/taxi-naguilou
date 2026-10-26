@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
 $pdo = getDBConnection();
+$company = get_company_meta($pdo);
 
 $debtId = intval($_GET['id'] ?? 0);
 $userId = intval($_GET['user_id'] ?? 0);
@@ -244,16 +245,16 @@ $refCode = 'EXT-' . date('Y') . '-' . str_pad($realDebtId ?: $driverUserId, 4, '
                         TN
                     </div>
                     <div>
-                        <h1 class="text-lg font-black text-slate-950 dark:text-white leading-tight">شركة تاكسي نقيلو ش.ذ.م.م</h1>
-                        <p class="text-xs text-slate-600 dark:text-slate-400">EURL TAXI NAGUILOU - حظيرة سيارات الأجرة</p>
-                        <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-0.5">المقر الاجتماعي: حي النصر، ورقلة - الجزائر</p>
+                        <h1 class="text-lg font-black text-slate-950 dark:text-white leading-tight"><?= htmlspecialchars($company['name']) ?></h1>
+                        <p class="text-xs text-slate-600 dark:text-slate-400"><?= htmlspecialchars($company['name']) ?></p>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-0.5">المقر الاجتماعي: <?= htmlspecialchars($company['address']) ?></p>
                     </div>
                 </div>
                 <div class="text-left font-num text-[11px] text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800 pr-4">
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">RC :</span> 30/00-0982341B22</div>
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">NIF :</span> 002230098234185</div>
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">NIS :</span> 002230010048123</div>
-                    <div><span class="font-bold text-slate-700 dark:text-slate-300">Art. Imp :</span> 30010928341</div>
+                    <?php if (!empty($company['rc'])): ?><div><span class="font-bold text-slate-700 dark:text-slate-300">RC :</span> <?= htmlspecialchars($company['rc']) ?></div><?php endif; ?>
+                    <?php if (!empty($company['nif'])): ?><div><span class="font-bold text-slate-700 dark:text-slate-300">NIF :</span> <?= htmlspecialchars($company['nif']) ?></div><?php endif; ?>
+                    <?php if (!empty($company['nis'])): ?><div><span class="font-bold text-slate-700 dark:text-slate-300">NIS :</span> <?= htmlspecialchars($company['nis']) ?></div><?php endif; ?>
+                    <?php if (!empty($company['article'])): ?><div><span class="font-bold text-slate-700 dark:text-slate-300">Art. Imp :</span> <?= htmlspecialchars($company['article']) ?></div><?php endif; ?>
                 </div>
             </div>
         </div>

@@ -236,9 +236,10 @@ if ($pdo && $driverId > 0) {
                    u_owner.full_name as owner_name, u_owner.phone as owner_phone, u_owner.email as owner_email
             FROM users u
             LEFT JOIN vehicles v ON ((v.current_driver_id = u.id OR v.replacement_driver_id = u.id) AND v.deleted_at IS NULL)
-            LEFT JOIN contracts c ON (c.driver_id = u.id AND (c.status = 'signed' OR c.status = 'active') AND c.deleted_at IS NULL)
+            LEFT JOIN contracts c ON (c.driver_id = u.id AND c.deleted_at IS NULL)
             LEFT JOIN users u_owner ON ((c.owner_id = u_owner.id OR v.owner_id = u_owner.id) AND u_owner.deleted_at IS NULL)
-            WHERE u.id = ? AND (u.role = 'driver' OR u.role = 'owner') AND u.deleted_at IS NULL
+            WHERE u.id = ? AND (u.role = 'driver' OR u.role = 'owner') " . (is_admin() ? "" : "AND u.deleted_at IS NULL") . "
+            ORDER BY c.id DESC
             LIMIT 1
         ");
         $stmt->execute([$driverId]);
@@ -959,11 +960,20 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
 
             <?php if (!empty($driverContract['id'])): ?>
-                <a href="contract_view.php?id=<?= $driverContract['id'] ?>" target="_blank" 
-                   class="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1">
-                    <span>معاينة العقد الموثق</span>
-                    <span>←</span>
-                </a>
+                <div class="flex items-center gap-2">
+                    <?php if ($driverContract['status'] === 'terminated'): ?>
+                        <a href="contract_termination.php?id=<?= $driverContract['id'] ?>" target="_blank" 
+                           class="text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/60 inline-flex items-center gap-1.5 transition">
+                            <span>📜 عقد وبوردرورو الفسخ (DTW)</span>
+                            <span>←</span>
+                        </a>
+                    <?php endif; ?>
+                    <a href="contract_view.php?id=<?= $driverContract['id'] ?>" target="_blank" 
+                       class="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1">
+                        <span>معاينة العقد الأصلي</span>
+                        <span>←</span>
+                    </a>
+                </div>
             <?php endif; ?>
         </div>
 
@@ -972,7 +982,7 @@ require_once __DIR__ . '/../includes/header.php';
                 
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
                     <div class="flex items-center gap-3">
-                        <div class="w-12 h-12 rounded-2xl bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 flex items-center justify-center text-xl font-bold font-num">
+                        <div class="w-12 h-12 rounded-2xl <?= $driverContract['status'] === 'terminated' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300' ?> flex items-center justify-center text-xl font-bold font-num">
                             90-11
                         </div>
                         <div>
@@ -980,15 +990,47 @@ require_once __DIR__ . '/../includes/header.php';
                                 <h4 class="text-base font-black text-slate-900 dark:text-white">
                                     عقد عمل سائق أجير معتمد
                                 </h4>
-                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black <?= $driverContract['status'] === 'signed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' ?>">
-                                    <?= $driverContract['status'] === 'signed' ? 'موثق وساري المفعول ✓' : htmlspecialchars($driverContract['status']) ?>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black <?= $driverContract['status'] === 'signed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : ($driverContract['status'] === 'terminated' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300') ?>">
+                                    <?= $driverContract['status'] === 'signed' ? 'موثق وساري المفعول ✓' : ($driverContract['status'] === 'terminated' ? 'مفسوخ رسمياً (Résilié) ✕' : htmlspecialchars($driverContract['status'])) ?>
                                 </span>
                             </div>
                             <span class="text-xs text-slate-400 font-num" dir="ltr">
                                 رقم العقد: <?= htmlspecialchars($driverContract['contract_number'] ?: 'CTR-' . $driverContract['id']) ?>
                             </span>
                         </div>
+                    </div>
                 </div>
+
+                <?php if ($driverContract['status'] === 'terminated'): 
+                    $termDateDisp = !empty($driverContract['termination_date']) ? date('d/m/Y', strtotime($driverContract['termination_date'])) : '—';
+                    $termClauseDisp = !empty($driverContract['termination_clause']) ? $driverContract['termination_clause'] : 'فسخ العقد طبقاً للقانون 90-11';
+                ?>
+                <!-- Termination Summary Box in Driver Fiche -->
+                <div class="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-3">
+                        <span class="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black text-sm shrink-0">✕</span>
+                        <div>
+                            <div class="font-black text-rose-900 dark:text-rose-200 text-sm">تم فسخ هذا العقد رسمياً بتاريخ <?= $termDateDisp ?></div>
+                            <div class="text-xs text-rose-700 dark:text-rose-300 font-bold mt-0.5">
+                                السند والسبب القانوني: <?= htmlspecialchars($termClauseDisp) ?>
+                                <?php if (!empty($driverContract['termination_notes'])): ?>
+                                    <span class="block text-[11px] font-normal text-slate-600 dark:text-slate-400 mt-0.5"><?= htmlspecialchars($driverContract['termination_notes']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                        <a href="contract_termination.php?id=<?= $driverContract['id'] ?>&tab=document" target="_blank"
+                           class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition shadow-2xs">
+                            📜 محضر الفسخ
+                        </a>
+                        <a href="contract_termination.php?id=<?= $driverContract['id'] ?>&tab=slip" target="_blank"
+                           class="px-3.5 py-2 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-900 text-rose-800 dark:text-rose-200 font-bold text-xs hover:bg-rose-50 transition">
+                            📋 بوردرورو DTW
+                        </a>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <!-- Contract Key Details Grid -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">

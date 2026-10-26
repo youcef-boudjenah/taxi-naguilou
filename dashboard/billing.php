@@ -100,6 +100,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             SELECT 
                 v_driver_id,
                 COUNT(*) as vehicles_count,
+                MIN(NULLIF(door_number, '')) as primary_door_number,
                 GROUP_CONCAT(CONCAT(COALESCE(brand, ''), ' ', COALESCE(model, ''), ' (', COALESCE(plate_number, ''), ') [باب: ', COALESCE(door_number, '-'), ']') SEPARATOR ' | ') as vehicles_data
             FROM (
                 SELECT id, brand, model, plate_number, door_number, current_driver_id as v_driver_id FROM vehicles WHERE current_driver_id IS NOT NULL
@@ -119,7 +120,11 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             ) s_max ON s_sub.id = s_max.max_id
         ) s ON s.driver_id = u.id
         WHERE u.role = 'driver' AND u.deleted_at IS NULL
-        ORDER BY u.id ASC
+        ORDER BY 
+            CASE WHEN v_agg.primary_door_number IS NOT NULL AND v_agg.primary_door_number != '' THEN 0 ELSE 1 END,
+            CAST(SUBSTRING_INDEX(v_agg.primary_door_number, '-', -1) AS UNSIGNED) ASC,
+            v_agg.primary_door_number ASC,
+            u.id ASC
     ");
     $stmtExp->execute([$selectedPeriod]);
     $expRows = $stmtExp->fetchAll();
@@ -483,6 +488,7 @@ $sql = "
         SELECT 
             v_driver_id,
             COUNT(*) as vehicles_count,
+            MIN(NULLIF(door_number, '')) as primary_door_number,
             GROUP_CONCAT(CONCAT(COALESCE(brand, ''), ' ', COALESCE(model, ''), '|||', COALESCE(plate_number, ''), '|||', COALESCE(door_number, '')) SEPARATOR '###') as vehicles_data
         FROM (
             SELECT id, brand, model, plate_number, door_number, current_driver_id as v_driver_id FROM vehicles WHERE current_driver_id IS NOT NULL AND deleted_at IS NULL
@@ -520,7 +526,11 @@ if ($statusFilter === 'regle') {
     $sql .= " AND (s.status = 'en_attente' OR s.status IS NULL)";
 }
 
-$sql .= " ORDER BY u.id ASC";
+$sql .= " ORDER BY 
+    CASE WHEN v_agg.primary_door_number IS NOT NULL AND v_agg.primary_door_number != '' THEN 0 ELSE 1 END,
+    CAST(SUBSTRING_INDEX(v_agg.primary_door_number, '-', -1) AS UNSIGNED) ASC,
+    v_agg.primary_door_number ASC,
+    u.id ASC";
 $allRows = [];
 if ($pdo) {
     try {
@@ -602,12 +612,16 @@ if ($pdo) {
     try {
         $stmtAllD = $pdo->query("
             SELECT u.id, u.full_name, u.phone, u.custom_vehicle_fee,
+                   MAX(v.door_number) as door_number,
                    COUNT(DISTINCT v.id) as veh_count
             FROM users u
             LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.replacement_driver_id = u.id) AND v.deleted_at IS NULL
             WHERE u.role = 'driver' AND u.deleted_at IS NULL
             GROUP BY u.id
-            ORDER BY u.full_name ASC
+            ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                     MAX(v.door_number) ASC,
+                     u.id ASC
         ");
         $allDriversList = $stmtAllD ? $stmtAllD->fetchAll() : [];
     } catch (\Throwable $e) {

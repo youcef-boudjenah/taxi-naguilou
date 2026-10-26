@@ -501,9 +501,19 @@ $opsPerPage = 25;
 
 if ($pdo) {
     // 1. Registered drivers for dropdown
-    $userDelClause = $hasUsersDeletedAt ? " AND deleted_at IS NULL" : "";
+    $userDelClause = $hasUsersDeletedAt ? " AND u.deleted_at IS NULL" : "";
     try {
-        $stmtD = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' {$userDelClause} ORDER BY full_name ASC");
+        $stmtD = $pdo->query("
+            SELECT u.id, u.full_name, u.phone, MAX(v.door_number) as door_number
+            FROM users u 
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+            WHERE u.role = 'driver' {$userDelClause}
+            GROUP BY u.id
+            ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                     MAX(v.door_number) ASC,
+                     u.id ASC
+        ");
         $registeredDrivers = $stmtD ? $stmtD->fetchAll() : [];
     } catch (\Throwable $e) {
         $registeredDrivers = [];
@@ -512,35 +522,47 @@ if ($pdo) {
     // 2. Query Debts Table
     $where = ["1=1"];
     if ($hasDebtsDeletedAt) {
-        $where[] = "deleted_at IS NULL";
+        $where[] = "d.deleted_at IS NULL";
     }
     $params = [];
 
     if (!empty($search)) {
-        $where[] = "(chauffeur_name LIKE ? OR phone LIKE ?)";
+        $where[] = "(d.chauffeur_name LIKE ? OR d.phone LIKE ?)";
         $params[] = "%$search%";
         $params[] = "%$search%";
     }
 
     if ($filter === 'endette') {
-        $where[] = "(status = 'endette' OR (total_credits - total_versements) > 0)";
+        $where[] = "(d.status = 'endette' OR (d.total_credits - d.total_versements) > 0)";
     } elseif ($filter === 'a_jour') {
-        $where[] = "(status = 'a_jour' OR (total_credits - total_versements) <= 0)";
+        $where[] = "(d.status = 'a_jour' OR (d.total_credits - d.total_versements) <= 0)";
     }
 
     if ($driverType === 'actif') {
-        $where[] = "driver_type = 'actif'";
+        $where[] = "d.driver_type = 'actif'";
     } elseif ($driverType === 'ancien') {
-        $where[] = "driver_type = 'ancien'";
+        $where[] = "d.driver_type = 'ancien'";
     }
 
     if ($minDebt > 0) {
-        $where[] = "(total_credits - total_versements) >= ?";
+        $where[] = "(d.total_credits - d.total_versements) >= ?";
         $params[] = $minDebt;
     }
 
     try {
-        $sql = "SELECT * FROM driver_debts WHERE " . implode(' AND ', $where) . " ORDER BY (total_credits - total_versements) DESC, id ASC";
+        $sql = "
+            SELECT d.*, MAX(v.door_number) as door_number, MAX(v.plate_number) as plate_number
+            FROM driver_debts d
+            LEFT JOIN users u ON d.user_id = u.id
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+            WHERE " . implode(' AND ', $where) . "
+            GROUP BY d.id
+            ORDER BY 
+                CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                MAX(v.door_number) ASC,
+                d.id ASC
+        ";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         $debts = $stmt->fetchAll() ?: [];
@@ -1088,6 +1110,9 @@ if ($pdo) {
                                         <?php endif; ?>
                                     </div>
                                     <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                                        <?php if (!empty($d['door_number'])): ?>
+                                            <span class="table-num-badge bg-amber-500/15 text-amber-800 dark:text-amber-300 font-black text-[10px] border border-amber-500/30">🚪 <?= htmlspecialchars($d['door_number']) ?></span>
+                                        <?php endif; ?>
                                         <?php if (!empty($d['phone'])): ?>
                                             <span class="table-num-badge table-num-slate text-[10px]" dir="ltr">📞 <?= htmlspecialchars($d['phone']) ?></span>
                                         <?php endif; ?>

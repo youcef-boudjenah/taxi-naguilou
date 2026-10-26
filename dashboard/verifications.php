@@ -64,7 +64,11 @@ try {
         FROM users u
         LEFT JOIN vehicles v ON v.current_driver_id = u.id
         WHERE u.role = 'driver' AND (u.status = 'pending' OR u.license_expiry < CURDATE() + INTERVAL 30 DAY OR u.license_expiry IS NULL)
-        ORDER BY u.status = 'pending' DESC, u.license_expiry ASC
+        ORDER BY u.status = 'pending' DESC,
+                 CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                 CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                 v.door_number ASC,
+                 u.license_expiry ASC
     ");
     $pendingDrivers = $stmtD->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (\Throwable $e) {}
@@ -79,7 +83,11 @@ try {
         WHERE v.status IN ('suspended', 'in_maintenance') 
            OR v.technical_control_expiry < CURDATE() + INTERVAL 15 DAY
            OR v.insurance_expiry < CURDATE() + INTERVAL 15 DAY
-        ORDER BY v.status != 'active' DESC, v.technical_control_expiry ASC
+        ORDER BY v.status != 'active' DESC,
+                 CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                 CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                 v.door_number ASC,
+                 v.technical_control_expiry ASC
     ");
     $pendingVehicles = $stmtV->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } catch (\Throwable $e) {}

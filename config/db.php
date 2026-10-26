@@ -148,7 +148,8 @@ function getDBConnection() {
             $colCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
             $qrCheck = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'qr_code'")->fetch();
             $feeCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'custom_vehicle_fee'")->fetch();
-            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck)) {
+            $termCheck = $pdo->query("SHOW COLUMNS FROM `contracts` LIKE 'termination_clause'")->fetch();
+            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck) || empty($termCheck)) {
                 $needsMigration = true;
             }
         } catch (\Throwable $e) {}
@@ -283,7 +284,12 @@ function initAllTables(PDO $pdo) {
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
         monthly_wage DECIMAL(10, 2) DEFAULT 45000.00,
+        dtw_number VARCHAR(50) DEFAULT '01',
+        dtw_year VARCHAR(10) DEFAULT '2026',
         status ENUM('draft', 'signed', 'terminated') DEFAULT 'signed',
+        termination_clause VARCHAR(150) NULL,
+        termination_date DATE NULL,
+        termination_notes TEXT NULL,
         signed_at TIMESTAMP NULL,
         notes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -781,6 +787,24 @@ function migrateDriverFicheFields(PDO $pdo): void {
             if (!isset($ddColMap[$col])) {
                 try {
                     $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `$col` $def");
+                } catch (\Throwable $ex) {}
+            }
+        }
+
+        // Contracts self-healing columns
+        $addContractCols = [
+            'dtw_number' => "VARCHAR(50) DEFAULT '16'",
+            'dtw_year' => "VARCHAR(10) DEFAULT '2024'",
+            'termination_clause' => "VARCHAR(100) NULL",
+            'termination_date' => "DATE NULL",
+            'termination_notes' => "TEXT NULL"
+        ];
+        $existingCCols = $pdo->query("SHOW COLUMNS FROM `contracts`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $cColMap = array_flip($existingCCols);
+        foreach ($addContractCols as $col => $def) {
+            if (!isset($cColMap[$col])) {
+                try {
+                    $pdo->exec("ALTER TABLE `contracts` ADD COLUMN `$col` $def");
                 } catch (\Throwable $ex) {}
             }
         }
@@ -1332,6 +1356,49 @@ function get_all_settings(?PDO $pdo): array {
     } catch (\Throwable $e) {
         return [];
     }
+}
+
+function clean_wilaya_name(string $str, string $fallback = 'أدرار'): string {
+    $clean = trim($str);
+    if (empty($clean)) {
+        return $fallback;
+    }
+    $clean = preg_replace('/^\d+\s*[-–]\s*/u', '', $clean);
+    if (str_contains($clean, '،') || str_contains($clean, ',')) {
+        $parts = preg_split('/[،,]/u', $clean);
+        $last = trim(end($parts));
+        $last = preg_replace('/\s*[-–]\s*الجزائر$/u', '', $last);
+        $last = preg_replace('/^\d+\s*[-–]\s*/u', '', $last);
+        if (!empty($last)) {
+            $clean = $last;
+        }
+    }
+    $clean = preg_replace('/\s*[-–]\s*الجزائر$/u', '', $clean);
+    return !empty($clean) ? trim($clean) : $fallback;
+}
+
+function get_company_meta(?PDO $pdo): array {
+    $s = $pdo ? get_all_settings($pdo) : [];
+    $name = !empty($s['company_name']) ? $s['company_name'] : 'EURL TAXI NAGUILOU Services';
+    $phone = !empty($s['company_phone']) ? $s['company_phone'] : '0663.55.00.42';
+    $email = !empty($s['company_email']) ? $s['company_email'] : 'contact@taxinaguilou.dz';
+    $address = !empty($s['company_address']) ? $s['company_address'] : 'أدرار';
+    $wilayaRaw = !empty($s['company_wilaya']) ? $s['company_wilaya'] : clean_wilaya_name($address, '01 - أدرار');
+    $wilayaClean = clean_wilaya_name($wilayaRaw, clean_wilaya_name($address, 'أدرار'));
+
+    return [
+        'name' => $name,
+        'phone' => $phone,
+        'email' => $email,
+        'address' => $address,
+        'wilaya_raw' => $wilayaRaw,
+        'wilaya_clean' => $wilayaClean,
+        'rc' => $s['legal_rc'] ?? '',
+        'nif' => $s['legal_nif'] ?? '',
+        'nis' => $s['legal_nis'] ?? '',
+        'article' => $s['legal_article'] ?? '',
+        'settings' => $s,
+    ];
 }
 
 function getUnreadNotificationsCount(?PDO $pdo): int {

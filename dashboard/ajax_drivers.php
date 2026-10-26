@@ -43,8 +43,13 @@ try {
     $joinVeh = "";
     if (isset($vColMap['current_driver_id'])) {
         $statusCond = isset($vColMap['status']) ? "AND v.status = 'active'" : "";
-        $joinVeh = "LEFT JOIN vehicles v ON (v.current_driver_id = u.id $statusCond)";
+        $joinVeh = "LEFT JOIN vehicles v ON ((v.current_driver_id = u.id OR v.owner_id = u.id) $statusCond)";
     }
+
+    $orderByDoor = "ORDER BY CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                             CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                             v.door_number ASC,
+                             u.full_name ASC";
 
     if (!empty($q)) {
         $searchTerm = '%' . $q . '%';
@@ -56,7 +61,7 @@ try {
             $joinVeh
             WHERE u.role = 'driver' AND u.status = 'active'
               AND (u.full_name LIKE ? OR u.phone LIKE ? OR u.license_number LIKE ?$cardCond)
-            ORDER BY u.full_name ASC
+            $orderByDoor
             LIMIT 30
         ");
         $params = [$searchTerm, $searchTerm, $searchTerm];
@@ -71,7 +76,7 @@ try {
             FROM users u
             $joinVeh
             WHERE u.role = 'driver' AND u.status = 'active'
-            ORDER BY u.full_name ASC
+            $orderByDoor
             LIMIT 50
         ");
     }

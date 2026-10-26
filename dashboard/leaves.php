@@ -6,13 +6,39 @@ require_role(['super_admin', 'admin', 'owner']);
 
 $pdo = getDBConnection();
 if (is_owner() && !is_admin()) {
-    $stmtVeh = $pdo->prepare("SELECT id, brand, model, plate_number, current_driver_id FROM vehicles WHERE owner_id = ? OR owner_id IS NULL ORDER BY plate_number ASC");
+    $stmtVeh = $pdo->prepare("
+        SELECT id, brand, model, plate_number, door_number, current_driver_id 
+        FROM vehicles 
+        WHERE (owner_id = ? OR owner_id IS NULL) AND deleted_at IS NULL
+        ORDER BY CASE WHEN door_number IS NOT NULL AND door_number != '' THEN 0 ELSE 1 END,
+                 CAST(SUBSTRING_INDEX(door_number, '-', -1) AS UNSIGNED) ASC,
+                 door_number ASC,
+                 id ASC
+    ");
     $stmtVeh->execute([intval($_SESSION['user_id'])]);
     $vehicles = $stmtVeh->fetchAll() ?: [];
 } else {
-    $vehicles = $pdo->query("SELECT id, brand, model, plate_number, current_driver_id FROM vehicles ORDER BY plate_number ASC")->fetchAll() ?: [];
+    $vehicles = $pdo->query("
+        SELECT id, brand, model, plate_number, door_number, current_driver_id 
+        FROM vehicles 
+        WHERE deleted_at IS NULL
+        ORDER BY CASE WHEN door_number IS NOT NULL AND door_number != '' THEN 0 ELSE 1 END,
+                 CAST(SUBSTRING_INDEX(door_number, '-', -1) AS UNSIGNED) ASC,
+                 door_number ASC,
+                 id ASC
+    ")->fetchAll() ?: [];
 }
-$drivers = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC")->fetchAll() ?: [];
+$drivers = $pdo->query("
+    SELECT u.id, u.full_name, u.phone, MAX(v.door_number) as door_number 
+    FROM users u 
+    LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+    WHERE u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
+    GROUP BY u.id
+    ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+             CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+             MAX(v.door_number) ASC,
+             u.id ASC
+")->fetchAll() ?: [];
 
 // Handle New Leave & Relief Assignment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_leave') {
@@ -162,7 +188,11 @@ $stmtL = $pdo->prepare("
     JOIN users u1 ON l.driver_id = u1.id
     LEFT JOIN users u2 ON l.replacement_driver_id = u2.id
     WHERE $whereLeaves
-    ORDER BY l.id DESC
+    ORDER BY 
+        CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+        v.door_number ASC,
+        l.id DESC
 ");
 $stmtL->execute($paramsLeaves);
 $leaves = $stmtL->fetchAll() ?: [];

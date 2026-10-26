@@ -260,6 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             'company_phone' => trim($_POST['company_phone'] ?? ''),
             'company_email' => trim($_POST['company_email'] ?? ''),
             'company_address' => trim($_POST['company_address'] ?? ''),
+            'company_wilaya' => trim($_POST['company_wilaya'] ?? ''),
             'legal_rc' => trim($_POST['legal_rc'] ?? ''),
             'legal_nif' => trim($_POST['legal_nif'] ?? ''),
             'legal_nis' => trim($_POST['legal_nis'] ?? ''),
@@ -286,6 +287,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
 
         foreach ($settingsToUpdate as $key => $val) {
             update_setting($pdo, $key, $val);
+        }
+
+        // Synchronize admin user profile (wilaya, address, phone) so user records match company settings
+        $adminAddress = trim($_POST['company_address'] ?? '');
+        $adminWilaya = trim($_POST['company_wilaya'] ?? '');
+        if (empty($adminWilaya) && !empty($adminAddress)) {
+            $adminWilaya = clean_wilaya_name($adminAddress, '');
+        }
+        $adminPhone = trim($_POST['company_phone'] ?? '');
+
+        $currentUserId = intval($_SESSION['user_id'] ?? 0);
+        if ($currentUserId > 0) {
+            $stmtUserUp = $pdo->prepare("UPDATE users SET phone = COALESCE(NULLIF(?, ''), phone), address = COALESCE(NULLIF(?, ''), address), wilaya = COALESCE(NULLIF(?, ''), wilaya) WHERE id = ?");
+            $stmtUserUp->execute([$adminPhone, $adminAddress, $adminWilaya, $currentUserId]);
+            if (!empty($adminWilaya)) {
+                $_SESSION['user_wilaya'] = $adminWilaya;
+            }
+        }
+        if (!empty($adminWilaya)) {
+            $pdo->prepare("UPDATE users SET wilaya = ? WHERE role IN ('super_admin', 'admin') AND (wilaya = '16 - الجزائر العاصمة' OR wilaya IS NULL OR wilaya = '')")->execute([$adminWilaya]);
         }
 
         if (isset($_POST['vehicle_brands_models_raw'])) {
@@ -423,10 +444,18 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block font-bold text-slate-700 mb-1">العنوان والمقر الاجتماعي (Siège Social)</label>
-                        <textarea name="company_address" rows="2"
-                                  class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-slate-800"><?= htmlspecialchars($settings['company_address'] ?? 'حي النصر، نهج الاستقلال، الجزائر العاصمة') ?></textarea>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">العنوان والمقر الاجتماعي (Siège Social)</label>
+                            <textarea name="company_address" rows="2"
+                                      class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-slate-800" placeholder="مثال: حي 200 مسكن، أدرار"><?= htmlspecialchars($settings['company_address'] ?? 'أدرار') ?></textarea>
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">ولاية المقر الاجتماعي / مديرية النقل (DTW)</label>
+                            <input type="text" name="company_wilaya" value="<?= htmlspecialchars($settings['company_wilaya'] ?? '01 - أدرار') ?>"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-slate-800 font-semibold" placeholder="مثال: 01 - أدرار أو أدرار">
+                            <span class="text-[10px] text-slate-400 mt-1 block">تحدد ولاية مديرية النقل (DTW) الرسمية التي تصدر وتعتمد عليها العقود ومحاضر الفسخ</span>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -207,28 +207,33 @@ $statusFilter = $_GET['status'] ?? 'all';
 $subFilter = $_GET['subscription_type'] ?? 'all';
 $searchQuery = trim($_GET['search'] ?? '');
 
-$sql = "SELECT * FROM users WHERE deleted_at IS NULL";
+$sql = "
+    SELECT u.*, MAX(v.door_number) as door_number, MAX(v.plate_number) as plate_number
+    FROM users u
+    LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+    WHERE u.deleted_at IS NULL
+";
 $params = [];
 
 if ($roleFilter !== 'all') {
-    $sql .= " AND role = ?";
+    $sql .= " AND u.role = ?";
     $params[] = $roleFilter;
 }
 
 if ($statusFilter !== 'all') {
-    $sql .= " AND status = ?";
+    $sql .= " AND u.status = ?";
     $params[] = $statusFilter;
 }
 
 if ($subFilter === 'expired') {
-    $sql .= " AND subscription_type IN ('free', 'paid') AND subscription_expires_at IS NOT NULL AND subscription_expires_at < CURDATE()";
+    $sql .= " AND u.subscription_type IN ('free', 'paid') AND u.subscription_expires_at IS NOT NULL AND u.subscription_expires_at < CURDATE()";
 } elseif (in_array($subFilter, ['unlimited', 'free', 'paid'])) {
-    $sql .= " AND subscription_type = ?";
+    $sql .= " AND u.subscription_type = ?";
     $params[] = $subFilter;
 }
 
 if (!empty($searchQuery)) {
-    $sql .= " AND (full_name LIKE ? OR email LIKE ? OR phone LIKE ? OR license_number LIKE ?)";
+    $sql .= " AND (u.full_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ? OR u.license_number LIKE ?)";
     $like = "%$searchQuery%";
     $params[] = $like;
     $params[] = $like;
@@ -236,7 +241,11 @@ if (!empty($searchQuery)) {
     $params[] = $like;
 }
 
-$sql .= " ORDER BY created_at DESC";
+$sql .= " GROUP BY u.id 
+          ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                   CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                   MAX(v.door_number) ASC,
+                   u.id ASC";
 $users = [];
 if ($pdo) {
     $stmt = $pdo->prepare($sql);
@@ -404,7 +413,12 @@ $roleCounts = [
                                             <?= mb_substr($u['full_name'], 0, 1) ?>
                                         </div>
                                         <div>
-                                            <div class="font-bold text-slate-900 dark:text-slate-100"><?= htmlspecialchars($u['full_name']) ?></div>
+                                            <div class="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                                <span><?= htmlspecialchars($u['full_name']) ?></span>
+                                                <?php if (!empty($u['door_number'])): ?>
+                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/15 text-amber-800 dark:text-amber-300 font-num border border-amber-500/30" dir="ltr">🚪 <?= htmlspecialchars($u['door_number']) ?></span>
+                                                <?php endif; ?>
+                                            </div>
                                             <div class="text-[10px] text-slate-400 font-mono" dir="ltr"><?= htmlspecialchars($u['email']) ?></div>
                                         </div>
                                     </div>
@@ -584,144 +598,160 @@ $roleCounts = [
 </div>
 
 <!-- Modal: New User -->
-<div id="newUserModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 class="text-sm font-black text-slate-900">إضافة مستخدم جديد إلى المنصة</h3>
-            <button onclick="document.getElementById('newUserModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+<div id="newUserModal" class="hidden fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+    <div class="bg-white dark:bg-[#161d27] rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 text-right overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95 my-auto">
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-[#161d27]">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                </div>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white">إضافة مستخدم جديد إلى المنصة</h3>
+            </div>
+            <button type="button" onclick="document.getElementById('newUserModal').classList.add('hidden')" 
+                    class="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-base cursor-pointer">✕</button>
         </div>
 
-        <form method="POST" action="" class="space-y-3 text-xs">
+        <form method="POST" action="" class="flex flex-col flex-1 overflow-hidden min-h-0 text-xs">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="create">
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1">الاسم الكامل *</label>
-                <input type="text" name="full_name" required placeholder="مثال: عبد الرؤوف منصوري" 
-                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Scrollable Body Content -->
+            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 custom-scrollbar">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">البريد الإلكتروني *</label>
-                    <input type="email" name="email" required placeholder="user@taxinaguilou.dz" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">رقم الهاتف *</label>
-                    <input type="text" name="phone" required placeholder="0550112233" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">الدور والصلاحية *</label>
-                    <select name="role" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-bold">
-                        <option value="driver">سائق أجرة (Driver)</option>
-                        <option value="owner">مالك أسطول (Owner)</option>
-                        <option value="admin">مشرف إدارة (Admin)</option>
-                        <option value="super_admin">مدير المنصة (Super Admin)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">الحالة الأولية</label>
-                    <select name="status" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                        <option value="active">نشط ومفعل (Active)</option>
-                        <option value="pending">قيد التدقيق (Pending)</option>
-                    </select>
-                </div>
-            </div>
-
-            <div>
-                <label class="block font-bold text-slate-700 mb-1">الولاية المعتمدة</label>
-                <input type="text" name="wilaya" value="16 - الجزائر العاصمة" 
-                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">رقم رخصة السياقة (اختياري)</label>
-                    <input type="text" name="license_number" placeholder="مثال: B-9481726" 
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">تاريخ انتهاء الرخصة</label>
-                    <input type="date" name="license_expiry" 
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
-                </div>
-            </div>
-
-            <!-- New User: Subscription / Validity Configuration -->
-            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-                <div class="flex items-center justify-between">
-                    <label class="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                        <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>نوع الصلاحية ومدة الاشتراك</span>
-                    </label>
-                    <span class="text-[10px] text-amber-700 font-bold bg-amber-100/70 px-2 py-0.5 rounded-md border border-amber-200">تجميد تلقائي عند الانتهاء</span>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الاسم الكامل *</label>
+                    <input type="text" name="full_name" required placeholder="مثال: عبد الرؤوف منصوري" 
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition">
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="block font-medium text-slate-600 mb-1 text-[11px]">نوع الاشتراك *</label>
-                        <select name="subscription_type" id="newSubscriptionType" onchange="onNewSubscriptionTypeChanged()" 
-                                class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 font-bold focus:border-amber-500 text-xs">
-                            <option value="unlimited" selected>♾️ غير محدود / دائم (Permanent)</option>
-                            <option value="free">🎁 مجاناً لفترة محددة (Free Trial)</option>
-                            <option value="paid">💎 مدفوع لفترة محددة (Paid)</option>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">البريد الإلكتروني *</label>
+                        <input type="email" name="email" required placeholder="user@taxinaguilou.dz" dir="ltr"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">رقم الهاتف *</label>
+                        <input type="text" name="phone" required placeholder="0550112233" dir="ltr"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition font-num">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الدور والصلاحية *</label>
+                        <select name="role" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-bold transition">
+                            <option value="driver">سائق أجرة (Driver)</option>
+                            <option value="owner">مالك أسطول (Owner)</option>
+                            <option value="admin">مشرف إدارة (Admin)</option>
+                            <option value="super_admin">مدير المنصة (Super Admin)</option>
                         </select>
                     </div>
-
-                    <div id="newSubscriptionExpiryGroup" class="opacity-40 pointer-events-none transition">
-                        <label class="block font-medium text-slate-600 mb-1 text-[11px]">تاريخ انتهاء الصلاحية</label>
-                        <input type="date" name="subscription_expires_at" id="newSubscriptionExpiresAt"
-                               class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 font-num focus:border-amber-500 text-xs">
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الحالة الأولية</label>
+                        <select name="status" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition">
+                            <option value="active">نشط ومفعل (Active)</option>
+                            <option value="pending">قيد التدقيق (Pending)</option>
+                        </select>
                     </div>
                 </div>
 
-                <!-- Presets buttons -->
-                <div id="newSubscriptionPresetsGroup" class="hidden space-y-1 pt-1 border-t border-slate-200/60">
-                    <div class="text-[10px] text-slate-500 font-bold">تحديد المدة بسرعة من اليوم:</div>
-                    <div class="flex flex-wrap gap-1">
-                        <button type="button" onclick="setNewSubPreset(7)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+7 أيام</button>
-                        <button type="button" onclick="setNewSubPreset(15)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+15 يوم</button>
-                        <button type="button" onclick="setNewSubPreset(30)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ شهر (30 يوم)</button>
-                        <button type="button" onclick="setNewSubPreset(90)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ 3 أشهر</button>
-                        <button type="button" onclick="setNewSubPreset(180)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ 6 أشهر</button>
-                        <button type="button" onclick="setNewSubPreset(365)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ سنة كاملة</button>
+                <div>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الولاية المعتمدة</label>
+                    <input type="text" name="wilaya" value="16 - الجزائر العاصمة" 
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">رقم رخصة السياقة (اختياري)</label>
+                        <input type="text" name="license_number" placeholder="مثال: B-9481726" 
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition font-num">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">تاريخ انتهاء الرخصة</label>
+                        <input type="date" name="license_expiry" 
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition font-num">
+                    </div>
+                </div>
+
+                <!-- New User: Subscription / Validity Configuration -->
+                <div class="p-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <label class="block font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>نوع الصلاحية ومدة الاشتراك</span>
+                        </label>
+                        <span class="text-[10px] text-amber-700 dark:text-amber-400 font-bold bg-amber-100/70 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60">تجميد تلقائي عند الانتهاء</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-medium text-slate-600 dark:text-slate-400 mb-1 text-[11px]">نوع الاشتراك *</label>
+                            <select name="subscription_type" id="newSubscriptionType" onchange="onNewSubscriptionTypeChanged()" 
+                                    class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-bold focus:border-amber-500 text-xs transition">
+                                <option value="unlimited" selected>♾️ غير محدود / دائم (Permanent)</option>
+                                <option value="free">🎁 مجاناً لفترة محددة (Free Trial)</option>
+                                <option value="paid">💎 مدفوع لفترة محددة (Paid)</option>
+                            </select>
+                        </div>
+
+                        <div id="newSubscriptionExpiryGroup" class="opacity-40 pointer-events-none transition">
+                            <label class="block font-medium text-slate-600 dark:text-slate-400 mb-1 text-[11px]">تاريخ انتهاء الصلاحية</label>
+                            <input type="date" name="subscription_expires_at" id="newSubscriptionExpiresAt"
+                                   class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num focus:border-amber-500 text-xs transition">
+                        </div>
+                    </div>
+
+                    <!-- Presets buttons -->
+                    <div id="newSubscriptionPresetsGroup" class="hidden space-y-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800">
+                        <div class="text-[10px] text-slate-500 dark:text-slate-400 font-bold">تحديد المدة بسرعة من اليوم:</div>
+                        <div class="flex flex-wrap gap-1">
+                            <button type="button" onclick="setNewSubPreset(7)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+7 أيام</button>
+                            <button type="button" onclick="setNewSubPreset(15)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+15 يوم</button>
+                            <button type="button" onclick="setNewSubPreset(30)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ شهر (30 يوم)</button>
+                            <button type="button" onclick="setNewSubPreset(90)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ 3 أشهر</button>
+                            <button type="button" onclick="setNewSubPreset(180)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ 6 أشهر</button>
+                            <button type="button" onclick="setNewSubPreset(365)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ سنة كاملة</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">كلمة المرور الأولية (افتراضياً: password123)</label>
+                    <div class="relative">
+                        <input type="password" name="password" id="newUserPassword" value="password123" dir="ltr"
+                               class="w-full pl-11 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono text-xs transition">
+                        <button type="button" onclick="togglePasswordVisibility('newUserPassword', this)" 
+                                class="absolute inset-y-0 left-0 pl-3.5 pr-2 flex items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer focus:outline-none transition" 
+                                title="إظهار / إخفاء كلمة المرور">
+                            <svg class="eye-open w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <svg class="eye-closed w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1">كلمة المرور الأولية (افتراضياً: password123)</label>
-                <div class="relative">
-                    <input type="password" name="password" id="newUserPassword" value="password123" dir="ltr"
-                           class="w-full pl-11 pr-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono text-xs">
-                    <button type="button" onclick="togglePasswordVisibility('newUserPassword', this)" 
-                            class="absolute inset-y-0 left-0 pl-3.5 pr-2 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none transition" 
-                            title="إظهار / إخفاء كلمة المرور">
-                        <svg class="eye-open w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        <svg class="eye-closed w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+            <!-- Sticky Pinned Footer -->
+            <div class="px-5 py-3.5 bg-slate-50 dark:bg-[#121820] border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5 shrink-0">
                 <button type="button" onclick="document.getElementById('newUserModal').classList.add('hidden')" 
-                        class="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold transition">
+                        class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition text-xs cursor-pointer">
                     إلغاء
                 </button>
-                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition">
-                    إضافة المستخدم
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black transition shadow-sm hover:shadow-amber-500/20 text-xs flex items-center gap-1.5 cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>إضافة المستخدم</span>
                 </button>
             </div>
         </form>
@@ -729,158 +759,173 @@ $roleCounts = [
 </div>
 
 <!-- Modal: Edit User -->
-<div id="editUserModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 class="text-sm font-black text-slate-900">تعديل بيانات المستخدم والصلاحيات</h3>
-            <button onclick="closeEditUserModal()" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+<div id="editUserModal" class="hidden fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+    <div class="bg-white dark:bg-[#161d27] rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 text-right overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95 my-auto">
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-[#161d27]">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                </div>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white">تعديل بيانات المستخدم والصلاحيات</h3>
+            </div>
+            <button type="button" onclick="closeEditUserModal()" 
+                    class="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-base cursor-pointer">✕</button>
         </div>
 
-        <form method="POST" action="" enctype="multipart/form-data" class="space-y-3.5 text-xs">
+        <form method="POST" action="" enctype="multipart/form-data" class="flex flex-col flex-1 overflow-hidden min-h-0 text-xs">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="edit_user">
             <input type="hidden" name="user_id" id="editUserId">
 
-            <!-- Photo Upload & Camera Action Center -->
-            <div class="flex items-center gap-3.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div class="relative shrink-0">
-                    <div id="editUserAvatarPreviewBox" class="w-16 h-16 rounded-xl bg-white border-2 border-dashed border-amber-300 overflow-hidden flex items-center justify-center text-slate-400 shadow-2xs">
-                        <span id="editUserAvatarPlaceholder" class="text-xl font-black text-amber-500">?</span>
-                        <img id="editUserAvatarImg" src="" alt="صورة المستخدم" class="w-full h-full object-cover hidden">
+            <!-- Scrollable Body Content -->
+            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 custom-scrollbar">
+                <!-- Photo Upload & Camera Action Center -->
+                <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div class="relative shrink-0">
+                        <div id="editUserAvatarPreviewBox" class="w-16 h-16 rounded-xl bg-white dark:bg-slate-800 border-2 border-dashed border-amber-300 dark:border-amber-600/50 overflow-hidden flex items-center justify-center text-slate-400 shadow-2xs">
+                            <span id="editUserAvatarPlaceholder" class="text-xl font-black text-amber-500">?</span>
+                            <img id="editUserAvatarImg" src="" alt="صورة المستخدم" class="w-full h-full object-cover hidden">
+                        </div>
+                        <span id="editUserAvatarNewBadge" class="hidden absolute -top-1 -right-1 px-1 py-0.5 rounded bg-emerald-500 text-white text-[8px] font-bold shadow-xs">جديدة ✓</span>
                     </div>
-                    <span id="editUserAvatarNewBadge" class="hidden absolute -top-1 -right-1 px-1 py-0.5 rounded bg-emerald-500 text-white text-[8px] font-bold shadow-xs">جديدة ✓</span>
-                </div>
-                <div class="flex-1 space-y-1.5">
-                    <p class="font-bold text-slate-800 text-xs">الصورة الشخصية (Photo)</p>
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <button type="button" onclick="triggerUserCamera()" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
-                            <span>📸 بالكاميرا</span>
-                        </button>
-                        <button type="button" onclick="triggerUserGallery()" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
-                            <span>📁 من المعرض</span>
-                        </button>
-                        <button type="button" id="editUserRemoveAvatarBtn" onclick="removeUserPhoto()" class="hidden px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 font-bold text-[11px] transition cursor-pointer">
-                            <span>حذف</span>
-                        </button>
+                    <div class="flex-1 space-y-1.5">
+                        <p class="font-bold text-slate-800 dark:text-slate-200 text-xs">الصورة الشخصية (Photo)</p>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button type="button" onclick="triggerUserCamera()" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-amber-500 dark:hover:bg-amber-600 text-white dark:text-slate-950 font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
+                                <span>📸 بالكاميرا</span>
+                            </button>
+                            <button type="button" onclick="triggerUserGallery()" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] flex items-center gap-1 shadow-2xs transition active:scale-95 cursor-pointer">
+                                <span>📁 من المعرض</span>
+                            </button>
+                            <button type="button" id="editUserRemoveAvatarBtn" onclick="removeUserPhoto()" class="hidden px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900 font-bold text-[11px] transition cursor-pointer">
+                                <span>حذف</span>
+                            </button>
+                        </div>
                     </div>
+                    <input type="file" id="editUserCameraInput" accept="image/*" capture="environment" class="hidden" onchange="onUserPhotoSelected(this)">
+                    <input type="file" id="editUserGalleryInput" accept="image/png,image/jpeg,image/webp,image/*" class="hidden" onchange="onUserPhotoSelected(this)">
+                    <input type="hidden" name="avatar_base64" id="editUserAvatarBase64" value="">
+                    <input type="hidden" name="remove_avatar" id="editUserRemoveAvatar" value="0">
                 </div>
-                <input type="file" id="editUserCameraInput" accept="image/*" capture="environment" class="hidden" onchange="onUserPhotoSelected(this)">
-                <input type="file" id="editUserGalleryInput" accept="image/png,image/jpeg,image/webp,image/*" class="hidden" onchange="onUserPhotoSelected(this)">
-                <input type="hidden" name="avatar_base64" id="editUserAvatarBase64" value="">
-                <input type="hidden" name="remove_avatar" id="editUserRemoveAvatar" value="0">
-            </div>
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1">الاسم واللقب *</label>
-                <input type="text" name="full_name" id="editUserFullName" required 
-                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
-                    <input type="email" name="email" id="editUserEmail" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">رقم الهاتف</label>
-                    <input type="text" name="phone" id="editUserPhone" dir="ltr"
-                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-num">
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">الدور والصلاحية *</label>
-                    <select name="role" id="editUserRole" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
-                        <option value="driver">سائق أجرة (Driver)</option>
-                        <option value="owner">مالك أسطول (Owner)</option>
-                        <option value="admin">مشرف إدارة (Admin)</option>
-                        <option value="super_admin">مدير المنصة (Super Admin)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-700 mb-1">الحالة</label>
-                    <select name="status" id="editUserStatus" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
-                        <option value="active">نشط ومفعل (Active)</option>
-                        <option value="suspended">موقوف / مجمد (Suspended)</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Edit User: Subscription / Validity Configuration -->
-            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-                <div class="flex items-center justify-between">
-                    <label class="block font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                        <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>نوع الصلاحية ومدة الاشتراك</span>
-                    </label>
-                    <span class="text-[10px] text-amber-700 font-bold bg-amber-100/70 px-2 py-0.5 rounded-md border border-amber-200">تجميد تلقائي عند الانتهاء</span>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الاسم واللقب *</label>
+                    <input type="text" name="full_name" id="editUserFullName" required 
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-bold transition">
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="block font-medium text-slate-600 mb-1 text-[11px]">نوع الاشتراك *</label>
-                        <select name="subscription_type" id="editSubscriptionType" onchange="onEditSubscriptionTypeChanged()" 
-                                class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 font-bold focus:border-amber-500 text-xs">
-                            <option value="unlimited">♾️ غير محدود / دائم (Permanent)</option>
-                            <option value="free">🎁 مجاناً لفترة محددة (Free Trial)</option>
-                            <option value="paid">💎 مدفوع لفترة محددة (Paid)</option>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">البريد الإلكتروني</label>
+                        <input type="email" name="email" id="editUserEmail" dir="ltr"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">رقم الهاتف</label>
+                        <input type="text" name="phone" id="editUserPhone" dir="ltr"
+                               class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-num transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الدور والصلاحية *</label>
+                        <select name="role" id="editUserRole" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-bold transition">
+                            <option value="driver">سائق أجرة (Driver)</option>
+                            <option value="owner">مالك أسطول (Owner)</option>
+                            <option value="admin">مشرف إدارة (Admin)</option>
+                            <option value="super_admin">مدير المنصة (Super Admin)</option>
                         </select>
                     </div>
-
-                    <div id="editSubscriptionExpiryGroup" class="transition">
-                        <label class="block font-medium text-slate-600 mb-1 text-[11px]">تاريخ انتهاء الصلاحية</label>
-                        <input type="date" name="subscription_expires_at" id="editSubscriptionExpiresAt"
-                               class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 font-num focus:border-amber-500 text-xs">
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الحالة</label>
+                        <select name="status" id="editUserStatus" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-bold transition">
+                            <option value="active">نشط ومفعل (Active)</option>
+                            <option value="suspended">موقوف / مجمد (Suspended)</option>
+                        </select>
                     </div>
                 </div>
 
-                <!-- Presets buttons -->
-                <div id="editSubscriptionPresetsGroup" class="space-y-1 pt-1 border-t border-slate-200/60">
-                    <div class="flex items-center justify-between text-[10px] text-slate-500">
-                        <span class="font-bold">تمديد سريع من اليوم:</span>
-                        <span id="editSubscriptionDaysBadge" class="font-num font-bold"></span>
+                <!-- Edit User: Subscription / Validity Configuration -->
+                <div class="p-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <label class="block font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>نوع الصلاحية ومدة الاشتراك</span>
+                        </label>
+                        <span class="text-[10px] text-amber-700 dark:text-amber-400 font-bold bg-amber-100/70 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60">تجميد تلقائي عند الانتهاء</span>
                     </div>
-                    <div class="flex flex-wrap gap-1">
-                        <button type="button" onclick="setEditSubPreset(7)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+7 أيام</button>
-                        <button type="button" onclick="setEditSubPreset(15)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+15 يوم</button>
-                        <button type="button" onclick="setEditSubPreset(30)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ شهر (30 يوم)</button>
-                        <button type="button" onclick="setEditSubPreset(90)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ 3 أشهر</button>
-                        <button type="button" onclick="setEditSubPreset(180)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ 6 أشهر</button>
-                        <button type="button" onclick="setEditSubPreset(365)" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-500 hover:text-amber-600 text-[10px] font-bold transition cursor-pointer">+ سنة كاملة</button>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block font-medium text-slate-600 dark:text-slate-400 mb-1 text-[11px]">نوع الاشتراك *</label>
+                            <select name="subscription_type" id="editSubscriptionType" onchange="onEditSubscriptionTypeChanged()" 
+                                    class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-bold focus:border-amber-500 text-xs transition">
+                                <option value="unlimited">♾️ غير محدود / دائم (Permanent)</option>
+                                <option value="free">🎁 مجاناً لفترة محددة (Free Trial)</option>
+                                <option value="paid">💎 مدفوع لفترة محددة (Paid)</option>
+                            </select>
+                        </div>
+
+                        <div id="editSubscriptionExpiryGroup" class="transition">
+                            <label class="block font-medium text-slate-600 dark:text-slate-400 mb-1 text-[11px]">تاريخ انتهاء الصلاحية</label>
+                            <input type="date" name="subscription_expires_at" id="editSubscriptionExpiresAt"
+                                   class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num focus:border-amber-500 text-xs transition">
+                        </div>
+                    </div>
+
+                    <!-- Presets buttons -->
+                    <div id="editSubscriptionPresetsGroup" class="space-y-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800">
+                        <div class="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                            <span class="font-bold">تمديد سريع من اليوم:</span>
+                            <span id="editSubscriptionDaysBadge" class="font-num font-bold"></span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            <button type="button" onclick="setEditSubPreset(7)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+7 أيام</button>
+                            <button type="button" onclick="setEditSubPreset(15)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+15 يوم</button>
+                            <button type="button" onclick="setEditSubPreset(30)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ شهر (30 يوم)</button>
+                            <button type="button" onclick="setEditSubPreset(90)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ 3 أشهر</button>
+                            <button type="button" onclick="setEditSubPreset(180)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ 6 أشهر</button>
+                            <button type="button" onclick="setEditSubPreset(365)" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 text-[10px] font-bold transition cursor-pointer">+ سنة كاملة</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">كلمة مرور جديدة (اتركه فارغاً إذا كنت لا ترغب بتغييرها)</label>
+                    <div class="relative">
+                        <input type="password" name="password" id="editUserPassword" placeholder="اتركه فارغاً للحفاظ على القديمة" dir="ltr"
+                               class="w-full pl-11 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono text-xs transition">
+                        <button type="button" onclick="togglePasswordVisibility('editUserPassword', this)" 
+                                class="absolute inset-y-0 left-0 pl-3.5 pr-2 flex items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer focus:outline-none transition" 
+                                title="إظهار / إخفاء كلمة المرور">
+                            <svg class="eye-open w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                            </svg>
+                            <svg class="eye-closed w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div>
-                <label class="block font-bold text-slate-700 mb-1">كلمة مرور جديدة (اتركه فارغاً إذا كنت لا ترغب بتغييرها)</label>
-                <div class="relative">
-                    <input type="password" name="password" id="editUserPassword" placeholder="اتركه فارغاً للحفاظ على القديمة" dir="ltr"
-                           class="w-full pl-11 pr-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 font-mono text-xs">
-                    <button type="button" onclick="togglePasswordVisibility('editUserPassword', this)" 
-                            class="absolute inset-y-0 left-0 pl-3.5 pr-2 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none transition" 
-                            title="إظهار / إخفاء كلمة المرور">
-                        <svg class="eye-open w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        <svg class="eye-closed w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+            <!-- Sticky Pinned Footer -->
+            <div class="px-5 py-3.5 bg-slate-50 dark:bg-[#121820] border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5 shrink-0">
                 <button type="button" onclick="closeEditUserModal()" 
-                        class="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold transition">
+                        class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition text-xs cursor-pointer">
                     إلغاء
                 </button>
-                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition">
-                    حفظ التعديلات
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black transition shadow-sm hover:shadow-amber-500/20 text-xs flex items-center gap-1.5 cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>حفظ التعديلات</span>
                 </button>
             </div>
         </form>
@@ -888,8 +933,8 @@ $roleCounts = [
 </div>
 
 <!-- Modal: User QR Code Quick Login -->
-<div id="userQrModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#161d27] rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-right m-auto">
+<div id="userQrModal" class="hidden fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-hidden">
+    <div class="bg-white dark:bg-[#161d27] rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[92vh] overflow-y-auto p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-right m-auto">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">

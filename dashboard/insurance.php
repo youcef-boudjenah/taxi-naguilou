@@ -152,7 +152,15 @@ $filterStatus = trim($_GET['status'] ?? 'all'); // all, imminent, active, expire
 $allVehicles = [];
 if ($pdo) {
     try {
-        $stmtAllV = $pdo->query("SELECT id, brand, model, plate_number, door_number FROM vehicles WHERE deleted_at IS NULL ORDER BY plate_number ASC");
+        $stmtAllV = $pdo->query("
+            SELECT id, brand, model, plate_number, door_number 
+            FROM vehicles 
+            WHERE deleted_at IS NULL 
+            ORDER BY CASE WHEN door_number IS NOT NULL AND door_number != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(door_number, '-', -1) AS UNSIGNED) ASC,
+                     door_number ASC,
+                     id ASC
+        ");
         $allVehicles = $stmtAllV ? $stmtAllV->fetchAll() : [];
     } catch (\Throwable $e) {
         $allVehicles = [];
@@ -199,6 +207,11 @@ if ($pdo) {
         $params[] = $filterCompany;
         $params[] = $filterCompany;
     }
+
+    $sql .= " ORDER BY CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                        CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                        v.door_number ASC,
+                        v.id ASC";
 
     try {
         $stmt = $pdo->prepare($sql);

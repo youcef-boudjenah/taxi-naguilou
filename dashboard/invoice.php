@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
 $pdo = getDBConnection();
+$company = get_company_meta($pdo);
 $invoiceId = intval($_GET['id'] ?? 0);
 $type = $_GET['type'] ?? 'subscription'; // subscription, versement, debt
 
@@ -187,19 +188,19 @@ $remainingBalance = max(0, $invoiceData['total_due'] - $invoiceData['paid_amount
                         🚕
                     </div>
                     <div>
-                        <h1 class="text-xl font-black text-slate-950 tracking-tight leading-none">مؤسسة تاكسي نقيلو</h1>
-                        <span class="text-xs font-extrabold text-amber-800 font-num tracking-wide" dir="ltr">EURL TAXI NAGUILOU</span>
+                        <h1 class="text-xl font-black text-slate-950 tracking-tight leading-none"><?= htmlspecialchars($company['name']) ?></h1>
+                        <span class="text-xs font-extrabold text-amber-800 font-num tracking-wide" dir="ltr"><?= htmlspecialchars($company['name']) ?></span>
                     </div>
                 </div>
                 <p class="text-[11px] text-slate-500 font-medium leading-relaxed">
                     مؤسسة معتمدة لنقل الأشخاص واستغلال سيارات الأجرة الفردية والجماعية<br>
-                    المقر الاجتماعي: حي 200 مسكن، ولاية أدرار / الجزائر العاصمة
+                    المقر الاجتماعي: <?= htmlspecialchars($company['address']) ?>
                 </p>
                 <div class="text-[10px] text-slate-600 font-num flex flex-wrap gap-x-4 gap-y-1 pt-1" dir="ltr">
-                    <span><strong>RC:</strong> 01/00-098234B24</span>
-                    <span><strong>NIF:</strong> 002401010982345</span>
-                    <span><strong>NIS:</strong> 002401010982345</span>
-                    <span><strong>Art:</strong> 01010982345</span>
+                    <?php if (!empty($company['rc'])): ?><span><strong>RC:</strong> <?= htmlspecialchars($company['rc']) ?></span><?php endif; ?>
+                    <?php if (!empty($company['nif'])): ?><span><strong>NIF:</strong> <?= htmlspecialchars($company['nif']) ?></span><?php endif; ?>
+                    <?php if (!empty($company['nis'])): ?><span><strong>NIS:</strong> <?= htmlspecialchars($company['nis']) ?></span><?php endif; ?>
+                    <?php if (!empty($company['article'])): ?><span><strong>Art:</strong> <?= htmlspecialchars($company['article']) ?></span><?php endif; ?>
                 </div>
             </div>
 
@@ -280,8 +281,8 @@ $remainingBalance = max(0, $invoiceData['total_due'] - $invoiceData['paid_amount
                     <?php if ($invoiceData['space_fee'] > 0): ?>
                     <tr>
                         <td class="p-3.5">
-                            <div class="font-bold text-slate-900">رسوم الحيز وموقف الحظيرة المعتمدة (Droit de Place)</div>
-                            <div class="text-[11px] text-slate-400">خدمات المداومة وحراسة الحظيرة والمبيت الليلي المؤمّن</div>
+                            <div class="font-bold text-slate-900">رسوم الفضاء</div>
+                            <div class="text-[11px] text-slate-400">Space / Platform fee (350.00 DA)</div>
                         </td>
                         <td class="p-3.5 text-center font-num" dir="ltr"><?= htmlspecialchars($invoiceData['period']) ?></td>
                         <td class="p-3.5 text-center font-num">1</td>

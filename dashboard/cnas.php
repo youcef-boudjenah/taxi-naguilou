@@ -123,9 +123,11 @@ if ($pdo) {
     try {
         $sqlDec = "
             SELECT c.*, u.full_name as driver_name, u.phone as driver_phone, u.wilaya,
+                   v.door_number,
                    DATEDIFF(c.attestation_expiry, CURDATE()) as days_to_expiry
             FROM cnas_declarations c
             JOIN users u ON c.driver_id = u.id
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
             WHERE c.deleted_at IS NULL
         ";
         $paramsDec = [];
@@ -135,7 +137,10 @@ if ($pdo) {
             $paramsDec[] = "%$search%";
             $paramsDec[] = "%$search%";
         }
-        $sqlDec .= " ORDER BY c.created_at DESC";
+        $sqlDec .= " ORDER BY CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+                              CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+                              v.door_number ASC,
+                              c.created_at DESC";
         $stmtDec = $pdo->prepare($sqlDec);
         $stmtDec->execute($paramsDec);
         $declarations = $stmtDec ? $stmtDec->fetchAll() : [];
@@ -144,7 +149,17 @@ if ($pdo) {
     }
 
     try {
-        $stmtDrv = $pdo->query("SELECT id, full_name, phone FROM users WHERE role = 'driver' AND status = 'active' ORDER BY full_name ASC");
+        $stmtDrv = $pdo->query("
+            SELECT u.id, u.full_name, u.phone, MAX(v.door_number) as door_number 
+            FROM users u 
+            LEFT JOIN vehicles v ON (v.current_driver_id = u.id OR v.owner_id = u.id)
+            WHERE u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
+            GROUP BY u.id
+            ORDER BY CASE WHEN MAX(v.door_number) IS NOT NULL AND MAX(v.door_number) != '' THEN 0 ELSE 1 END,
+                     CAST(SUBSTRING_INDEX(MAX(v.door_number), '-', -1) AS UNSIGNED) ASC,
+                     MAX(v.door_number) ASC,
+                     u.id ASC
+        ");
         $driversList = $stmtDrv ? $stmtDrv->fetchAll() : [];
     } catch (\Throwable $e) {
         $driversList = [];

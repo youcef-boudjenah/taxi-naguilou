@@ -15,10 +15,13 @@ if (is_owner() && !is_admin()) {
 }
 $drivers = $pdo->query("
     SELECT u.id, u.full_name, u.phone, u.license_number, u.taxi_contract_start, u.taxi_contract_end,
-           (SELECT v.id FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) as assigned_vehicle_id
+           (SELECT v.id FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) as assigned_vehicle_id,
+           (SELECT v.door_number FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) as assigned_door_number
     FROM users u 
     WHERE u.role = 'driver' AND u.status = 'active' 
-    ORDER BY u.full_name ASC
+    ORDER BY CASE WHEN (SELECT v.door_number FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) IS NOT NULL AND (SELECT v.door_number FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1) != '' THEN 0 ELSE 1 END,
+             CAST(SUBSTRING_INDEX((SELECT v.door_number FROM vehicles v WHERE v.current_driver_id = u.id LIMIT 1), '-', -1) AS UNSIGNED) ASC,
+             u.full_name ASC
 ")->fetchAll() ?: [];
 
 $preselectedDriverId = intval($_GET['driver_id'] ?? 0);
@@ -129,15 +132,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         try {
             $pdo->beginTransaction();
 
-            // 1. Mark contract as terminated and append legal termination record to notes
+            // 1. Ensure contracts table has required termination columns (self-healing)
+            try {
+                $cCheck = $pdo->query("SHOW COLUMNS FROM `contracts` LIKE 'termination_clause'")->fetch();
+                if (empty($cCheck)) {
+                    $pdo->exec("ALTER TABLE `contracts` 
+                        ADD COLUMN `termination_clause` VARCHAR(150) NULL AFTER `status`,
+                        ADD COLUMN `termination_date` DATE NULL AFTER `termination_clause`,
+                        ADD COLUMN `termination_notes` TEXT NULL AFTER `termination_date`");
+                }
+            } catch (\Throwable $colEx) {}
+
+            // Mark contract as terminated and save structured termination metadata
             $noteAppend = "\n[تم فسخ العقد بتاريخ $termDate - البند: $clauseTitle" . ($details ? " - السند/التفاصيل: $details" : "") . "]";
-            $stmtTerm = $pdo->prepare("
-                UPDATE contracts 
-                SET status = 'terminated', 
-                    notes = CONCAT(COALESCE(notes, ''), ?) 
-                WHERE id = ?
-            ");
-            $stmtTerm->execute([$noteAppend, $contractId]);
+            try {
+                $stmtTerm = $pdo->prepare("
+                    UPDATE contracts 
+                    SET status = 'terminated', 
+                        termination_clause = ?,
+                        termination_date = ?,
+                        termination_notes = ?,
+                        notes = CONCAT(COALESCE(notes, ''), ?) 
+                    WHERE id = ?
+                ");
+                $stmtTerm->execute([$clauseTitle, $termDate, $details, $noteAppend, $contractId]);
+            } catch (\Throwable $upEx) {
+                // Defensive fallback if columns cannot be updated
+                $stmtFallback = $pdo->prepare("
+                    UPDATE contracts 
+                    SET status = 'terminated', 
+                        notes = CONCAT(COALESCE(notes, ''), ?) 
+                    WHERE id = ?
+                ");
+                $stmtFallback->execute([$noteAppend, $contractId]);
+            }
 
             // 2. Unassign driver from all vehicles
             $pdo->prepare("UPDATE vehicles SET current_driver_id = NULL WHERE current_driver_id = ?")->execute([$driverId]);
@@ -148,8 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             soft_delete_entity($pdo, 'users', $driverId, "فسخ العقد رقم $contractId: $clauseTitle");
 
             $pdo->commit();
-            log_audit($pdo, 'contract_terminated', 'contracts', $contractId, "فسخ العقد رقم $contractId للسائق $driverId بناءً على: $clauseTitle ونقل السائق للأرشيف");
-            set_flash('success', "تم فسخ العقد بنجاح طبقاً لـ ($clauseTitle) وإلغاء تخصيص المركبة وإحالة السائق إلى الأرشيف وسلة المهملات.");
+            log_audit($pdo, 'contract_terminated', 'contracts', $contractId, "فسخ العقد رقم $contractId للسائق $driverId بناءً على: $clauseTitle وتوليد محضر وبوردرورو الفسخ الرسمي");
+            set_flash('success', "تم فسخ العقد بنجاح طبقاً لـ ($clauseTitle) وإلغاء تخصيص المركبة، وتوليد محضر وبوردرورو الفسخ الرسمي.");
+            redirect("/dashboard/contract_termination.php?id=$contractId");
+            exit;
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -246,12 +276,14 @@ if (!empty($search)) {
 }
 
 if ($filter === 'active') {
-    $where[] = "c.end_date >= CURDATE()";
+    $where[] = "c.status = 'signed' AND c.end_date >= CURDATE()";
 } elseif ($filter === 'expired') {
-    $where[] = "c.end_date < CURDATE()";
+    $where[] = "c.status != 'terminated' AND c.end_date < CURDATE()";
 } elseif ($filter === 'expiring_soon') {
     // 30 days (1 month) early warning filter
-    $where[] = "c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
+    $where[] = "c.status = 'signed' AND c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
+} elseif ($filter === 'terminated') {
+    $where[] = "c.status = 'terminated'";
 }
 
 if (is_owner() && !is_admin()) {
@@ -270,7 +302,11 @@ $sql = "
     LEFT JOIN vehicles v ON c.vehicle_id = v.id
     JOIN users u ON c.driver_id = u.id
     WHERE " . implode(' AND ', $where) . "
-    ORDER BY c.id DESC
+    ORDER BY 
+        CASE WHEN v.door_number IS NOT NULL AND v.door_number != '' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(v.door_number, '-', -1) AS UNSIGNED) ASC,
+        v.door_number ASC,
+        c.id ASC
 ";
 
 $contracts = [];
@@ -301,25 +337,35 @@ if ($pdo) {
 
     try {
         if (is_owner() && !is_admin()) {
-            $stmtCa = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.end_date >= CURDATE() AND (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCa = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.status = 'signed' AND c.end_date >= CURDATE() AND (c.owner_id = ? OR v.owner_id = ?)");
             $stmtCa->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
             $countActifs = (int)$stmtCa->fetchColumn();
         } else {
-            $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE()")->fetchColumn();
+            $countActifs = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed' AND end_date >= CURDATE()")->fetchColumn();
         }
     } catch (\Throwable $e) { $countActifs = 0; }
 
     try {
         if (is_owner() && !is_admin()) {
-            $stmtCs = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCs = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.status = 'signed' AND c.end_date >= CURDATE() AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND (c.owner_id = ? OR v.owner_id = ?)");
             $stmtCs->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
             $countExpiringSoon = (int)$stmtCs->fetchColumn();
         } else {
-            $countExpiringSoon = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
+            $countExpiringSoon = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'signed' AND end_date >= CURDATE() AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
         }
     } catch (\Throwable $e) { $countExpiringSoon = 0; }
 
-    $countExpires = max(0, $countTous - $countActifs);
+    try {
+        if (is_owner() && !is_admin()) {
+            $stmtCtm = $pdo->prepare("SELECT COUNT(*) FROM contracts c LEFT JOIN vehicles v ON c.vehicle_id = v.id WHERE c.status = 'terminated' AND (c.owner_id = ? OR v.owner_id = ?)");
+            $stmtCtm->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
+            $countTerminated = (int)$stmtCtm->fetchColumn();
+        } else {
+            $countTerminated = (int)$pdo->query("SELECT COUNT(*) FROM contracts WHERE status = 'terminated'")->fetchColumn();
+        }
+    } catch (\Throwable $e) { $countTerminated = 0; }
+
+    $countExpires = max(0, $countTous - $countActifs - $countTerminated);
 }
 ?>
 
@@ -345,8 +391,16 @@ if ($pdo) {
                 </svg>
                 <span>طباعة السجل</span>
             </button>
+            <button onclick="openTerminateContractSelectModal()"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition shadow-xs cursor-pointer"
+                    title="فسخ عقد عمل ساري المفعول وتوثيق بنود الفسخ وبوردرورو DTW">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <span>فسخ العقد</span>
+            </button>
             <button onclick="document.getElementById('newContractModal').classList.remove('hidden'); document.getElementById('newContractModal').classList.add('flex');"
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
@@ -475,6 +529,11 @@ if ($pdo) {
             <a href="contracts.php?filter=expired<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
                class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filter === 'expired' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
                 منتهية (<?= $countExpires ?>)
+            </a>
+            <a href="contracts.php?filter=terminated<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filter === 'terminated' ? 'bg-rose-700 text-white shadow-xs' : 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100' ?>">
+                <span>عقود مفسوخة (محاضر وبوردروروات)</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] <?= $filter === 'terminated' ? 'bg-white/20 text-white' : 'bg-rose-200 dark:bg-rose-800 text-rose-950 dark:text-white' ?> font-num font-bold"><?= $countTerminated ?></span>
             </a>
         </div>
     </div>
@@ -630,17 +689,29 @@ if ($pdo) {
                                     <?php endif; ?>
                                 </td>
 
-                                <!-- Actions (3-Dots Dropdown Menu) -->
+                                <!-- Actions (Direct Buttons + Dropdown Menu) -->
                                 <td class="py-2.5 px-2 whitespace-nowrap text-center sticky-col-end print:hidden">
-                                    <div class="relative inline-block text-right">
-                                        <button type="button"
-                                                onclick="toggleTableDropdown(event, this)"
-                                                class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
-                                                title="خيارات وإجراءات العقد">
-                                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <?php if ($c['status'] === 'terminated'): ?>
+                                        <a href="contract_termination.php?id=<?= $c['id'] ?>"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-bold text-xs transition shadow-2xs"
+                                           title="معاينة وطباعة محضر الفسخ وبوردرورو DTW">
+                                            <svg class="w-3.5 h-3.5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                                             </svg>
-                                        </button>
+                                            <span>عقد الفسخ</span>
+                                        </a>
+                                        <?php endif; ?>
+
+                                        <div class="relative inline-block text-right">
+                                            <button type="button"
+                                                    onclick="toggleTableDropdown(event, this)"
+                                                    class="table-dropdown-btn w-8 h-8 rounded-xl bg-slate-100 hover:bg-amber-500/15 hover:text-amber-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition border border-slate-200 dark:border-slate-700 shadow-2xs cursor-pointer"
+                                                    title="خيارات وإجراءات العقد">
+                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                                </svg>
+                                            </button>
 
                                         <div class="table-dropdown-menu hidden w-64 min-w-[250px] rounded-2xl bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 space-y-0.5 text-xs text-right select-none">
                                             <!-- Option 1: Renew Contract (+3 years) for expired or expiring soon -->
@@ -691,6 +762,17 @@ if ($pdo) {
                                                 </svg>
                                                 <span>معاينة وطباعة العقد</span>
                                             </a>
+
+                                            <!-- Preview Termination & DTW Bordereau if terminated -->
+                                            <?php if ($c['status'] === 'terminated'): ?>
+                                            <a href="contract_termination.php?id=<?= $c['id'] ?>"
+                                               class="table-dropdown-item flex items-center gap-2 px-3 py-2 rounded-xl text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 font-black transition">
+                                                <svg class="w-4 h-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                                </svg>
+                                                <span>معاينة الفسخ وبوردرورو DTW</span>
+                                            </a>
+                                            <?php endif; ?>
 
                                             <!-- Edit Contract -->
                                             <button type="button"
@@ -1059,6 +1141,25 @@ function recalculateContractEndDate() {
             <input type="hidden" name="contract_id" id="termContractId">
             <input type="hidden" name="driver_id" id="termDriverId">
 
+            <!-- Contract Selector (Visible when opened from top action button) -->
+            <div id="termContractSelectContainer" class="hidden">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">اختر العقد المراد فسخه <span class="text-rose-500">*</span></label>
+                <select id="termContractPicker" onchange="onTermContractPickerChange(this)" class="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2332] text-xs font-bold focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
+                    <option value="">-- حدد العقد والسائق --</option>
+                    <?php foreach ($contracts as $ct): 
+                        if ($ct['status'] === 'terminated') continue;
+                    ?>
+                        <option value="<?= $ct['id'] ?>" 
+                                data-num="<?= htmlspecialchars($ct['contract_number']) ?>" 
+                                data-driver-id="<?= $ct['driver_id'] ?>" 
+                                data-driver-name="<?= htmlspecialchars($ct['driver_name']) ?>" 
+                                data-vehicle="<?= htmlspecialchars(($ct['plate_number'] ?? '') . (!empty($ct['door_number']) ? ' (باب: ' . $ct['door_number'] . ')' : '')) ?>">
+                            <?= htmlspecialchars($ct['contract_number']) ?> - <?= htmlspecialchars($ct['driver_name']) ?> <?= !empty($ct['plate_number']) ? ' - ' . htmlspecialchars($ct['plate_number']) : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
             <!-- Driver & Vehicle Summary Card -->
             <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
                 <div class="flex items-center justify-between">
@@ -1125,6 +1226,9 @@ function recalculateContractEndDate() {
 
 <script>
 function openTerminateContractModal(contractId, contractNumber, driverId, driverName, vehiclePlate) {
+    const selContainer = document.getElementById('termContractSelectContainer');
+    if (selContainer) selContainer.classList.add('hidden');
+
     document.getElementById('termContractId').value = contractId || '';
     document.getElementById('termContractNumLabel').textContent = contractNumber ? `عقد رقم: ${contractNumber}` : '';
     document.getElementById('termDriverId').value = driverId || '';
@@ -1140,6 +1244,41 @@ function openTerminateContractModal(contractId, contractNumber, driverId, driver
     const modal = document.getElementById('terminateContractModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+}
+
+function openTerminateContractSelectModal() {
+    const selContainer = document.getElementById('termContractSelectContainer');
+    if (selContainer) selContainer.classList.remove('hidden');
+
+    const picker = document.getElementById('termContractPicker');
+    if (picker) picker.value = '';
+
+    document.getElementById('termContractId').value = '';
+    document.getElementById('termContractNumLabel').textContent = '';
+    document.getElementById('termDriverId').value = '';
+    document.getElementById('termDriverName').textContent = 'يرجى تحديد العقد من القائمة أعلاه';
+    document.getElementById('termVehiclePlate').textContent = '-';
+
+    const modal = document.getElementById('terminateContractModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function onTermContractPickerChange(select) {
+    const opt = select.options[select.selectedIndex];
+    if (opt && opt.value) {
+        document.getElementById('termContractId').value = opt.value;
+        document.getElementById('termContractNumLabel').textContent = opt.dataset.num ? `عقد رقم: ${opt.dataset.num}` : '';
+        document.getElementById('termDriverId').value = opt.dataset.driverId || '';
+        document.getElementById('termDriverName').textContent = opt.dataset.driverName || '';
+        document.getElementById('termVehiclePlate').textContent = opt.dataset.vehicle || 'بدون مركبة معينة';
+    } else {
+        document.getElementById('termContractId').value = '';
+        document.getElementById('termContractNumLabel').textContent = '';
+        document.getElementById('termDriverId').value = '';
+        document.getElementById('termDriverName').textContent = 'يرجى تحديد العقد من القائمة أعلاه';
+        document.getElementById('termVehiclePlate').textContent = '-';
+    }
 }
 
 function closeTerminateContractModal() {

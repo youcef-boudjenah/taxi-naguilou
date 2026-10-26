@@ -94,8 +94,8 @@ $erpNavCategories = [
             'cnas' => ['title' => 'الضمان الاجتماعي (CNAS)', 'url' => '/dashboard/cnas.php', 'badge' => 'أجراء'],
             'leaves' => ['title' => 'السائق البديل والعطل', 'url' => '/dashboard/leaves.php', 'badge' => 'إنابة'],
             'slips' => ['title' => 'جداول الإرسال (Bordereaux)', 'url' => '/dashboard/slips.php', 'badge' => 'DTW'],
-            'traveler_reports' => ['title' => 'محاضر المسافرين (PV)', 'url' => '/dashboard/traveler_reports.php', 'badge' => 'سفر'],
-            'planning' => ['title' => 'حراسة الحظيرة (3j)', 'url' => '/dashboard/planning.php', 'badge' => 'مناوبة'],
+            'traveler_reports' => ['title' => 'الأمر بالمهمة (PV)', 'url' => '/dashboard/traveler_reports.php', 'badge' => 'مهمة'],
+            'planning' => ['title' => 'المناوبة الليلية', 'url' => '/dashboard/planning.php', 'badge' => 'مداومة'],
             'verifications' => ['title' => 'مركز التدقيق والمصادقة', 'url' => '/dashboard/verifications.php', 'badge' => 'تدقيق'],
         ]
     ],
@@ -350,11 +350,11 @@ foreach ($erpNavCategories as $catKey => $catData) {
                                         <span class="text-[10px] text-slate-400 font-num">DTW</span>
                                     </a>
                                     <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/30 hover:text-cyan-800 dark:hover:text-cyan-300 transition">
-                                        <span>محاضر المسافرين (PV)</span>
-                                        <span class="text-[10px] text-slate-400 font-num">بين الولايات</span>
+                                        <span>الأمر بالمهمة (PV)</span>
+                                        <span class="text-[10px] text-slate-400 font-num">مهمة</span>
                                     </a>
                                     <a href="<?= url('/dashboard/planning.php') ?>" class="app-bar-dropdown-item flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-800 dark:hover:text-purple-300 transition">
-                                        <span>حراسة الحظيرة والجدول (3j)</span>
+                                        <span>المناوبة الليلية (3j)</span>
                                         <span class="text-[10px] text-slate-400 font-num">مناوبة</span>
                                     </a>
                                 </div>
@@ -605,8 +605,8 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <a href="<?= url('/dashboard/analytics.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-900">📊 التحليلات التنفيذية</a>
                 <?php endif; ?>
                 <a href="<?= url('/dashboard/slips.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-900">📋 جداول الإرسال</a>
-                <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="p-2 rounded-lg bg-cyan-50 text-cyan-700">📜 محاضر PV</a>
-                <a href="<?= url('/dashboard/planning.php') ?>" class="p-2 rounded-lg bg-purple-50 text-purple-700">🌙 مداومة وحظيرة</a>
+                <a href="<?= url('/dashboard/traveler_reports.php') ?>" class="p-2 rounded-lg bg-cyan-50 text-cyan-700">📜 الأمر بالمهمة (PV)</a>
+                <a href="<?= url('/dashboard/planning.php') ?>" class="p-2 rounded-lg bg-purple-50 text-purple-700">🌙 المناوبة الليلية</a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/leaves.php') ?>" class="p-2 rounded-lg bg-indigo-50 text-indigo-700">🌴 العطل والبديل</a>
                 <?php endif; ?>

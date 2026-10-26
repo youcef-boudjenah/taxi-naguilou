@@ -63,12 +63,8 @@ if ($pdo) {
 <!-- Grid Container: 18 Launcher Modules (GStock Clean Card Style) -->
 <div id="modulesGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5">
 
-    <!-- ==============================================
-         Category 1: الأسطول والمركبات (Fleet & Vehicles)
-         ============================================== -->
-
+    <!-- 1. السائقين -->
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- 1. السائقون والبطاقات المهنية -->
     <a href="<?= url('/dashboard/drivers.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -88,27 +84,8 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
-    <!-- 2. سجل المركبات والوثائق -->
-    <a href="<?= url('/dashboard/vehicles.php') ?>" data-category="fleet" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
-                <?= $counts['vehicles'] ?> مركبة
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">سجل المركبات والوثائق</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">البطاقات الرمادية وتجهيزات الأمان</p>
-        </div>
-    </a>
-
+    <!-- 2. العقود -->
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- 3. عقود العمل (قانون 90-11) -->
     <a href="<?= url('/dashboard/contracts.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -134,8 +111,8 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
+    <!-- 3. الضمان الاجتماعي -->
     <?php if ($isSuperOrAdmin): ?>
-    <!-- 4. الضمان الاجتماعي (CNAS) -->
     <a href="<?= url('/dashboard/cnas.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -155,8 +132,176 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
+    <!-- 4. الفوترة و الاشتراكات -->
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- 5. إدارة التأمين والمراقبة التقنية -->
+    <a href="<?= url('/dashboard/billing.php') ?>" data-category="finance" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 002.25 19.5z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 font-num">
+                <?= number_format($counts['billing']) ?> دج
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-emerald-700 transition">الفوترة والاشتراكات</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">BaridiMob / CCP والدفع الشهري</p>
+        </div>
+    </a>
+    <?php endif; ?>
+
+    <!-- 5. المالية و الديون -->
+    <?php if ($isSuperOrAdmin): ?>
+    <a href="<?= url('/dashboard/debts.php') ?>" data-category="finance" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold <?= $counts['debts'] > 0 ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600' ?> font-num">
+                <?= $counts['debts'] ?> ذمة
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-rose-600 transition">المالية والديون</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">مستحقات السائقين وجداول التحصيل</p>
+        </div>
+    </a>
+    <?php endif; ?>
+
+    <!-- 6. المناوبة الليلية (حراسة الحظيرة والجدول) -->
+    <a href="<?= url('/dashboard/planning.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 font-num">
+                <?= $counts['planning'] ?> موقف
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-purple-600 transition">المناوبة الليلية</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">قوائم المداومة الليلية للمؤسسة الاستشفائية بأدرار</p>
+        </div>
+    </a>
+
+    <!-- 7. جداول الإرسال -->
+    <a href="<?= url('/dashboard/slips.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-700 group-hover:bg-amber-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
+                <?= $counts['slips'] ?> إرسال
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-700 transition">جداول الإرسال (Bordereaux)</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">بطاقات الإرسال لمديرية النقل</p>
+        </div>
+    </a>
+
+    <!-- 8. الأمر بالمهمة (محاضر المسافرين) -->
+    <a href="<?= url('/dashboard/traveler_reports.php') ?>" data-category="drivers" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-cyan-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-50 text-cyan-700 font-num">
+                <?= $counts['traveler_reports'] ?> مهمة
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-cyan-600 transition">الأمر بالمهمة (PV)</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">أوامر المهمة، محاضر المسافرين وقوائم الركاب</p>
+        </div>
+    </a>
+
+    <!-- 9. الاشعارات -->
+    <a href="<?= url('/dashboard/notifications.php') ?>" data-category="system" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                </svg>
+            </div>
+            <?php if ($counts['notifications'] > 0): ?>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 font-num animate-pulse">
+                    <?= $counts['notifications'] ?> غير مقروء
+                </span>
+            <?php else: ?>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 font-num">
+                    هادئ
+                </span>
+            <?php endif; ?>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">مركز الإشعارات والتنبيهات</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">تنبيهات الانتهاء والأوامر الإدارية</p>
+        </div>
+    </a>
+
+    <!-- 10. المستخدمين والصلاحيات -->
+    <?php if ($isSuperOrAdmin): ?>
+    <a href="<?= url('/dashboard/users.php') ?>" data-category="system" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-slate-100 text-slate-700 group-hover:bg-slate-900 group-hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 font-num">
+                <?= $counts['users'] ?> مستخدم
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-slate-900 transition">المستخدمون والصلاحيات</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">المشرفون، الملاك والسائقون</p>
+        </div>
+    </a>
+    <?php endif; ?>
+
+    <!-- ==============================================
+         الوحدات المتبقية (الباقي)
+         ============================================== -->
+
+    <!-- سجل المركبات والوثائق -->
+    <a href="<?= url('/dashboard/vehicles.php') ?>" data-category="fleet" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
+                <?= $counts['vehicles'] ?> مركبة
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">سجل المركبات والوثائق</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">البطاقات الرمادية وتجهيزات الأمان</p>
+        </div>
+    </a>
+
+    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+    <!-- إدارة التأمين والمراقبة التقنية -->
     <a href="<?= url('/dashboard/insurance.php') ?>" data-category="fleet" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -181,7 +326,7 @@ if ($pdo) {
         </div>
     </a>
 
-    <!-- 7. السائق البديل والعطل -->
+    <!-- السائق البديل والعطل -->
     <a href="<?= url('/dashboard/leaves.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -199,67 +344,27 @@ if ($pdo) {
             <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">إنابة المركبات والإجازات الرسمية</p>
         </div>
     </a>
-    <?php endif; ?>
 
-    <!-- 8. جداول الإرسال (Bordereaux) -->
-    <a href="<?= url('/dashboard/slips.php') ?>" data-category="drivers" 
+    <!-- التحليلات والمؤشرات التنفيذية (KPIs) -->
+    <a href="<?= url('/dashboard/analytics.php') ?>" data-category="finance" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-700 group-hover:bg-amber-600 group-hover:text-white transition">
+            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                 </svg>
             </div>
             <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
-                <?= $counts['slips'] ?> إرسال
+                Live KPIs
             </span>
         </div>
         <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-700 transition">جداول الإرسال (Bordereaux)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">بطاقات الإرسال لمديرية النقل</p>
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">التحليلات والمؤشرات (KPIs)</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">توازن أعمار الديون ونسب التحصيل</p>
         </div>
     </a>
 
-    <!-- 9. محاضر المسافرين (PV Voyageurs) -->
-    <a href="<?= url('/dashboard/traveler_reports.php') ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-cyan-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-50 text-cyan-700 font-num">
-                <?= $counts['traveler_reports'] ?> رحلة
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-cyan-600 transition">محاضر المسافرين (PV)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">دفاتر النقل بين الولايات وقوائم الركاب</p>
-        </div>
-    </a>
-
-    <!-- 10. حراسة الحظيرة والجدول (3j) -->
-    <a href="<?= url('/dashboard/planning.php') ?>" data-category="drivers" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 font-num">
-                <?= $counts['planning'] ?> موقف
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-purple-600 transition">حراسة الحظيرة والجدول (3j)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">الموقف الليلي ومناوبات السائقين</p>
-        </div>
-    </a>
-
-    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- مركز التدقيق والمصادقة على الملفات (Vérifications) -->
+    <!-- مركز التدقيق والمصادقة على الملفات -->
     <a href="<?= url('/dashboard/verifications.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -298,123 +403,8 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
-    <!-- ==============================================
-         Category 3: المالية والاشتراكات (Finance & Subscriptions)
-         ============================================== -->
-
-    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- التحليلات والمؤشرات التنفيذية (Executive Analytics & KPIs) -->
-    <a href="<?= url('/dashboard/analytics.php') ?>" data-category="finance" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
-                Live KPIs
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">التحليلات والمؤشرات (KPIs)</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">توازن أعمار الديون ونسب التحصيل</p>
-        </div>
-    </a>
-    <?php endif; ?>
-
     <?php if ($isSuperOrAdmin): ?>
-    <!-- 11. المالية والديون -->
-    <a href="<?= url('/dashboard/debts.php') ?>" data-category="finance" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold <?= $counts['debts'] > 0 ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600' ?> font-num">
-                <?= $counts['debts'] ?> ذمة
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-rose-600 transition">المالية والديون</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">مستحقات السائقين وجداول التحصيل</p>
-        </div>
-    </a>
-    <?php endif; ?>
-
-    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-    <!-- 12. الفوترة والاشتراكات -->
-    <a href="<?= url('/dashboard/billing.php') ?>" data-category="finance" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 002.25 19.5z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 font-num">
-                <?= number_format($counts['billing']) ?> دج
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-emerald-700 transition">الفوترة والاشتراكات</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">BaridiMob / CCP والدفع الشهري</p>
-        </div>
-    </a>
-    <?php endif; ?>
-
-    <!-- ==============================================
-         Category 4: النظام والتنبيهات (System & Alerts)
-         ============================================== -->
-
-    <!-- 13. مركز الإشعارات والتنبيهات -->
-    <a href="<?= url('/dashboard/notifications.php') ?>" data-category="system" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-                </svg>
-            </div>
-            <?php if ($counts['notifications'] > 0): ?>
-                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 font-num animate-pulse">
-                    <?= $counts['notifications'] ?> غير مقروء
-                </span>
-            <?php else: ?>
-                <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 font-num">
-                    هادئ
-                </span>
-            <?php endif; ?>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">مركز الإشعارات والتنبيهات</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">تنبيهات الانتهاء والأوامر الإدارية</p>
-        </div>
-    </a>
-
-    <?php if ($isSuperOrAdmin): ?>
-    <!-- 14. المستخدمون والصلاحيات -->
-    <a href="<?= url('/dashboard/users.php') ?>" data-category="system" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-slate-100 text-slate-700 group-hover:bg-slate-900 group-hover:text-white transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 font-num">
-                <?= $counts['users'] ?> مستخدم
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-slate-900 transition">المستخدمون والصلاحيات</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">المشرفون، الملاك والسائقون</p>
-        </div>
-    </a>
-
-    <!-- 15. سجل التدقيق والرقابة -->
+    <!-- سجل التدقيق والرقابة -->
     <a href="<?= url('/dashboard/audit_logs.php') ?>" data-category="system" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-orange-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -433,7 +423,7 @@ if ($pdo) {
         </div>
     </a>
 
-    <!-- 16. إعدادات المنصة والهوية -->
+    <!-- إعدادات المنصة والهوية -->
     <a href="<?= url('/dashboard/settings.php') ?>" data-category="system" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -473,7 +463,7 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
-    <!-- 17. الموقع الرئيسي -->
+    <!-- الموقع الرئيسي -->
     <a href="<?= url('/') ?>" target="_blank" data-category="system" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
@@ -492,7 +482,7 @@ if ($pdo) {
         </div>
     </a>
 
-    <!-- 18. تسجيل الخروج -->
+    <!-- تسجيل الخروج -->
     <a href="<?= url('/auth/logout.php') ?>" data-category="system" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
         <div class="flex items-start justify-between">
