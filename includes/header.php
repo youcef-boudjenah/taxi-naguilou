@@ -583,10 +583,10 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <!-- Mobile Navigation Drawer / Dropdown -->
         <div id="mobileNavDrawer" class="hidden xl:hidden bg-white dark:bg-[#161d27] border-b border-slate-200/90 dark:border-slate-800 px-4 py-3 shadow-lg z-40 space-y-3 no-print">
             <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/drivers.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-700">👤 سجل السائقين</a>
                 <?php endif; ?>
+                <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
                 <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 <?= $isTaxiDriver ? 'حسابي المهني' : 'البطاقة الفنية' ?></a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/contracts.php') ?>" class="p-2 rounded-lg bg-teal-50 text-teal-700">📄 عقود 90-11</a>

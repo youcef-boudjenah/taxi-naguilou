@@ -60,16 +60,16 @@ if (is_driver() && !isset($_GET['print_id'])) {
     $activeTab = 'history';
 }
 
-// Default 8 Official Documents as requested
+// Default 8 Official Documents as requested (without notes column)
 $defaultDocuments = [
-    ['num' => '01', 'title' => 'نسخة من البطاقة الرمادية', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '02', 'title' => 'نسخة من محضر المراقبة التقنية', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '03', 'title' => 'نسخة من شهادة تأمين السيارة', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '04', 'title' => 'طابع جبائي 50 دج', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '05', 'title' => 'رخصة استغلال منتهية الصلاحية', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '06', 'title' => 'دفتر المقاعد', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '07', 'title' => 'نسخة من دفتر الفحص الميترولوجي لعدادات سيارة الاجرة', 'count' => '01', 'notes' => 'التجديد'],
-    ['num' => '08', 'title' => 'عقد العمل المحدد بمدة زمنية', 'count' => '01', 'notes' => 'التجديد'],
+    ['num' => '01', 'title' => 'نسخة من البطاقة الرمادية', 'count' => '01', 'notes' => ''],
+    ['num' => '02', 'title' => 'نسخة من محضر المراقبة التقنية', 'count' => '01', 'notes' => ''],
+    ['num' => '03', 'title' => 'نسخة من شهادة تأمين السيارة', 'count' => '01', 'notes' => ''],
+    ['num' => '04', 'title' => 'طابع جبائي 50 دج', 'count' => '01', 'notes' => ''],
+    ['num' => '05', 'title' => 'رخصة استغلال منتهية الصلاحية', 'count' => '01', 'notes' => ''],
+    ['num' => '06', 'title' => 'دفتر المقاعد', 'count' => '01', 'notes' => ''],
+    ['num' => '07', 'title' => 'نسخة من دفتر الفحص الميترولوجي لعدادات سيارة الاجرة', 'count' => '01', 'notes' => ''],
+    ['num' => '08', 'title' => 'عقد العمل المحدد بمدة زمنية', 'count' => '01', 'notes' => ''],
 ];
 
 // Handle Save Slip (Create or Update)
@@ -93,10 +93,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $vehicleId = !empty($_POST['vehicle_id']) ? intval($_POST['vehicle_id']) : null;
     $subject = trim($_POST['subject'] ?? 'تجدون رفقة هذا الارسال ملف تجديد رخص الاستغلال للسائق الأجير: ' . $driverName);
 
-    // Build documents array from POST
+    // Handle slip header logo upload if provided
+    if (!empty($_FILES['slip_logo']['tmp_name']) && is_uploaded_file($_FILES['slip_logo']['tmp_name'])) {
+        $allowedExts = ['png', 'jpg', 'jpeg', 'webp', 'svg'];
+        $ext = strtolower(pathinfo($_FILES['slip_logo']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, $allowedExts)) {
+            $targetDir = __DIR__ . '/../uploads/slips/';
+            if (!is_dir($targetDir)) {
+                @mkdir($targetDir, 0777, true);
+            }
+            $targetFile = $targetDir . 'slip_header_logo.' . $ext;
+            foreach ($allowedExts as $e) {
+                $old = $targetDir . 'slip_header_logo.' . $e;
+                if (file_exists($old) && $old !== $targetFile) {
+                    @unlink($old);
+                }
+            }
+            @move_uploaded_file($_FILES['slip_logo']['tmp_name'], $targetFile);
+        }
+    }
+
+    // Build documents array from POST (3 columns: num, title, count)
     $docTitles = $_POST['doc_title'] ?? [];
     $docCounts = $_POST['doc_count'] ?? [];
-    $docNotes = $_POST['doc_notes'] ?? [];
     $documents = [];
 
     if (is_array($docTitles)) {
@@ -107,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     'num'   => str_pad($i + 1, 2, '0', STR_PAD_LEFT),
                     'title' => $t,
                     'count' => str_pad(trim($docCounts[$i] ?? '01'), 2, '0', STR_PAD_LEFT),
-                    'notes' => trim($docNotes[$i] ?? 'التجديد')
+                    'notes' => ''
                 ];
             }
         }

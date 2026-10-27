@@ -1057,9 +1057,9 @@ if ($pdo) {
                 <!-- Min Debt Select -->
                 <select name="min_debt" class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20">
                     <option value="0" <?= $minDebt <= 0 ? 'selected' : '' ?>>قيمة الدين: الكل</option>
-                    <option value="10000" <?= $minDebt == 10000 ? 'selected' : '' ?>>دين أكثر من 10 000 دج</option>
-                    <option value="25000" <?= $minDebt == 25000 ? 'selected' : '' ?>>دين أكثر من 25 000 دج</option>
-                    <option value="50000" <?= $minDebt == 50000 ? 'selected' : '' ?>>دين أكثر من 50 000 دج</option>
+                    <option value="10000" <?= $minDebt == 10000 ? 'selected' : '' ?>>دين أكثر من &lrm;10,000&lrm; دج</option>
+                    <option value="25000" <?= $minDebt == 25000 ? 'selected' : '' ?>>دين أكثر من &lrm;25,000&lrm; دج</option>
+                    <option value="50000" <?= $minDebt == 50000 ? 'selected' : '' ?>>دين أكثر من &lrm;50,000&lrm; دج</option>
                 </select>
 
                 <button type="submit" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-amber-500 dark:hover:bg-amber-600 dark:text-slate-950 text-white font-bold transition shadow-xs cursor-pointer">
@@ -1723,7 +1723,7 @@ if ($pdo) {
         </div>
 
         <div class="text-xs text-slate-600 space-y-3 leading-relaxed">
-            <p><strong>حساب الاشتراكات:</strong> يتم تسجيل التزام السائق اليومي أو الشهري بناءً على عقد الاستغلال (1 000 دج اشتراك المنصة + 4 000 دج للمركبة).</p>
+            <p><strong>حساب الاشتراكات:</strong> يتم تسجيل التزام السائق اليومي أو الشهري بناءً على عقد الاستغلال (&lrm;1,000&lrm; دج اشتراك المنصة + &lrm;4,000&lrm; دج للمركبة).</p>
             <p><strong>طرق التسديد:</strong> يمكن تسجيل الدفعات نقداً مع تسليم وصل استلام، أو عبر حوالة بريدية CCP أو تطبيق بريدي موب BaridiMob.</p>
             <p><strong>إعادة الاحتساب:</strong> تتيح أداة إعادة الاحتساب مزامنة كافة جداول السائقين مع سجل الدفعات الفعلي وتحديث وضعية السائق تلقائياً إلى "مُسدّد" فور بلوغ الرصيد صفراً.</p>
         </div>

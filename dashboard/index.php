@@ -84,7 +84,26 @@ if ($pdo) {
     </a>
     <?php endif; ?>
 
-    <!-- 2. العقود -->
+    <!-- 2. سجل المركبات والوثائق -->
+    <a href="<?= url('/dashboard/vehicles.php') ?>" data-category="fleet" 
+       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
+        <div class="flex items-start justify-between">
+            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25" />
+                </svg>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
+                <?= $counts['vehicles'] ?> مركبة
+            </span>
+        </div>
+        <div class="mt-4">
+            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">سجل المركبات والوثائق</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">البطاقات الرمادية وتجهيزات الأمان</p>
+        </div>
+    </a>
+
+    <!-- 3. العقود -->
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <a href="<?= url('/dashboard/contracts.php') ?>" data-category="drivers" 
        class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
@@ -281,24 +300,6 @@ if ($pdo) {
          الوحدات المتبقية (الباقي)
          ============================================== -->
 
-    <!-- سجل المركبات والوثائق -->
-    <a href="<?= url('/dashboard/vehicles.php') ?>" data-category="fleet" 
-       class="launcher-card bg-white rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between min-h-[145px] p-4 group">
-        <div class="flex items-start justify-between">
-            <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V4.5a2.25 2.25 0 00-2.25-2.25h-4.5A2.25 2.25 0 005.25 4.5v3m11.25 0H5.25" />
-                </svg>
-            </div>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 font-num">
-                <?= $counts['vehicles'] ?> مركبة
-            </span>
-        </div>
-        <div class="mt-4">
-            <h3 class="font-bold text-slate-900 text-[13px] leading-snug group-hover:text-amber-600 transition">سجل المركبات والوثائق</h3>
-            <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">البطاقات الرمادية وتجهيزات الأمان</p>
-        </div>
-    </a>
 
     <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
     <!-- إدارة التأمين والمراقبة التقنية -->

@@ -2475,7 +2475,7 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
 
         <!-- Modal Form Body -->
-        <form method="POST" action="<?= url('/dashboard/drivers.php') ?>" id="manageDocsForm" enctype="multipart/form-data" novalidate class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
+        <form method="POST" action="" id="manageDocsForm" enctype="multipart/form-data" novalidate class="overflow-y-auto p-6 space-y-5 text-xs flex-1">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_driver_docs">
             <input type="hidden" name="driver_id" id="docDriverId" value="">
@@ -4088,7 +4088,7 @@ require_once __DIR__ . '/../includes/header.php';
             reqHeaders['X-CSRF-TOKEN'] = csrfVal;
         }
 
-        const targetUrl = form.getAttribute('action') || window.location.pathname || 'drivers.php';
+        const targetUrl = window.location.href;
 
         fetch(targetUrl, {
             method: 'POST',
@@ -4102,7 +4102,7 @@ require_once __DIR__ . '/../includes/header.php';
                 data = JSON.parse(rawText);
             } catch(e) {
                 if (response.redirected && (response.url.includes('login') || rawText.includes('تسجيل الدخول'))) {
-                    setTimeout(() => { window.location.href = '/auth/login.php'; }, 1500);
+                    setTimeout(() => { window.location.href = '<?= url('/auth/login.php') ?>'; }, 1500);
                     throw new Error('انتهت صلاحية جلسة العمل، جاري تحويلك لصفحة تسجيل الدخول...');
                 }
                 if (response.status === 403 || response.status === 401) {
