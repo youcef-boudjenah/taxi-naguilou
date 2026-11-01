@@ -283,6 +283,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             'discount_prepay_12m_enabled' => (isset($_POST['discount_prepay_12m_enabled']) && $_POST['discount_prepay_12m_enabled'] === '1') ? '1' : '0',
             'alert_threshold_days' => trim($_POST['alert_threshold_days'] ?? '30'),
             'douxe_ai_enabled' => isset($_POST['douxe_ai_enabled']) ? '1' : '0',
+            'debt_penalty_3m' => trim($_POST['debt_penalty_3m'] ?? '5000.00'),
+            'debt_penalty_6m' => trim($_POST['debt_penalty_6m'] ?? '10000.00'),
+            'debt_penalty_enabled' => (isset($_POST['debt_penalty_enabled']) && $_POST['debt_penalty_enabled'] === '1') ? '1' : '0',
+            'debt_penalty_auto_apply' => (isset($_POST['debt_penalty_auto_apply']) && $_POST['debt_penalty_auto_apply'] === '1') ? '1' : '0',
         ];
 
         foreach ($settingsToUpdate as $key => $val) {
@@ -703,7 +707,85 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
 
-            <!-- 5. أسطول المركبات: الماركات والموديلات المعتمدة (Paramètres) -->
+            <!-- 5. إعدادات غرامات التأخير التلقائية (Pénalités de retard) -->
+            <div id="penalty-settings-section" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 lg:col-span-2">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-xl">⚠️</span>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-900">نظام غرامات التأخير التلقائي الشهري (Pénalités de Retard)</h3>
+                            <p class="text-[11px] text-slate-500">تحديد قيمة غرامة كل شهر بعد 3 أشهر، ومضاعفتها تلقائياً (2×) بعد 6 أشهر مع التطبيق الآلي اليومي.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1 rounded-lg">
+                            قاعدة تصاعدية آلية
+                        </span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="p-3.5 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-900 text-xs">
+                            <input type="checkbox" name="debt_penalty_enabled" value="1" <?= ($settings['debt_penalty_enabled'] ?? '1') === '1' ? 'checked' : '' ?> class="rounded text-amber-600 focus:ring-amber-500 w-4 h-4">
+                            <span>تفعيل نظام غرامات التأخير</span>
+                        </label>
+                        <p class="text-[11px] text-slate-500">تمكين احتساب الغرامات الدورية على السائقين المتأخرين عن السداد.</p>
+                    </div>
+
+                    <div class="p-3.5 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-900 text-xs">
+                            <input type="checkbox" name="debt_penalty_auto_apply" value="1" <?= ($settings['debt_penalty_auto_apply'] ?? '1') === '1' ? 'checked' : '' ?> class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                            <span>التطبيق الآلي اليومي في الخلفية</span>
+                        </label>
+                        <p class="text-[11px] text-slate-500">يقوم النظام بفحص الديون يومياً وتطبيق الغرامات المستحقة آلياً دون تدخل يدوي.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <div>
+                        <label class="block font-bold text-slate-700 text-xs mb-1">
+                            غرامة كل شهر بعد 3 أشهر (الأشهر 4 و 5 و 6)
+                        </label>
+                        <div class="relative">
+                            <input type="number" step="500" min="0" id="settings_debt_penalty_3m" name="debt_penalty_3m" 
+                                   value="<?= htmlspecialchars($settings['debt_penalty_3m'] ?? '5000.00') ?>" required dir="ltr"
+                                   oninput="syncSettingsPenalty6m(this.value)"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-bold text-slate-900 text-left focus:border-amber-500 focus:ring-1 focus:ring-amber-500 pr-12">
+                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج/شهر</span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 block mt-1">تطبق لكل شهر تأخير ابتداءً من الشهر الرابع وحتى نهاية الشهر السادس.</span>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-bold text-slate-700 text-xs">
+                                غرامة كل شهر بعد 6 أشهر (الشهر 7 فما فوق)
+                            </label>
+                            <span class="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">ضعف المبلغ (2×)</span>
+                        </div>
+                        <div class="relative">
+                            <input type="number" step="500" min="0" id="settings_debt_penalty_6m" name="debt_penalty_6m" 
+                                   value="<?= htmlspecialchars($settings['debt_penalty_6m'] ?? '10000.00') ?>" required dir="ltr"
+                                   class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-num font-bold text-rose-700 text-left focus:border-rose-500 focus:ring-1 focus:ring-rose-500 pr-12">
+                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">دج/شهر</span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 block mt-1">تتضاعف الغرامة الشهرية لتصبح ضعف غرامة الأشهر الأولى وتطبق لكل شهر إضافي.</span>
+                    </div>
+                </div>
+
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex items-center justify-between flex-wrap gap-2">
+                    <div class="flex items-center gap-2">
+                        <span>ℹ️</span>
+                        <span>فترة السماح: أول 3 أشهر بدون غرامة (0 دج). ثم تتدرج الغرامة الشهرية كما هو محدد أعلاه.</span>
+                    </div>
+                    <a href="<?= url('/dashboard/debts.php') ?>" class="text-amber-700 font-bold hover:underline">
+                        الانتقال إلى جدول ومتابعة الديون ↗
+                    </a>
+                </div>
+            </div>
+
+            <!-- 6. أسطول المركبات: الماركات والموديلات المعتمدة (Paramètres) -->
             <div id="fleet-presets" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 lg:col-span-2">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
                     <div class="flex items-center gap-2.5">
@@ -1270,6 +1352,14 @@ function toggleDiscountOffer(slug) {
     .catch(err => {
         console.warn('Auto-save notice:', err);
     });
+}
+
+function syncSettingsPenalty6m(val) {
+    const num = parseFloat(val) || 0;
+    const p6 = document.getElementById('settings_debt_penalty_6m');
+    if (p6) {
+        p6.value = Math.round(num * 2);
+    }
 }
 </script>
 

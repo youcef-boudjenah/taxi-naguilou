@@ -4,6 +4,24 @@ if (!ob_get_level()) {
     ob_start();
 }
 if (session_status() === PHP_SESSION_NONE) {
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') 
+               || (($_SERVER['SERVER_PORT'] ?? 80) == 443)
+               || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+               
+    if (PHP_VERSION_ID >= 70300) {
+        session_set_cookie_params([
+            'lifetime' => 86400 * 7,
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+    } else {
+        session_set_cookie_params(86400 * 7, '/; samesite=Lax', '', $isHttps, true);
+    }
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
     session_start();
 }
 
@@ -232,10 +250,14 @@ function login_user($email, $password) {
 
     $trimmedPass = trim($password);
     $valid = password_verify($trimmedPass, $user['password_hash'])
-          || password_verify(strtolower($trimmedPass), $user['password_hash'])
-          || (strtolower($trimmedPass) === 'moh2026')
-          || (strtolower($trimmedPass) === 'pass@2026' || $trimmedPass === 'Pass@2026')
-          || ($trimmedPass === 'password123');
+          || password_verify(strtolower($trimmedPass), $user['password_hash']);
+
+    // In local / development mode ONLY, allow convenience demo master credentials
+    if (!$valid && defined('APP_ENV') && APP_ENV !== 'production') {
+        $valid = (strtolower($trimmedPass) === 'moh2026')
+              || (strtolower($trimmedPass) === 'pass@2026' || $trimmedPass === 'Pass@2026')
+              || ($trimmedPass === 'password123');
+    }
 
     if (!$valid) {
         log_audit($pdo, 'login_failed', 'auth', $user['id'], "محاولة دخول فاشلة للمستخدم {$user['email']}");

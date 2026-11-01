@@ -60,15 +60,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <!-- Header / Logo -->
         <div class="text-center space-y-2">
-            <a href="<?= url('/') ?>" class="inline-flex flex-col items-center justify-center gap-2">
-                <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-16 h-16 object-contain rounded-full shadow-md bg-white p-1 border-2 border-amber-400 mx-auto">
+            <a href="<?= url('/') ?>" class="inline-flex flex-col items-center justify-center gap-2 group">
+                <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-16 h-16 object-contain rounded-full shadow-md bg-white p-1 border-2 border-amber-400 mx-auto group-hover:scale-105 transition-transform" onerror="this.src='<?= url('/assets/logo.png') ?>'">
                 <div>
-                    <span class="text-2xl font-black text-slate-900 tracking-tight block">تاكسي <span class="text-amber-600">نقيلو</span></span>
+                    <span class="text-2xl font-black text-slate-900 dark:text-white tracking-tight block">تاكسي <span class="text-amber-600 dark:text-amber-400">نقيلو</span></span>
                     <span class="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">EURL TAXI NAGUILOU Services</span>
                 </div>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">أولاد أحمد تيمي - أدرار • هاتف: 0663.55.00.42 / 0658.39.49.73</span>
             </a>
-            <h2 class="text-lg font-bold text-slate-800 pt-1">تسجيل الدخول إلى لوحة إدارة الأسطول</h2>
-            <p class="text-xs text-slate-500">أدخل بريدك الإلكتروني وكلمة المرور للمتابعة</p>
+            <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 pt-1">تسجيل الدخول إلى لوحة إدارة الأسطول</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">أدخل بريدك الإلكتروني وكلمة المرور للمتابعة</p>
         </div>
 
         <!-- Login Card -->

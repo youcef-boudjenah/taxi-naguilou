@@ -71,6 +71,11 @@ body {
     line-height: 1.6;
 }
 
+html, body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+}
+
 /* 2. Arabic Cursive Ligature Protection: Prevent letter-spacing from breaking Arabic words */
 html[dir="rtl"],
 [dir="rtl"],

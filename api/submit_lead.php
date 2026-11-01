@@ -85,10 +85,15 @@ try {
         ':message' => !empty($message) ? $message : null
     ]);
 
+    $newLeadId = (int)$pdo->lastInsertId();
+    if (function_exists('log_audit')) {
+        log_audit($pdo, 'client_lead_submitted', 'leads', $newLeadId, "طلب انضمام جديد من العميل {$fullName} (الهاتف: {$phone} - ولاية {$wilaya})");
+    }
+
     echo json_encode([
         'success' => true,
         'message' => 'تم استلام طلبكم بنجاح! سيتواصل معكم فريق تاكسي نقيلو خلال 24 ساعة.',
-        'lead_id' => (int)$pdo->lastInsertId()
+        'lead_id' => $newLeadId
     ]);
     exit;
 } catch (PDOException $e) {

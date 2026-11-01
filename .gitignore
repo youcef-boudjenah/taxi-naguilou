@@ -1,4 +1,7 @@
 # Environment & temporary files
+.env
+node_modules/
+package-lock.json
 cookie.txt
 *.log
 install.lock
@@ -24,3 +27,9 @@ desktop.ini
 
 # Scratch directory
 scratch/
+
+# Storage and Local Backups
+storage/backups/*
+!storage/backups/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep

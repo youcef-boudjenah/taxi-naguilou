@@ -394,6 +394,14 @@ $installResult = null;
 $error = '';
 $isLocked = file_exists(LOCK_FILE);
 
+if ($isLocked && php_sapi_name() !== 'cli') {
+    // Production Security Guard: Lock installer completely against web re-installation
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        http_response_code(403);
+        die('⚠️ خطأ أمني: النظام مثبت ومقفل مسبقاً (install.lock). لا يمكن إعادة التثبيت عبر الويب لأسباب أمنية.');
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_install'])) {
     if ($isLocked && empty($_POST['force_reinstall'])) {
         $error = 'النظام مثبت ومقفل مسبقاً. إذا كنت ترغب في إعادة التثبيت، يرجى تفعيل خيار فرض إعادة التثبيت أو حذف ملف install.lock.';

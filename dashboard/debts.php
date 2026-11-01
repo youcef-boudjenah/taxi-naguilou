@@ -43,12 +43,85 @@ if ($pdo) {
         $cU = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'deleted_at'")->fetch();
         $hasUsersDeletedAt = !empty($cU);
     } catch (\Throwable $e) {}
+
+    // Defensive cleanup of orphaned or invalid user_id in driver_debts to uphold foreign key integrity
+    try {
+        $pdo->exec("UPDATE `driver_debts` SET `user_id` = NULL WHERE `user_id` = 0");
+        $pdo->exec("
+            UPDATE `driver_debts` d
+            LEFT JOIN `users` u ON d.`user_id` = u.`id`
+            SET d.`user_id` = NULL
+            WHERE d.`user_id` IS NOT NULL AND u.`id` IS NULL
+        ");
+    } catch (\Throwable $eSanitize) {}
+}
+
+// AJAX: Fetch Driver Penalty Breakdown
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'driver_penalties' && isset($_GET['debt_id']) && $pdo) {
+    header('Content-Type: application/json; charset=utf-8');
+    $dId = intval($_GET['debt_id']);
+    $list = function_exists('get_debt_penalties') ? get_debt_penalties($pdo, $dId) : [];
+    echo json_encode(['success' => true, 'penalties' => $list]);
+    exit;
+}
+
+// Finance & Debt automated penalty settings (Progressive monthly delay penalties)
+$financeSettings = $pdo ? get_all_settings($pdo) : [];
+$debtPenalty3m = isset($financeSettings['debt_penalty_3m']) ? (float)$financeSettings['debt_penalty_3m'] : 5000.00;
+$debtPenalty6m = isset($financeSettings['debt_penalty_6m']) ? (float)$financeSettings['debt_penalty_6m'] : ($debtPenalty3m * 2.0);
+$debtPenaltyEnabled = isset($financeSettings['debt_penalty_enabled']) ? ($financeSettings['debt_penalty_enabled'] == '1') : true;
+$debtPenaltyAutoApply = isset($financeSettings['debt_penalty_auto_apply']) ? ($financeSettings['debt_penalty_auto_apply'] == '1') : true;
+$debtPenaltyLastCheck = $financeSettings['debt_penalty_last_auto_check'] ?? 'لم يتم بعد';
+
+// Handle Update Penalty Settings
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_penalty_settings' && $pdo) {
+    require_csrf_token();
+    $p3 = max(0, floatval($_POST['debt_penalty_3m'] ?? 5000));
+    $p6 = isset($_POST['debt_penalty_6m']) ? max(0, floatval($_POST['debt_penalty_6m'])) : ($p3 * 2.0);
+    if ($p6 <= 0) $p6 = $p3 * 2.0;
+    $en = isset($_POST['debt_penalty_enabled']) ? '1' : '0';
+    $auto = isset($_POST['debt_penalty_auto_apply']) ? '1' : '0';
+    try {
+        $stmtSet = $pdo->prepare("INSERT INTO settings (`key`, `value`, `category`) VALUES (?, ?, 'finance') ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)");
+        $stmtSet->execute(['debt_penalty_3m', $p3]);
+        $stmtSet->execute(['debt_penalty_6m', $p6]);
+        $stmtSet->execute(['debt_penalty_enabled', $en]);
+        $stmtSet->execute(['debt_penalty_auto_apply', $auto]);
+        log_audit($pdo, 'penalty_settings_updated', 'settings', null, "تحديث إعدادات غرامات التأخير التلقائية: شهرياً بعد 3 أشهر ($p3 دج)، مضاعفة بعد 6 أشهر ($p6 دج)، الحالة: $en، تطبيق آلي: $auto");
+        set_flash('success', "تم حفظ إعدادات نظام غرامات التأخير بنجاح. الغرامة الشهرية: " . number_format($p3, 0) . " دج/شهر بعد 3 أشهر، ومضاعفة إلى " . number_format($p6, 0) . " دج/شهر (2×) بعد 6 أشهر.");
+    } catch (\Throwable $e) {
+        set_flash('error', 'تعذر تحديث إعدادات الغرامات: ' . $e->getMessage());
+    }
+    redirect('/dashboard/debts.php');
+}
+
+// Handle Apply Debt Penalties Request (Forced Immediate Check & Execution)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'apply_debt_penalties' && $pdo) {
+    require_csrf_token();
+    $res = apply_automated_debt_penalties($pdo, true);
+    if ($res['success']) {
+        set_flash('success', $res['message']);
+    } else {
+        set_flash('error', $res['message']);
+    }
+    redirect('/dashboard/debts.php');
 }
 
 // Handle Recalculate Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalculate_month'])) {
     require_csrf_token();
     try {
+        // Defensive cleanup of orphaned or zero user_id values to prevent foreign key errors
+        try {
+            $pdo->exec("UPDATE `driver_debts` SET `user_id` = NULL WHERE `user_id` = 0");
+            $pdo->exec("
+                UPDATE `driver_debts` d
+                LEFT JOIN `users` u ON d.`user_id` = u.`id`
+                SET d.`user_id` = NULL
+                WHERE d.`user_id` IS NOT NULL AND u.`id` IS NULL
+            ");
+        } catch (\Throwable $eSanitize) {}
+
         $pdo->beginTransaction();
         $debtsList = $pdo->query("SELECT id, total_credits FROM driver_debts")->fetchAll();
         $recalculatedCount = 0;
@@ -61,8 +134,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalculate_month']))
             $lastV = $sumData['last_v'];
             $st = (($dbItem['total_credits'] - $totalV) <= 0) ? 'a_jour' : 'endette';
 
-            $upStmt = $pdo->prepare("UPDATE driver_debts SET total_versements = ?, last_versement_date = ?, status = ? WHERE id = ?");
-            $upStmt->execute([$totalV, $lastV, $st, $dbItem['id']]);
+            try {
+                $upStmt = $pdo->prepare("UPDATE driver_debts SET total_versements = ?, last_versement_date = ?, status = ? WHERE id = ?");
+                $upStmt->execute([$totalV, $lastV, $st, $dbItem['id']]);
+            } catch (\PDOException $exUp) {
+                // If foreign key constraint failed on this row, sanitize its user_id to NULL and retry
+                if ($exUp->getCode() == 23000) {
+                    $pdo->prepare("UPDATE driver_debts SET user_id = NULL WHERE id = ?")->execute([$dbItem['id']]);
+                    $upStmt = $pdo->prepare("UPDATE driver_debts SET total_versements = ?, last_versement_date = ?, status = ? WHERE id = ?");
+                    $upStmt->execute([$totalV, $lastV, $st, $dbItem['id']]);
+                } else {
+                    throw $exUp;
+                }
+            }
             $recalculatedCount++;
         }
         $pdo->commit();
@@ -238,6 +322,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_debt') {
     require_csrf_token();
     $userId = !empty($_POST['user_id']) ? intval($_POST['user_id']) : null;
+    if ($userId !== null && $userId <= 0) {
+        $userId = null;
+    }
+    if ($userId !== null) {
+        $uCheck = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+        $uCheck->execute([$userId]);
+        if (!$uCheck->fetch()) {
+            $userId = null;
+        }
+    }
     $chauffeurName = trim($_POST['chauffeur_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $totalCredits = floatval($_POST['total_credits'] ?? 0);
@@ -536,6 +630,12 @@ if ($pdo) {
         $where[] = "(d.status = 'endette' OR (d.total_credits - d.total_versements) > 0)";
     } elseif ($filter === 'a_jour') {
         $where[] = "(d.status = 'a_jour' OR (d.total_credits - d.total_versements) <= 0)";
+    } elseif ($filter === 'penalty_3m') {
+        $where[] = "(d.total_credits - d.total_versements) > 0 AND DATEDIFF(CURDATE(), COALESCE(d.last_versement_date, d.created_at)) >= 90 AND DATEDIFF(CURDATE(), COALESCE(d.last_versement_date, d.created_at)) < 180";
+    } elseif ($filter === 'penalty_6m') {
+        $where[] = "(d.total_credits - d.total_versements) > 0 AND DATEDIFF(CURDATE(), COALESCE(d.last_versement_date, d.created_at)) >= 180";
+    } elseif ($filter === 'penalties') {
+        $where[] = "(d.total_credits - d.total_versements) > 0 AND DATEDIFF(CURDATE(), COALESCE(d.last_versement_date, d.created_at)) >= 90";
     }
 
     if ($driverType === 'actif') {
@@ -585,6 +685,12 @@ if ($pdo) {
         $countActifsEndette = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0 {$debtDelCond}")->fetchColumn();
         $countAnciensEndette = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0 {$debtDelCond}")->fetchColumn();
         $countAJour = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE (total_credits - total_versements) <= 0 {$debtDelCond}")->fetchColumn();
+
+        // Late Penalty Counts & Cumulative Sums
+        $countPenalty3m = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE (total_credits - total_versements) > 0 AND DATEDIFF(CURDATE(), COALESCE(last_versement_date, created_at)) >= 90 AND DATEDIFF(CURDATE(), COALESCE(last_versement_date, created_at)) < 180 {$debtDelCond}")->fetchColumn();
+        $countPenalty6m = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE (total_credits - total_versements) > 0 AND DATEDIFF(CURDATE(), COALESCE(last_versement_date, created_at)) >= 180 {$debtDelCond}")->fetchColumn();
+        $countTotalPenalties = $countPenalty3m + $countPenalty6m;
+        $totalPenaltiesEver = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM debt_penalties")->fetchColumn();
 
         $dettesActifs = (float)$pdo->query("SELECT COALESCE(SUM(total_credits - total_versements), 0) FROM driver_debts WHERE driver_type = 'actif' AND (total_credits - total_versements) > 0 {$debtDelCond}")->fetchColumn();
         $creancesAnciens = (float)$pdo->query("SELECT COALESCE(SUM(total_credits - total_versements), 0) FROM driver_debts WHERE driver_type = 'ancien' AND (total_credits - total_versements) > 0 {$debtDelCond}")->fetchColumn();
@@ -971,6 +1077,88 @@ if ($pdo) {
     </div>
     <?php endif; ?>
 
+    <!-- Dedicated Automated Late Penalties Card (نظام غرامات التأخير التلقائي الشهري التصاعدي) -->
+    <div class="bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-transparent p-5 rounded-3xl border-2 border-amber-400/40 dark:border-amber-500/30 shadow-xs space-y-4">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <span class="w-3 h-3 rounded-full <?= $debtPenaltyEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400' ?>"></span>
+                    <h2 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">نظام غرامات التأخير التلقائي الشهري (Pénalités de Retard Automatiques)</h2>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-black <?= $debtPenaltyEnabled ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30' : 'bg-slate-200 text-slate-600' ?>">
+                        <?= $debtPenaltyEnabled ? '✓ النظام نشط ومفعل' : 'موقف مؤقتاً' ?>
+                    </span>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-black <?= $debtPenaltyAutoApply ? 'bg-blue-500/15 text-blue-800 dark:text-blue-300 border border-blue-500/30' : 'bg-amber-100 text-amber-800' ?>">
+                        <?= $debtPenaltyAutoApply ? '⚡ تطبيق آلي يومي' : 'يدوي فقط' ?>
+                    </span>
+                    <?php if (!empty($debtPenaltyLastCheck)): ?>
+                        <span class="text-[11px] text-slate-500 dark:text-slate-400 font-num">آخر فحص: <strong><?= htmlspecialchars($debtPenaltyLastCheck) ?></strong></span>
+                    <?php endif; ?>
+                </div>
+                <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    يتم احتساب غرامات التأخير وإضافتها تلقائياً كل شهر على الديون غير المسددة: 
+                    <strong class="text-amber-700 dark:text-amber-400 font-num">+<?= number_format($debtPenalty3m, 0) ?> دج / شهر</strong> لكل شهر تأخير بعد 3 أشهر (الأشهر 4 و 5 و 6)، 
+                    وتتضاعف تلقائياً بعد 6 أشهر إلى <strong class="text-rose-700 dark:text-rose-400 font-num">+<?= number_format($debtPenalty6m, 0) ?> دج / شهر (ضعف المبلغ 2×)</strong> لكل شهر تأخير إضافي (ابتداءً من الشهر السابع).
+                </p>
+            </div>
+
+            <div class="flex items-center gap-2.5 flex-wrap shrink-0">
+                <button type="button" onclick="openPenaltySettingsModal()"
+                        class="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.27.1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.15.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.27-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>ضبط مبالغ وإعدادات الغرامات</span>
+                </button>
+
+                <form method="POST" action="" onsubmit="return confirm('هل تريد فحص كافة الديون وتطبيق غرامات التأخير الشهرية المستحقة الآن؟')">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="apply_debt_penalties">
+                    <button type="submit" 
+                            class="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700 text-white font-black text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                        </svg>
+                        <span>تطبيق وفحص الغرامات الآن</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Penalty Statistics Pills -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-amber-300/40 dark:border-amber-700/30 text-xs">
+            <a href="debts.php?filter=penalty_3m" class="p-3 bg-white/80 dark:bg-slate-800/80 rounded-xl border border-amber-200 dark:border-amber-900/50 flex items-center justify-between hover:bg-white transition">
+                <div class="space-y-0.5">
+                    <div class="font-bold text-amber-900 dark:text-amber-300">متأخرون 3 إلى 6 أشهر</div>
+                    <div class="text-[10px] text-slate-500 font-num">غرامة شهرية: +<?= number_format($debtPenalty3m, 0) ?> دج/شهر</div>
+                </div>
+                <span class="font-black font-num text-base text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 px-2.5 py-1 rounded-lg">
+                    <?= $countPenalty3m ?> سائق
+                </span>
+            </a>
+
+            <a href="debts.php?filter=penalty_6m" class="p-3 bg-white/80 dark:bg-slate-800/80 rounded-xl border border-rose-200 dark:border-rose-900/50 flex items-center justify-between hover:bg-white transition">
+                <div class="space-y-0.5">
+                    <div class="font-bold text-rose-900 dark:text-rose-300">متأخرون لأكثر من 6 أشهر</div>
+                    <div class="text-[10px] text-slate-500 font-num">غرامة مضاعفة: +<?= number_format($debtPenalty6m, 0) ?> دج/شهر (2×)</div>
+                </div>
+                <span class="font-black font-num text-base text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950 px-2.5 py-1 rounded-lg">
+                    <?= $countPenalty6m ?> سائق
+                </span>
+            </a>
+
+            <a href="debts.php?filter=penalties" class="p-3 bg-white/80 dark:bg-slate-800/80 rounded-xl border border-purple-200 dark:border-purple-900/50 flex items-center justify-between hover:bg-white transition">
+                <div class="space-y-0.5">
+                    <div class="font-bold text-purple-900 dark:text-purple-300">إجمالي الغرامات المطبقة</div>
+                    <div class="text-[10px] text-slate-500 font-num">تراكمياً على <?= $countTotalPenalties ?> سائق خاضع</div>
+                </div>
+                <span class="font-black font-num text-base text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 px-2.5 py-1 rounded-lg">
+                    <?= number_format($totalPenaltiesEver, 0) ?> دج
+                </span>
+            </a>
+        </div>
+    </div>
+
     <!-- Comprehensive Filter Toolbar (مع تصفية الديون الصريحة) -->
     <div class="bg-white dark:bg-[#161d27] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
         
@@ -991,6 +1179,13 @@ if ($pdo) {
                 <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                 <span>المدينون فقط (عليهم مستحقات)</span>
                 <span class="font-num text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full"><?= $countEndette ?></span>
+            </a>
+
+            <!-- Penalties Filter -->
+            <a href="debts.php?type=all&filter=penalties" 
+               class="px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 <?= ($filter === 'penalties') ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-2xs' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 border border-amber-200 dark:border-amber-900/60' ?>">
+                <span>⚡ خاضعون لغرامات التأخير</span>
+                <span class="font-num text-[10px] px-1.5 py-0.2 bg-black/10 rounded-full"><?= $countTotalPenalties ?></span>
             </a>
 
             <!-- Actifs Endettés -->
@@ -1097,6 +1292,10 @@ if ($pdo) {
                             $reste = max(0, (float)$d['total_credits'] - (float)$d['total_versements']);
                             $isEndette = ($reste > 0);
                             $isAncien = ($d['driver_type'] === 'ancien');
+                            $refDate = !empty($d['last_versement_date']) ? $d['last_versement_date'] : $d['created_at'];
+                            $daysOverdue = ($isEndette && !empty($refDate)) ? max(0, (int)((time() - strtotime($refDate)) / 86400)) : 0;
+                            $hasPenalty6m = ($debtPenaltyEnabled && $isEndette && $daysOverdue >= 180);
+                            $hasPenalty3m = ($debtPenaltyEnabled && $isEndette && $daysOverdue >= 90 && $daysOverdue < 180);
                         ?>
                             <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition <?= $isAncien ? 'bg-amber-50/20 dark:bg-amber-950/10' : '' ?>">
                                 <td class="p-3.5 whitespace-nowrap text-center">
@@ -1145,6 +1344,28 @@ if ($pdo) {
                                             <span class="table-num-dot-rose"></span>
                                             <?= number_format($reste, 2, ',', ' ') ?> DZD
                                         </span>
+                                        <?php if ($hasPenalty6m): ?>
+                                            <div class="mt-1">
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="تأخر لأكثر من 6 أشهر (<?= $daysOverdue ?> يوماً)">
+                                                    <span>🚨 تأخير <?= (int)floor($daysOverdue / 30) ?> أشهر (+<?= number_format($debtPenalty6m, 0) ?> دج/شهر مضاعفة 2×)</span>
+                                                </span>
+                                            </div>
+                                        <?php elseif ($hasPenalty3m): ?>
+                                            <div class="mt-1">
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="تأخر لأكثر من 3 أشهر (<?= $daysOverdue ?> يوماً)">
+                                                    <span>⚠️ تأخير <?= (int)floor($daysOverdue / 30) ?> أشهر (+<?= number_format($debtPenalty3m, 0) ?> دج/شهر)</span>
+                                                </span>
+                                            </div>
+                                        <?php endif; ?>
+                                        <?php if ((float)($d['total_penalties'] ?? 0) > 0): ?>
+                                            <div class="mt-1">
+                                                <button type="button" onclick="viewDriverPenalties(<?= $d['id'] ?>, '<?= htmlspecialchars(addslashes($d['chauffeur_name'])) ?>')" 
+                                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer" 
+                                                        title="عرض تفاصيل الغرامات الشهرية المطبقة">
+                                                    <span>📊 غرامات مطبقة: +<?= number_format($d['total_penalties'], 0) ?> دج ↗</span>
+                                                </button>
+                                            </div>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="table-num-badge table-num-emerald text-xs font-bold" dir="ltr">
                                             <span class="table-num-dot-emerald"></span>
@@ -2125,6 +2346,243 @@ function closeRejectModal() {
     modal.classList.add('hidden');
     modal.classList.remove('flex');
 }
+function openPenaltySettingsModal() {
+    const modal = document.getElementById('penaltySettingsModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+function closePenaltySettingsModal() {
+    const modal = document.getElementById('penaltySettingsModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+// Auto-sync 6-month penalty to double (2x) the 3-month penalty
+function onPenalty3mChange(val) {
+    const num = parseFloat(val) || 0;
+    const doubleCheck = document.getElementById('autoDoublePenaltyCheck');
+    const p6Input = document.getElementById('penalty_6m_input');
+    const preview3m = document.getElementById('preview_penalty_3m');
+    const preview6m = document.getElementById('preview_penalty_6m');
+
+    if (preview3m) preview3m.textContent = Number(num).toLocaleString('ar-DZ') + ' دج/شهر';
+
+    if (doubleCheck && doubleCheck.checked && p6Input) {
+        const dbl = Math.round(num * 2);
+        p6Input.value = dbl;
+        if (preview6m) preview6m.textContent = Number(dbl).toLocaleString('ar-DZ') + ' دج/شهر';
+    }
+}
+
+function onPenalty6mChange(val) {
+    const num = parseFloat(val) || 0;
+    const preview6m = document.getElementById('preview_penalty_6m');
+    if (preview6m) preview6m.textContent = Number(num).toLocaleString('ar-DZ') + ' دج/شهر';
+}
+
+function toggleAutoDouble() {
+    const doubleCheck = document.getElementById('autoDoublePenaltyCheck');
+    const p3Input = document.getElementById('penalty_3m_input');
+    if (doubleCheck && doubleCheck.checked && p3Input) {
+        onPenalty3mChange(p3Input.value);
+    }
+}
+
+// View Driver Applied Penalties Breakdown Modal
+function viewDriverPenalties(debtId, driverName) {
+    const modal = document.getElementById('driverPenaltiesModal');
+    const titleEl = document.getElementById('penaltiesModalDriverName');
+    const tbody = document.getElementById('penaltiesModalTbody');
+    const totalEl = document.getElementById('penaltiesModalTotal');
+    const loadingEl = document.getElementById('penaltiesModalLoading');
+
+    if (!modal) return;
+    titleEl.textContent = driverName;
+    tbody.innerHTML = '';
+    totalEl.textContent = '0 دج';
+    loadingEl.classList.remove('hidden');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    fetch('debts.php?ajax=driver_penalties&debt_id=' + encodeURIComponent(debtId))
+        .then(res => res.json())
+        .then(data => {
+            loadingEl.classList.add('hidden');
+            if (data && data.success && Array.isArray(data.penalties) && data.penalties.length > 0) {
+                let sum = 0;
+                tbody.innerHTML = data.penalties.map(p => {
+                    const amt = parseFloat(p.amount) || 0;
+                    sum += amt;
+                    const isDouble = (parseFloat(p.multiplier) > 1.0);
+                    return `
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+                            <td class="p-2.5 font-bold text-slate-800 dark:text-slate-200">الشهر ${p.penalty_month}</td>
+                            <td class="p-2.5 text-slate-600 dark:text-slate-400 font-num">${p.applied_date}</td>
+                            <td class="p-2.5 font-num text-slate-500">${p.days_overdue} يوم</td>
+                            <td class="p-2.5">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isDouble ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'}">
+                                    ${isDouble ? 'مضاعفة 2×' : 'عادية 1×'}
+                                </span>
+                            </td>
+                            <td class="p-2.5 text-slate-600 dark:text-slate-300 text-[11px]">${p.period_label || '-'}</td>
+                            <td class="p-2.5 font-num font-bold text-left text-slate-900 dark:text-white" dir="ltr">${Number(amt).toLocaleString()} DZD</td>
+                        </tr>
+                    `;
+                }).join('');
+                totalEl.textContent = Number(sum).toLocaleString() + ' دج';
+            } else {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400">لا توجد غرامات تأخير مقيدة على هذا الحساب حتى الآن.</td></tr>`;
+            }
+        })
+        .catch(err => {
+            loadingEl.classList.add('hidden');
+            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-rose-500 font-bold">تعذر تحميل سجل الغرامات.</td></tr>`;
+        });
+}
+
+function closeDriverPenaltiesModal() {
+    const modal = document.getElementById('driverPenaltiesModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
 </script>
+
+<!-- Modal: تعديل إعدادات غرامات التأخير التلقائية -->
+<div id="penaltySettingsModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-[#161d27] rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 text-right text-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <h3 class="font-black text-slate-900 dark:text-white text-base">إعدادات غرامات التأخير الشهرية التلقائية</h3>
+            </div>
+            <button type="button" onclick="closePenaltySettingsModal()" class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 hover:text-rose-600 flex items-center justify-center text-slate-500 transition cursor-pointer">✕</button>
+        </div>
+        <form method="POST" action="" class="space-y-4">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="update_penalty_settings">
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label class="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800 cursor-pointer">
+                    <input type="checkbox" name="debt_penalty_enabled" value="1" <?= $debtPenaltyEnabled ? 'checked' : '' ?> class="rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer">
+                    <span class="font-bold text-slate-900 dark:text-white text-[11px]">تفعيل نظام الغرامات</span>
+                </label>
+
+                <label class="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-800 cursor-pointer">
+                    <input type="checkbox" name="debt_penalty_auto_apply" value="1" <?= $debtPenaltyAutoApply ? 'checked' : '' ?> class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                    <span class="font-bold text-slate-900 dark:text-white text-[11px]">تطبيق آلي يومي بالخلفية</span>
+                </label>
+            </div>
+
+            <!-- Amount 3m -->
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    قيمة غرامة كل شهر بعد 3 أشهر (الأشهر 4 و 5 و 6)
+                </label>
+                <div class="relative">
+                    <input type="number" step="500" min="0" id="penalty_3m_input" name="debt_penalty_3m" value="<?= (int)$debtPenalty3m ?>" required dir="ltr"
+                           oninput="onPenalty3mChange(this.value)"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-mono font-bold focus:border-amber-500">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">دج / شهر</span>
+                </div>
+                <span class="text-[10px] text-slate-500 block mt-1">تطبق شهرياً عند انقضاء كل شهر تأخير ابتداءً من الشهر الرابع وحتى نهاية الشهر السادس.</span>
+            </div>
+
+            <!-- Amount 6m (Double) -->
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="font-bold text-slate-700 dark:text-slate-300">
+                        قيمة غرامة كل شهر بعد 6 أشهر (الشهر 7 فما فوق)
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                        <input type="checkbox" id="autoDoublePenaltyCheck" checked onchange="toggleAutoDouble()" class="rounded text-rose-600 focus:ring-rose-500 w-3.5 h-3.5">
+                        <span>مضاعفة تلقائية (2×)</span>
+                    </label>
+                </div>
+                <div class="relative">
+                    <input type="number" step="500" min="0" id="penalty_6m_input" name="debt_penalty_6m" value="<?= (int)$debtPenalty6m ?>" required dir="ltr"
+                           oninput="onPenalty6mChange(this.value)"
+                           class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-mono font-bold focus:border-rose-500">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">دج / شهر</span>
+                </div>
+                <span class="text-[10px] text-slate-500 block mt-1">تتضاعف الغرامة الشهرية ابتداءً من الشهر السابع لتصبح ضعف غرامة الأشهر الأولى (2×) وتطبق آلياً لكل شهر إضافي.</span>
+            </div>
+
+            <!-- Explanatory Progressive Rules Callout -->
+            <div class="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2 text-[11px]">
+                <div class="font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>قاعدة تطبيق الغرامات التصاعدية التلقائية:</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-num">
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                        <div class="text-[10px] text-slate-400 font-sans">0 إلى 3 أشهر</div>
+                        <div class="font-bold text-emerald-600 mt-0.5">فترة سماح (0 دج)</div>
+                    </div>
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                        <div class="text-[10px] text-slate-400 font-sans">الأشهر 4 و 5 و 6</div>
+                        <div id="preview_penalty_3m" class="font-bold text-amber-600 mt-0.5">+<?= number_format($debtPenalty3m, 0) ?> دج/شهر</div>
+                    </div>
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                        <div class="text-[10px] text-slate-400 font-sans">الشهر 7 فما فوق</div>
+                        <div id="preview_penalty_6m" class="font-bold text-rose-600 mt-0.5">+<?= number_format($debtPenalty6m, 0) ?> دج/شهر (2×)</div>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-normal pt-1">
+                    🔒 النظام محمي ضد التكرار (Idempotent): لا تطبق غرامة نفس الشهر على نفس السائق مرتين أبداً.
+                </p>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onclick="closePenaltySettingsModal()" class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 cursor-pointer">إلغاء</button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black shadow-xs cursor-pointer">حفظ الإعدادات</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: سجل الغرامات الشهرية المطبقة على السائق -->
+<div id="driverPenaltiesModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-[#161d27] rounded-3xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 text-right text-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                <h3 class="font-black text-slate-900 dark:text-white text-base">سجل تفاصيل غرامات التأخير: <span id="penaltiesModalDriverName" class="text-amber-600"></span></h3>
+            </div>
+            <button type="button" onclick="closeDriverPenaltiesModal()" class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 hover:text-rose-600 flex items-center justify-center text-slate-500 transition cursor-pointer">✕</button>
+        </div>
+
+        <div id="penaltiesModalLoading" class="py-8 text-center text-slate-500 font-bold">
+            جاري تحميل سجل الغرامات...
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+            <table class="w-full text-right text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                        <th class="p-2.5">الشهر</th>
+                        <th class="p-2.5">تاريخ التطبيق</th>
+                        <th class="p-2.5">مدة التأخير</th>
+                        <th class="p-2.5">معدل الغرامة</th>
+                        <th class="p-2.5">البيان</th>
+                        <th class="p-2.5 text-left">المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody id="penaltiesModalTbody" class="divide-y divide-slate-100 dark:divide-slate-800">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+            <span class="font-bold text-slate-600 dark:text-slate-400">إجمالي الغرامات المطبقة: <strong id="penaltiesModalTotal" class="text-slate-900 dark:text-white font-num font-black text-sm">0 دج</strong></span>
+            <button type="button" onclick="closeDriverPenaltiesModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 cursor-pointer">إغلاق</button>
+        </div>
+    </div>
+</div>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

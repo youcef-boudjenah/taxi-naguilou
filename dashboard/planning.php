@@ -55,7 +55,10 @@ if ($pdo) {
 }
 
 // Active Tab ('generator', 'archive', or 'fleet_watch')
-$activeTab = $_GET['tab'] ?? 'generator';
+$activeTab = $_GET['tab'] ?? (is_driver() ? 'archive' : 'generator');
+if (is_driver() && $activeTab === 'generator') {
+    $activeTab = 'archive';
+}
 
 // Default 10 Rows Configuration for Night Shift
 $defaultAgrementBase = $companyInfo['agrement']; // e.g. 02/22
@@ -260,7 +263,56 @@ if ($pdo) {
         $nightWatch = $stmtNW ? $stmtNW->fetchAll() : [];
     } catch (\Throwable $e) { $nightWatch = []; }
 }
+
+$slipLogo = file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.png') 
+    ? url('/uploads/slips/slip_header_logo.png') 
+    : (file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.jpg') 
+        ? url('/uploads/slips/slip_header_logo.jpg') 
+        : url('/logo.webp'));
 ?>
+
+<style>
+/* Real A4 Paper Constraints on Screen & Print */
+#printablePlanning {
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+@media print {
+    .no-print, nav, header, aside, .sidebar, footer { display: none !important; }
+    body { background: white !important; padding: 0 !important; margin: 0 !important; color: #000 !important; }
+    
+    #printablePlanning {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 275mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        background: #ffffff !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+    #printablePlanning * {
+        visibility: visible !important;
+        color-adjust: exact !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 10mm 15mm;
+    }
+}
+</style>
 
 <div class="space-y-6">
 
@@ -492,30 +544,14 @@ if ($pdo) {
             </div>
 
             <!-- OFFICIAL NIGHT SHIFT DOCUMENT PAPER (PRINTABLE) -->
-            <div id="printablePlanning" class="bg-white text-slate-950 p-8 sm:p-11 rounded-2xl sm:rounded-3xl border border-slate-300 shadow-xl space-y-6 text-right font-sans mx-auto transition-all">
+            <div id="printablePlanning" class="bg-white text-slate-950 p-8 sm:p-11 rounded-2xl border border-slate-300 shadow-xl space-y-6 text-right font-sans mx-auto transition-all">
 
-                <!-- TOP HEADER: LOGO & OFFICIAL FISCAL DATA -->
-                <div class="border-b-2 border-slate-900 pb-4">
-                    <div class="flex items-start justify-between gap-4">
-                        <!-- Right: Company Logo & Info -->
-                        <div class="flex items-start gap-3.5">
-                            <img src="<?= url('/logo.webp') ?>" alt="Logo" class="w-16 h-16 object-contain rounded-xl border border-slate-200 shrink-0">
-                            <div class="space-y-0.5 text-[11px] leading-tight text-slate-800">
-                                <div class="font-black text-sm text-slate-950 tracking-tight">تاكسي نقيلو (TAXI NAGUILOU)</div>
-                                <div><span class="font-bold">السجل التجاري (RC):</span> <span class="font-mono font-bold"><?= htmlspecialchars($companyInfo['rc']) ?></span></div>
-                                <div><span class="font-bold">التعريف الجبائي (NIF):</span> <span class="font-mono font-bold"><?= htmlspecialchars($companyInfo['nif']) ?></span></div>
-                                <div><span class="font-bold">التعريف الإحصائي (NIS):</span> <span class="font-mono font-bold"><?= htmlspecialchars($companyInfo['nis']) ?></span></div>
-                                <div><span class="font-bold">رقم المادة (Art):</span> <span class="font-mono font-bold"><?= htmlspecialchars($companyInfo['art']) ?></span></div>
-                                <div><span class="font-bold">الهاتف:</span> <span class="font-mono font-bold" dir="ltr"><?= htmlspecialchars($companyInfo['phone']) ?></span></div>
-                                <div><span class="font-bold">البريد الإلكتروني:</span> <span class="font-mono" dir="ltr"><?= htmlspecialchars($companyInfo['email']) ?></span></div>
-                            </div>
-                        </div>
-
-                        <!-- Left: Wilaya & Date -->
-                        <div class="text-left space-y-1 text-xs">
-                            <div class="font-black text-slate-950 text-base" id="pvWilaya"><?= htmlspecialchars($currentWilaya) ?></div>
-                            <div class="text-xs text-slate-600 font-bold" id="pvPeriodBadge"><?= htmlspecialchars($currentPeriod) ?></div>
-                        </div>
+                <!-- TOP HEADER: CENTERED WIDE LOGO ONLY (NO FISCAL TEXT) -->
+                <div class="border-b-2 border-slate-900 pb-4 text-center">
+                    <img src="<?= $slipLogo ?>" alt="EURL TAXI NAGUILOU" class="mx-auto h-20 sm:h-24 max-w-[280px] object-contain mb-3">
+                    <div class="flex items-center justify-between text-xs text-slate-700 pt-2 border-t border-slate-200">
+                        <div class="font-black text-slate-950 text-sm" id="pvWilaya"><?= htmlspecialchars($currentWilaya) ?></div>
+                        <div class="text-xs font-bold text-slate-600 font-num" id="pvPeriodBadge"><?= htmlspecialchars($currentPeriod) ?></div>
                     </div>
                 </div>
 

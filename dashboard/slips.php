@@ -54,22 +54,33 @@ if ($pdo) {
     } catch (\Throwable $e) { $vehicles = []; }
 }
 
-// Active Tab ('generator' or 'history')
-$activeTab = $_GET['tab'] ?? 'generator';
-if (is_driver() && !isset($_GET['print_id'])) {
-    $activeTab = 'history';
+// Ensure general_note column exists in transmission_slips
+if ($pdo) {
+    try {
+        $chkCol = $pdo->query("SHOW COLUMNS FROM transmission_slips LIKE 'general_note'")->fetch();
+        if (!$chkCol) {
+            $pdo->exec("ALTER TABLE transmission_slips ADD COLUMN general_note VARCHAR(500) NULL AFTER documents_json");
+        }
+    } catch (\Throwable $e) {}
 }
 
-// Default 8 Official Documents as requested (without notes column)
+// Active Tab ('generator' or 'history')
+$activeTab = $_GET['tab'] ?? 'generator';
+if (is_driver() && empty($_GET['print_id'])) {
+    set_flash('error', 'عذراً، جداول الإرسال مخصصة للمشرفين وإدارة النقل.');
+    redirect('/dashboard/index.php');
+}
+
+// Default 8 Official Documents with notes column (ملاحظات)
 $defaultDocuments = [
-    ['num' => '01', 'title' => 'نسخة من البطاقة الرمادية', 'count' => '01', 'notes' => ''],
-    ['num' => '02', 'title' => 'نسخة من محضر المراقبة التقنية', 'count' => '01', 'notes' => ''],
-    ['num' => '03', 'title' => 'نسخة من شهادة تأمين السيارة', 'count' => '01', 'notes' => ''],
-    ['num' => '04', 'title' => 'طابع جبائي 50 دج', 'count' => '01', 'notes' => ''],
-    ['num' => '05', 'title' => 'رخصة استغلال منتهية الصلاحية', 'count' => '01', 'notes' => ''],
-    ['num' => '06', 'title' => 'دفتر المقاعد', 'count' => '01', 'notes' => ''],
+    ['num' => '01', 'title' => 'نسخة من البطاقة الرمادية', 'count' => '01', 'notes' => 'لأجل التجديد'],
+    ['num' => '02', 'title' => 'نسخة من محضر المراقبة التقنية', 'count' => '01', 'notes' => 'لأجل التجديد'],
+    ['num' => '03', 'title' => 'نسخة من شهادة تأمين السيارة', 'count' => '01', 'notes' => 'لأجل التجديد'],
+    ['num' => '04', 'title' => 'طابع جبائي 50 دج', 'count' => '01', 'notes' => 'قصد دفع الرسوم'],
+    ['num' => '05', 'title' => 'رخصة استغلال منتهية الصلاحية', 'count' => '01', 'notes' => 'الأصلية'],
+    ['num' => '06', 'title' => 'دفتر المقاعد', 'count' => '01', 'notes' => 'الأصلي'],
     ['num' => '07', 'title' => 'نسخة من دفتر الفحص الميترولوجي لعدادات سيارة الاجرة', 'count' => '01', 'notes' => ''],
-    ['num' => '08', 'title' => 'عقد العمل المحدد بمدة زمنية', 'count' => '01', 'notes' => ''],
+    ['num' => '08', 'title' => 'عقد العمل المحدد بمدة زمنية', 'count' => '01', 'notes' => 'نسخة مصادق عليها'],
 ];
 
 // Handle Save Slip (Create or Update)
@@ -92,6 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $driverName = trim($_POST['driver_name'] ?? '');
     $vehicleId = !empty($_POST['vehicle_id']) ? intval($_POST['vehicle_id']) : null;
     $subject = trim($_POST['subject'] ?? 'تجدون رفقة هذا الارسال ملف تجديد رخص الاستغلال للسائق الأجير: ' . $driverName);
+    $generalNote = trim($_POST['general_note'] ?? '');
 
     // Handle slip header logo upload if provided
     if (!empty($_FILES['slip_logo']['tmp_name']) && is_uploaded_file($_FILES['slip_logo']['tmp_name'])) {
@@ -113,9 +125,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 
-    // Build documents array from POST (3 columns: num, title, count)
+    // Build documents array from POST (4 columns: num, title, count, notes)
     $docTitles = $_POST['doc_title'] ?? [];
     $docCounts = $_POST['doc_count'] ?? [];
+    $docNotes  = $_POST['doc_notes'] ?? [];
     $documents = [];
 
     if (is_array($docTitles)) {
@@ -126,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     'num'   => str_pad($i + 1, 2, '0', STR_PAD_LEFT),
                     'title' => $t,
                     'count' => str_pad(trim($docCounts[$i] ?? '01'), 2, '0', STR_PAD_LEFT),
-                    'notes' => ''
+                    'notes' => trim($docNotes[$i] ?? '')
                 ];
             }
         }
@@ -153,13 +166,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 UPDATE transmission_slips 
                 SET slip_number = ?, recipient = ?, subject = ?, address = ?, agrement = ?, wilaya = ?,
                     driver_id = ?, driver_name = ?, vehicle_id = ?, route_line = ?, issue_date = ?,
-                    valid_until = ?, documents_json = ?
+                    valid_until = ?, documents_json = ?, general_note = ?
                 WHERE id = ?
             ");
             $stmt->execute([
                 $slipNumber, $recipient, $subject, $address, $agrement, $wilaya,
                 $driverId, $driverName, $vehicleId, $routeLine, $issueDate,
-                $validUntil, $documentsJson, $slipId
+                $validUntil, $documentsJson, $generalNote, $slipId
             ]);
             log_audit($pdo, 'slip_updated', 'transmission_slips', $slipId, "تعديل جدول إرسال رقم $slipNumber للمديرية");
             set_flash('success', "تم تعديل وحفظ جدول الإرسال رقم $slipNumber بنجاح في الأرشيف");
@@ -169,13 +182,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Create new
             $stmt = $pdo->prepare("
                 INSERT INTO transmission_slips 
-                (slip_number, recipient, subject, address, agrement, wilaya, driver_id, driver_name, vehicle_id, route_line, issue_date, valid_until, documents_json, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                (slip_number, recipient, subject, address, agrement, wilaya, driver_id, driver_name, vehicle_id, route_line, issue_date, valid_until, documents_json, general_note, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ");
             $stmt->execute([
                 $slipNumber, $recipient, $subject, $address, $agrement, $wilaya,
                 $driverId, $driverName, $vehicleId, $routeLine, $issueDate,
-                $validUntil, $documentsJson
+                $validUntil, $documentsJson, $generalNote
             ]);
             $newId = (int)$pdo->lastInsertId();
             log_audit($pdo, 'slip_generated', 'transmission_slips', $newId, "إنشاء جدول إرسال جديد رقم $slipNumber للمديرية");
@@ -241,6 +254,7 @@ $currentRecipient = $activeSlip['recipient'] ?? 'مدير النقل لولاي�
 $currentDriverId = $activeSlip['driver_id'] ?? '';
 $currentDriverName = $activeSlip['driver_name'] ?? ($activeSlip['db_driver_name'] ?? '');
 $currentSubject = $activeSlip['subject'] ?? 'تجدون رفقة هذا الارسال ملف تجديد رخص الاستغلال للسائق الأجير: ' . ($currentDriverName ? $currentDriverName : '...................');
+$currentGeneralNote = $activeSlip['general_note'] ?? '';
 
 // Calculate sequential default slip number if creating new
 if ($activeSlip) {
@@ -295,6 +309,19 @@ if ($pdo) {
         $slipsHistory = [];
     }
 }
+
+// Determine header logo for slip (default or uploaded wide logo)
+$slipLogoUrl = url('/logo.webp');
+$slipsDir = __DIR__ . '/../uploads/slips/';
+if (file_exists($slipsDir . 'slip_header_logo.png')) {
+    $slipLogoUrl = url('/uploads/slips/slip_header_logo.png?v=' . filemtime($slipsDir . 'slip_header_logo.png'));
+} elseif (file_exists($slipsDir . 'slip_header_logo.webp')) {
+    $slipLogoUrl = url('/uploads/slips/slip_header_logo.webp?v=' . filemtime($slipsDir . 'slip_header_logo.webp'));
+} elseif (file_exists($slipsDir . 'slip_header_logo.jpg')) {
+    $slipLogoUrl = url('/uploads/slips/slip_header_logo.jpg?v=' . filemtime($slipsDir . 'slip_header_logo.jpg'));
+} elseif (file_exists($slipsDir . 'slip_header_logo.svg')) {
+    $slipLogoUrl = url('/uploads/slips/slip_header_logo.svg?v=' . filemtime($slipsDir . 'slip_header_logo.svg'));
+}
 ?>
 
 <div class="space-y-6">
@@ -342,7 +369,7 @@ if ($pdo) {
         <!-- Form Column (No Print) -->
         <div class="no-print xl:col-span-5 space-y-5">
 
-            <form id="slipForm" method="POST" action="" class="space-y-5">
+            <form id="slipForm" method="POST" action="" enctype="multipart/form-data" class="space-y-5">
                 <?= csrf_field() ?>
                 <input type="hidden" name="action" value="save_slip">
                 <input type="hidden" name="slip_id" value="<?= $activeSlip['id'] ?? 0 ?>">
@@ -354,11 +381,29 @@ if ($pdo) {
                     <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                         <div class="flex items-center gap-2">
                             <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                            <h3 class="font-black text-slate-900 dark:text-white text-sm">معلومات الجدول</h3>
+                            <h3 class="font-black text-slate-900 dark:text-white text-sm">معلومات جدول الإرسال</h3>
                         </div>
                         <span class="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold text-[10px] border border-amber-500/20">
-                            الافتراضي
+                            نموذج رسمي
                         </span>
+                    </div>
+
+                    <!-- Header Logo Selector (Wide Logo Centered) -->
+                    <div class="p-3 bg-amber-500/5 dark:bg-amber-500/10 rounded-2xl border border-amber-500/20 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="block font-black text-amber-950 dark:text-amber-300 text-xs">شعار الرأسية (شعار عريض يظهر في الوسط)</label>
+                            <span class="px-2 py-0.5 rounded-md bg-amber-200/60 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-[10px] font-bold">في الوسط</span>
+                        </div>
+                        <div class="flex items-center gap-2.5">
+                            <label for="inputSlipLogo" class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-[#111827] hover:bg-amber-50 dark:hover:bg-amber-950/40 text-slate-800 dark:text-slate-200 font-bold text-xs border border-amber-300 dark:border-amber-700 transition shadow-2xs">
+                                <svg class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                                </svg>
+                                <span>اختيار أو تغيير الشعار</span>
+                            </label>
+                            <input type="file" id="inputSlipLogo" name="slip_logo" accept="image/*" class="hidden" onchange="onSlipLogoSelected(this)">
+                            <span id="logoFileName" class="text-[11px] text-slate-500 truncate">يظهر مباشرة في وسط رأسية الورقة</span>
+                        </div>
                     </div>
 
                     <!-- Address & Agrement -->
@@ -431,6 +476,13 @@ if ($pdo) {
                         <textarea id="inputSubject" name="subject" rows="2" oninput="syncLivePreview()"
                                   class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 transition"><?= htmlspecialchars($currentSubject) ?></textarea>
                     </div>
+
+                    <!-- General Note (ملاحظة عامة على جدول الإرسال) -->
+                    <div>
+                        <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">ملاحظة عامة على الإرسال (اختياري - تظهر أسفل الجدول)</label>
+                        <input type="text" id="inputGeneralNote" name="general_note" value="<?= htmlspecialchars($currentGeneralNote) ?>" oninput="syncLivePreview()" placeholder="مثال: تسلّم الوثائق الأصلية عند الاستلام للمطابقة"
+                               class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 transition text-xs">
+                    </div>
                 </div>
 
                 <!-- Card 2: قائمة الوثائق المرفقة -->
@@ -438,7 +490,7 @@ if ($pdo) {
                     <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                         <div class="flex items-center gap-2">
                             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                            <h3 class="font-black text-slate-900 dark:text-white text-sm">قائمة الوثائق المرفقة</h3>
+                            <h3 class="font-black text-slate-900 dark:text-white text-sm">قائمة الوثائق والمستندات</h3>
                         </div>
                         <button type="button" onclick="addNewDocRow()" 
                                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20 transition cursor-pointer">
@@ -449,18 +501,26 @@ if ($pdo) {
                         </button>
                     </div>
 
+                    <div class="hidden sm:flex items-center gap-2 px-2 text-[11px] font-bold text-slate-500">
+                        <span class="w-7 text-center">الرقم</span>
+                        <span class="flex-1">بيان وتعيين الوثيقة</span>
+                        <span class="w-16 text-center">العدد</span>
+                        <span class="w-28 sm:w-36 text-center">ملاحظات</span>
+                        <span class="w-7"></span>
+                    </div>
+
                     <div id="docsRowsContainer" class="space-y-2.5">
                         <?php foreach ($activeDocuments as $idx => $doc): ?>
-                            <div class="doc-row flex items-center gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition">
+                            <div class="doc-row flex items-center gap-2 p-2 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition">
                                 <span class="doc-badge font-mono font-bold text-[11px] w-7 text-center text-slate-500 shrink-0">
                                     <?= htmlspecialchars($doc['num'] ?? str_pad($idx + 1, 2, '0', STR_PAD_LEFT)) ?>
                                 </span>
                                 <input type="text" name="doc_title[]" value="<?= htmlspecialchars($doc['title']) ?>" placeholder="تعيين الوثيقة" oninput="syncLivePreview()"
                                        class="doc-title-input flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 text-xs">
                                 <input type="text" name="doc_count[]" value="<?= htmlspecialchars($doc['count'] ?? '01') ?>" placeholder="العدد" oninput="syncLivePreview()" dir="ltr"
-                                       class="doc-count-input w-12 px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num font-bold text-center focus:border-amber-500 text-xs">
-                                <input type="text" name="doc_notes[]" value="<?= htmlspecialchars($doc['notes'] ?? 'التجديد') ?>" placeholder="الملاحظة" oninput="syncLivePreview()"
-                                       class="doc-notes-input w-20 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium text-center focus:border-amber-500 text-xs">
+                                       class="doc-count-input w-16 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num font-bold text-center focus:border-amber-500 text-xs">
+                                <input type="text" name="doc_notes[]" value="<?= htmlspecialchars($doc['notes'] ?? '') ?>" placeholder="ملاحظة" oninput="syncLivePreview()"
+                                       class="doc-notes-input w-28 sm:w-36 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 text-xs">
                                 <button type="button" onclick="removeDocRow(this)" class="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition shrink-0 cursor-pointer" title="حذف السطر">
                                     ✕
                                 </button>
@@ -476,7 +536,7 @@ if ($pdo) {
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
                         </svg>
-                        <span>طباعة المستند</span>
+                        <span>طباعة المستند (A4)</span>
                     </button>
 
                     <button type="submit" 
@@ -497,7 +557,7 @@ if ($pdo) {
             <div class="no-print flex items-center justify-between bg-white dark:bg-[#161d27] px-5 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                 <div class="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-200">
                     <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>معاينة الطباعة المباشرة (A4 Live Preview)</span>
+                    <span>معاينة ورقة الإرسال (A4 Live Preview - 210 × 297 mm)</span>
                 </div>
                 <button type="button" onclick="printBordereauNow()" 
                         class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-2xs cursor-pointer active:scale-95">
@@ -508,111 +568,119 @@ if ($pdo) {
                 </button>
             </div>
 
-            <!-- OFFICIAL BORDEREAU SHEET PAPER (PRINTABLE) -->
-            <div id="printableBordereau" class="bg-white text-slate-950 p-7 sm:p-10 rounded-2xl sm:rounded-3xl border border-slate-300 shadow-xl space-y-5 text-right font-sans mx-auto transition-all">
-                
-                <!-- TOP HEADER WITH LOGO & OFFICIAL FISCAL DATA -->
-                <div class="border-b-2 border-slate-900 pb-4">
-                    <div class="flex items-start justify-between gap-4">
-                        <!-- Right: Company Logo & Fiscal Info -->
-                        <div class="flex items-start gap-3.5">
-                            <img src="<?= url('/logo.webp') ?>" alt="Logo" class="w-16 h-16 object-contain rounded-xl border border-slate-200 shrink-0">
-                            <div class="space-y-0.5 text-[11px] leading-tight text-slate-800">
-                                <div class="font-black text-sm text-slate-950 tracking-tight">تاكسي نقيلو (TAXI NAGUILOU)</div>
-                                <div><span class="font-bold">السجل التجاري (RC):</span> <span class="font-mono font-bold" id="pvRc"><?= htmlspecialchars($companyInfo['rc']) ?></span></div>
-                                <div><span class="font-bold">التعريف الجبائي (NIF):</span> <span class="font-mono font-bold" id="pvNif"><?= htmlspecialchars($companyInfo['nif']) ?></span></div>
-                                <div><span class="font-bold">التعريف الإحصائي (NIS):</span> <span class="font-mono font-bold" id="pvNis"><?= htmlspecialchars($companyInfo['nis']) ?></span></div>
-                                <div><span class="font-bold">رقم المادة (Art):</span> <span class="font-mono font-bold" id="pvArt"><?= htmlspecialchars($companyInfo['art']) ?></span></div>
-                                <div><span class="font-bold">الهاتف:</span> <span class="font-mono font-bold" dir="ltr" id="pvPhone"><?= htmlspecialchars($companyInfo['phone']) ?></span></div>
-                                <div><span class="font-bold">البريد الإلكتروني:</span> <span class="font-mono" dir="ltr" id="pvEmail"><?= htmlspecialchars($companyInfo['email']) ?></span></div>
+            <!-- Paper Viewport Canvas Container (Gray desk simulation preventing horizontal full-screen stretching) -->
+            <div class="slip-canvas-container bg-slate-200/80 dark:bg-[#0c121e] p-3 sm:p-6 lg:p-8 rounded-3xl border border-slate-300 dark:border-slate-800/80 flex justify-center items-start overflow-x-auto shadow-inner">
+
+                <!-- OFFICIAL BORDEREAU SHEET PAPER (A4: 210mm x 297mm) -->
+                <div id="printableBordereau" class="slip-a4-sheet bg-white text-slate-950 p-8 sm:p-12 shadow-2xl border border-slate-300 rounded-sm w-full max-w-[210mm] min-h-[297mm] mx-auto text-right font-sans flex flex-col justify-between transition-all">
+                    
+                    <div class="space-y-4">
+                        <!-- Official State Header -->
+                        <div class="text-center space-y-0.5 pb-1">
+                            <div class="text-xs font-bold text-slate-700 tracking-wide">الجمهورية الجزائرية الديمقراطية الشعبية</div>
+                            <div class="text-[11px] font-bold text-slate-600">وزارة النقل — مديرية النقل البري لولاية <span id="pvWilayaHeader"><?= htmlspecialchars($currentWilaya) ?></span></div>
+                        </div>
+
+                        <!-- 1. TOP CENTERED LOGO (شعار عريض وكبير في الوسط) -->
+                        <div class="text-center pb-3 border-b-2 border-slate-900 flex justify-center items-center">
+                            <img src="<?= $slipLogoUrl ?>" alt="تاكسي نقيلو" class="h-28 sm:h-36 max-h-44 w-auto max-w-[95%] sm:max-w-xl object-contain mx-auto drop-shadow-sm transition-all" id="pvLogo">
+                        </div>
+
+                        <!-- 2. SUB-HEADER: AGENCY METADATA & RECIPIENT -->
+                        <div class="grid grid-cols-2 gap-4 items-start pt-1 text-xs">
+                            <!-- Right: Agency Info & Slip Number -->
+                            <div class="space-y-1.5 text-right">
+                                <div class="text-slate-900">
+                                    <span class="font-bold">العنوان:</span> 
+                                    <span id="pvAddress"><?= htmlspecialchars($currentAddress) ?></span>
+                                </div>
+                                <div class="text-slate-900">
+                                    <span class="font-bold">الاعتماد رقم:</span> 
+                                    <span id="pvAgrement" class="font-mono font-bold"><?= htmlspecialchars($currentAgrement) ?></span>
+                                </div>
+                                <div class="pt-1">
+                                    <span class="inline-block px-3.5 py-1.5 bg-slate-100 border border-slate-400 rounded-lg font-mono font-black text-xs text-slate-950 shadow-2xs" id="pvSlipNum">
+                                        رقم الإرسال : <?= htmlspecialchars($currentSlipNumber) ?>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Left: Wilaya & Date & Destinataire -->
+                            <div class="space-y-2 text-left">
+                                <div class="font-black text-slate-950 text-sm">
+                                    <span id="pvWilayaDate"><?= htmlspecialchars($currentWilaya) ?> في:</span> 
+                                    <span id="pvDate" class="font-mono"><?= htmlspecialchars($currentDate) ?></span>
+                                </div>
+                                <div class="border-2 border-slate-900 rounded-xl p-3 bg-slate-50 text-right space-y-0.5 shadow-2xs">
+                                    <div class="text-[10px] font-bold text-slate-500">المرسل إليه</div>
+                                    <div class="text-sm font-black text-slate-950" id="pvRecipient">
+                                        إلى السيد : <?= htmlspecialchars($currentRecipient) ?>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Left: Wilaya / Date / Address / Agrement / Slip Number -->
-                        <div class="text-left space-y-1 text-xs">
-                            <div class="font-black text-slate-950 text-sm">
-                                <span id="pvWilayaDate"><?= htmlspecialchars($currentWilaya) ?> في:</span> 
-                                <span id="pvDate" class="font-mono"><?= htmlspecialchars($currentDate) ?></span>
+                        <!-- 3. MAIN TITLE: جدول إرسال -->
+                        <div class="text-center py-2">
+                            <div class="inline-block px-12 py-2 border-2 border-slate-900 rounded-xl bg-slate-100 font-black text-lg text-slate-950 tracking-wider shadow-2xs">
+                                جدول إرسال
                             </div>
-                            <div class="text-[11px] text-slate-700">
-                                <span class="font-bold">العنوان:</span> 
-                                <span id="pvAddress"><?= htmlspecialchars($currentAddress) ?></span>
-                            </div>
-                            <div class="text-[11px] text-slate-700">
-                                <span class="font-bold">الاعتماد:</span> 
-                                <span id="pvAgrement" class="font-mono font-bold"><?= htmlspecialchars($currentAgrement) ?></span>
-                            </div>
-                            <div class="pt-1.5">
-                                <span class="inline-block px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg font-mono font-black text-xs text-slate-950 shadow-2xs" id="pvSlipNum">
-                                    رقم الإرسال : <?= htmlspecialchars($currentSlipNumber) ?>
-                                </span>
+                        </div>
+
+                        <!-- 4. SUBJECT LINE -->
+                        <div class="p-3 border-r-4 border-slate-900 bg-slate-50 rounded-lg text-xs font-bold text-slate-950 leading-relaxed shadow-2xs">
+                            <span class="font-black text-slate-800">الموضوع: </span>
+                            <span id="pvSubject"><?= htmlspecialchars($currentSubject) ?></span>
+                        </div>
+
+                        <!-- 5. OFFICIAL DOCUMENTS TABLE (4 COLUMNS: الرقم | بيان وتعيين الوثائق | العدد | ملاحظات) -->
+                        <div class="overflow-hidden border-2 border-slate-900 rounded-xl">
+                            <table class="w-full border-collapse text-xs text-right">
+                                <thead>
+                                    <tr class="bg-slate-200 border-b-2 border-slate-900 font-black text-slate-950 text-center">
+                                        <th class="border-l-2 border-slate-900 p-2 w-14 text-center">الرقم</th>
+                                        <th class="border-l-2 border-slate-900 p-2 text-right">بيان وتعيين الوثائق والمستندات</th>
+                                        <th class="border-l-2 border-slate-900 p-2 w-16 text-center">العدد</th>
+                                        <th class="p-2 w-32 sm:w-36 text-center">ملاحظات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pvTableBody" class="divide-y divide-slate-300 font-medium">
+                                    <?php foreach ($activeDocuments as $idx => $doc): ?>
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="border-l-2 border-slate-900 p-2 text-center font-mono font-bold"><?= htmlspecialchars($doc['num'] ?? str_pad($idx + 1, 2, '0', STR_PAD_LEFT)) ?></td>
+                                            <td class="border-l-2 border-slate-900 p-2 font-bold text-slate-950"><?= htmlspecialchars($doc['title']) ?></td>
+                                            <td class="border-l-2 border-slate-900 p-2 text-center font-mono font-bold"><?= htmlspecialchars($doc['count'] ?? '01') ?></td>
+                                            <td class="p-2 text-center font-medium text-slate-800 text-[11px]"><?= htmlspecialchars($doc['notes'] ?? '') ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Optional General Observation Box -->
+                        <div id="pvGeneralNoteBox" class="<?= empty($currentGeneralNote) ? 'hidden' : '' ?> p-2.5 border border-slate-400 bg-slate-50 rounded-lg text-xs text-slate-900 font-bold leading-relaxed shadow-2xs">
+                            <span class="font-black text-slate-950">ملاحظة: </span>
+                            <span id="pvGeneralNote"><?= htmlspecialchars($currentGeneralNote) ?></span>
+                        </div>
+                    </div>
+
+                    <!-- 6. BOTTOM SIGNATURES & RECEPTION RECEIPT -->
+                    <div class="grid grid-cols-2 gap-6 pt-8 text-center text-xs">
+                        <div class="p-4 border-2 border-dashed border-slate-400 rounded-2xl h-36 flex flex-col justify-between bg-slate-50/50">
+                            <span class="font-black text-slate-900">ختم وتوقيع مسيّر الوكالة</span>
+                            <div class="text-xs font-black text-slate-950">SARL NAGUILOU TAXI</div>
+                            <span class="text-[11px] text-slate-400">............................................</span>
+                        </div>
+                        <div class="p-4 border-2 border-dashed border-slate-400 rounded-2xl h-36 flex flex-col justify-between bg-slate-50/50">
+                            <span class="font-black text-slate-900">وصل استلام من مديرية النقل (DTW)</span>
+                            <div class="space-y-1 text-[11px] text-slate-500">
+                                <div>تاريخ الاستلام: ...... / ...... / ............</div>
+                                <div>الختم والتوقيع: ............................</div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- DESTINATAIRE (المرسل إليه) -->
-                <div class="flex justify-end pt-1">
-                    <div class="w-80 border-2 border-slate-900 rounded-xl p-3 bg-slate-50/60 text-right space-y-0.5">
-                        <div class="text-[11px] font-bold text-slate-500">المرسل إليه</div>
-                        <div class="text-sm font-black text-slate-950" id="pvRecipient">
-                            إلى السيد : <?= htmlspecialchars($currentRecipient) ?>
-                        </div>
-                    </div>
                 </div>
-
-                <!-- MAIN TITLE: جدول إرسال -->
-                <div class="text-center py-1">
-                    <div class="inline-block px-10 py-1.5 border-2 border-slate-900 rounded-xl bg-slate-100 font-black text-base text-slate-950 tracking-wider">
-                        جدول إرسال
-                    </div>
-                </div>
-
-                <!-- SUBJECT LINE -->
-                <div class="p-2.5 border-r-4 border-slate-900 bg-slate-50 rounded text-xs font-bold text-slate-900 leading-relaxed">
-                    <span id="pvSubject"><?= htmlspecialchars($currentSubject) ?></span>
-                </div>
-
-                <!-- OFFICIAL DOCUMENTS TABLE -->
-                <div class="overflow-hidden border border-slate-900 rounded-xl">
-                    <table class="w-full border-collapse text-xs text-right">
-                        <thead>
-                            <tr class="bg-slate-200 border-b border-slate-900 font-black text-slate-950 text-center">
-                                <th class="border-l border-slate-900 p-2.5 w-16">الرقم</th>
-                                <th class="border-l border-slate-900 p-2.5 text-right">تعيين الوثائق</th>
-                                <th class="border-l border-slate-900 p-2.5 w-20">العدد</th>
-                                <th class="p-2.5 w-32">الملاحظة</th>
-                            </tr>
-                        </thead>
-                        <tbody id="pvTableBody" class="divide-y divide-slate-300 font-medium">
-                            <?php foreach ($activeDocuments as $doc): ?>
-                                <tr class="hover:bg-slate-50">
-                                    <td class="border-l border-slate-300 p-2 text-center font-mono font-bold"><?= htmlspecialchars($doc['num']) ?></td>
-                                    <td class="border-l border-slate-300 p-2 font-bold text-slate-900"><?= htmlspecialchars($doc['title']) ?></td>
-                                    <td class="border-l border-slate-300 p-2 text-center font-mono font-bold"><?= htmlspecialchars($doc['count']) ?></td>
-                                    <td class="p-2 text-center text-slate-800"><?= htmlspecialchars($doc['notes']) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- BOTTOM SIGNATURES & RECEPTION RECEIPT -->
-                <div class="grid grid-cols-2 gap-6 pt-4 text-center text-xs">
-                    <div class="p-4 border border-dashed border-slate-400 rounded-2xl h-36 flex flex-col justify-between">
-                        <span class="font-black text-slate-800">وصل استلام من مديرية النقل</span>
-                        <div class="space-y-1 text-[11px] text-slate-500">
-                            <div>تاريخ الاستلام: ...... / ...... / ............</div>
-                            <div>الختم والتوقيع: ............................</div>
-                        </div>
-                    </div>
-                    <div class="p-4 border border-dashed border-slate-400 rounded-2xl h-36 flex flex-col justify-between">
-                        <span class="font-black text-slate-800">ختم وتوقيع مسيّر الوكالة</span>
-                        <div class="text-xs font-black text-slate-950">SARL NAGUILOU TAXI</div>
-                        <span class="text-[11px] text-slate-400">............................................</span>
-                    </div>
-                </div>
-
             </div>
         </div>
 
@@ -735,35 +803,87 @@ if ($pdo) {
 <!-- PRINT CSS STYLES -->
 <style>
 @media print {
-    /* Hide everything on screen except printable paper */
-    body {
+    @page {
+        size: A4 portrait;
+        margin: 10mm 12mm 10mm 12mm;
+    }
+
+    html, body {
+        width: 100% !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
         background: #ffffff !important;
         color: #000000 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        font-size: 11pt !important;
     }
-    .no-print, header, nav, aside, footer, #erpNavCategories, .erp-ribbon, #desktopHeader {
+
+    /* Hide everything on screen except printable paper */
+    header, nav, aside, footer, #erpNavCategories, .erp-ribbon, #desktopHeader, .no-print, [class*="no-print"] {
         display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
-    #printableBordereau {
+
+    /* Flatten and un-constrain all parent layout containers */
+    body > div, main, main > div, .grid, [class*="col-span"], .slip-canvas-container {
         display: block !important;
-        visibility: visible !important;
-        position: static !important;
         width: 100% !important;
         max-width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
+    /* The slip fills the A4 page perfectly without any scaling or shrink bugs */
+    #printableBordereau {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 272mm !important;
         margin: 0 !important;
         padding: 0 !important;
         border: none !important;
         box-shadow: none !important;
         border-radius: 0 !important;
+        background: #ffffff !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
     }
+
     #printableBordereau * {
         visibility: visible !important;
         color-adjust: exact !important;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
     }
-    @page {
-        size: A4 portrait;
-        margin: 12mm 15mm;
+
+    #printableBordereau table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+
+    #printableBordereau th, 
+    #printableBordereau td {
+        border-color: #000000 !important;
+    }
+
+    #printableBordereau #pvLogo {
+        height: 38mm !important;
+        max-height: 42mm !important;
+        width: auto !important;
+        max-width: 175mm !important;
+        object-fit: contain !important;
+        margin: 0 auto 3mm auto !important;
+        display: block !important;
     }
 }
 </style>
@@ -778,44 +898,87 @@ function syncLivePreview() {
     const slipNum = document.getElementById('inputSlipNumber').value || '000001-2026';
     const recipient = document.getElementById('inputRecipient').value || 'مدير النقل لولاية أدرار';
     const subject = document.getElementById('inputSubject').value || '';
+    const generalNoteInput = document.getElementById('inputGeneralNote');
+    const generalNote = generalNoteInput ? generalNoteInput.value.trim() : '';
 
     // Update Header Spans
-    document.getElementById('pvAddress').textContent = address;
-    document.getElementById('pvAgrement').textContent = agrement;
-    document.getElementById('pvWilayaDate').textContent = wilaya + ' في:';
-    document.getElementById('pvDate').textContent = date;
-    document.getElementById('pvSlipNum').textContent = 'رقم الإرسال : ' + slipNum;
-    document.getElementById('pvRecipient').textContent = 'إلى السيد : ' + recipient;
-    document.getElementById('pvSubject').textContent = subject;
+    const pvWilayaHeader = document.getElementById('pvWilayaHeader');
+    if (pvWilayaHeader) pvWilayaHeader.textContent = wilaya;
+    const pvAddress = document.getElementById('pvAddress');
+    if (pvAddress) pvAddress.textContent = address;
+    const pvAgrement = document.getElementById('pvAgrement');
+    if (pvAgrement) pvAgrement.textContent = agrement;
+    const pvWilayaDate = document.getElementById('pvWilayaDate');
+    if (pvWilayaDate) pvWilayaDate.textContent = wilaya + ' في:';
+    const pvDate = document.getElementById('pvDate');
+    if (pvDate) pvDate.textContent = date;
+    const pvSlipNum = document.getElementById('pvSlipNum');
+    if (pvSlipNum) pvSlipNum.textContent = 'رقم الإرسال : ' + slipNum;
+    const pvRecipient = document.getElementById('pvRecipient');
+    if (pvRecipient) pvRecipient.textContent = 'إلى السيد : ' + recipient;
+    const pvSubject = document.getElementById('pvSubject');
+    if (pvSubject) pvSubject.textContent = subject;
 
-    // Update Table of Documents
-    const rowsContainer = document.getElementById('docsRowsContainer');
-    const docRows = rowsContainer.querySelectorAll('.doc-row');
-    const tableBody = document.getElementById('pvTableBody');
-    tableBody.innerHTML = '';
-
-    docRows.forEach((row, index) => {
-        const title = row.querySelector('.doc-title-input').value.trim();
-        const count = row.querySelector('.doc-count-input').value.trim() || '01';
-        const notes = row.querySelector('.doc-notes-input').value.trim() || 'التجديد';
-        const num = String(index + 1).padStart(2, '0');
-
-        // Update badge inside form
-        const badge = row.querySelector('.doc-badge');
-        if (badge) badge.textContent = num;
-
-        if (title) {
-            const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50';
-            tr.innerHTML = `
-                <td class="border-l border-slate-300 p-2 text-center font-mono font-bold">${num}</td>
-                <td class="border-l border-slate-300 p-2 font-bold text-slate-900">${escapeHtml(title)}</td>
-                <td class="border-l border-slate-300 p-2 text-center font-mono font-bold">${escapeHtml(count)}</td>
-                <td class="p-2 text-center text-slate-800">${escapeHtml(notes)}</td>
-            `;
-            tableBody.appendChild(tr);
+    // Update General Note Box
+    const pvGeneralNoteBox = document.getElementById('pvGeneralNoteBox');
+    const pvGeneralNote = document.getElementById('pvGeneralNote');
+    if (pvGeneralNoteBox && pvGeneralNote) {
+        if (generalNote) {
+            pvGeneralNote.textContent = generalNote;
+            pvGeneralNoteBox.classList.remove('hidden');
+        } else {
+            pvGeneralNoteBox.classList.add('hidden');
         }
-    });
+    }
+
+    // Update Table of Documents (4 columns: num, title, count, notes)
+    const rowsContainer = document.getElementById('docsRowsContainer');
+    const docRows = rowsContainer ? rowsContainer.querySelectorAll('.doc-row') : [];
+    const tableBody = document.getElementById('pvTableBody');
+    if (tableBody) {
+        tableBody.innerHTML = '';
+
+        docRows.forEach((row, index) => {
+            const titleInput = row.querySelector('.doc-title-input');
+            const countInput = row.querySelector('.doc-count-input');
+            const notesInput = row.querySelector('.doc-notes-input');
+            const title = titleInput ? titleInput.value.trim() : '';
+            const count = countInput ? countInput.value.trim() || '01' : '01';
+            const notes = notesInput ? notesInput.value.trim() : '';
+            const num = String(index + 1).padStart(2, '0');
+
+            // Update badge inside form
+            const badge = row.querySelector('.doc-badge');
+            if (badge) badge.textContent = num;
+
+            if (title) {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+                tr.innerHTML = `
+                    <td class="border-l-2 border-slate-900 p-2 text-center font-mono font-bold">${num}</td>
+                    <td class="border-l-2 border-slate-900 p-2 font-bold text-slate-950">${escapeHtml(title)}</td>
+                    <td class="border-l-2 border-slate-900 p-2 text-center font-mono font-bold">${escapeHtml(count)}</td>
+                    <td class="p-2 text-center text-xs font-medium text-slate-800">${escapeHtml(notes)}</td>
+                `;
+                tableBody.appendChild(tr);
+            }
+        });
+    }
+}
+
+function onSlipLogoSelected(input) {
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const fileNameEl = document.getElementById('logoFileName');
+        if (fileNameEl) fileNameEl.textContent = file.name;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const logoEl = document.getElementById('pvLogo');
+            if (logoEl) logoEl.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
 }
 
 function onDriverQuickSelected(selectEl) {
@@ -841,19 +1004,20 @@ function onDriverNameTyped(name) {
 
 function addNewDocRow() {
     const container = document.getElementById('docsRowsContainer');
+    if (!container) return;
     const currentCount = container.querySelectorAll('.doc-row').length + 1;
     const num = String(currentCount).padStart(2, '0');
 
     const div = document.createElement('div');
-    div.className = 'doc-row flex items-center gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition';
+    div.className = 'doc-row flex items-center gap-2 p-2 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition';
     div.innerHTML = `
         <span class="doc-badge font-mono font-bold text-[11px] w-7 text-center text-slate-500 shrink-0">${num}</span>
         <input type="text" name="doc_title[]" value="" placeholder="تعيين الوثيقة الجديدة" oninput="syncLivePreview()"
                class="doc-title-input flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 text-xs">
         <input type="text" name="doc_count[]" value="01" placeholder="العدد" oninput="syncLivePreview()" dir="ltr"
-               class="doc-count-input w-12 px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num font-bold text-center focus:border-amber-500 text-xs">
-        <input type="text" name="doc_notes[]" value="التجديد" placeholder="الملاحظة" oninput="syncLivePreview()"
-               class="doc-notes-input w-20 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium text-center focus:border-amber-500 text-xs">
+               class="doc-count-input w-16 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-num font-bold text-center focus:border-amber-500 text-xs">
+        <input type="text" name="doc_notes[]" value="" placeholder="ملاحظة" oninput="syncLivePreview()"
+               class="doc-notes-input w-28 sm:w-36 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] text-slate-900 dark:text-white font-medium focus:border-amber-500 text-xs">
         <button type="button" onclick="removeDocRow(this)" class="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition shrink-0 cursor-pointer" title="حذف السطر">
             ✕
         </button>
@@ -872,6 +1036,7 @@ function removeDocRow(btn) {
 }
 
 function printBordereauNow() {
+    syncLivePreview();
     window.print();
 }
 

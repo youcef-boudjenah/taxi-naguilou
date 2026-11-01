@@ -327,6 +327,136 @@ if ($driver && $pdo) {
     } catch (\Throwable $e) {}
 }
 
+// 4b. Monthly Subscription Dues (شعار رانا نسالوه في كل شهر)
+$monthlyVehicleFee = floatval(get_setting($pdo, 'fee_vehicle_monthly', '5000.00'));
+$monthlySpaceFee = floatval(get_setting($pdo, 'fee_space_monthly', '1000.00'));
+$standardMonthlyFee = $monthlyVehicleFee + $monthlySpaceFee; // 6,000 DA
+$currentMonthStr = date('Y-m');
+$latestSubscription = null;
+if ($driver && $pdo) {
+    try {
+        $stmtSub = $pdo->prepare("SELECT * FROM driver_subscriptions WHERE driver_id = ? AND deleted_at IS NULL ORDER BY period_month DESC LIMIT 1");
+        $stmtSub->execute([$driver['id']]);
+        $latestSubscription = $stmtSub->fetch(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {}
+}
+$activeMonthlyDue = $latestSubscription ? floatval($latestSubscription['total_due']) : $standardMonthlyFee;
+
+// 4c. Fetch Driver Night Shifts (المناوبة الليلية بالمؤسسة الاستشفائية / الحظيرة)
+$driverShifts = [];
+$driverNightWatches = [];
+if ($driver && $pdo) {
+    try {
+        $stmtP = $pdo->query("SELECT id, list_number, title, sub_title, wilaya, period_month, shift_date, items_json FROM permanence_lists WHERE deleted_at IS NULL ORDER BY shift_date DESC, id DESC LIMIT 25");
+        $allLists = $stmtP ? $stmtP->fetchAll(PDO::FETCH_ASSOC) : [];
+        $driverNameClean = trim($driver['clean_name'] ?? $driver['full_name']);
+        foreach ($allLists as $list) {
+            $items = json_decode($list['items_json'] ?? '[]', true);
+            if (is_array($items)) {
+                foreach ($items as $item) {
+                    $itemDriverId = intval($item['driver_id'] ?? 0);
+                    $itemDriverName = trim($item['driver_name'] ?? '');
+                    $matchesId = ($itemDriverId > 0 && $itemDriverId === intval($driver['id']));
+                    $matchesName = (!empty($itemDriverName) && (
+                        mb_stripos($itemDriverName, $driverNameClean) !== false || 
+                        mb_stripos($driverNameClean, $itemDriverName) !== false
+                    ));
+                    if ($matchesId || $matchesName) {
+                        $shiftDate = !empty($item['shift_date']) ? $item['shift_date'] : $list['shift_date'];
+                        $shiftTimestamp = strtotime($shiftDate);
+                        $isUpcoming = ($shiftTimestamp >= strtotime(date('Y-m-d')));
+                        $isToday = (date('Y-m-d', $shiftTimestamp) === date('Y-m-d'));
+                        $driverShifts[] = [
+                            'list_id'         => $list['id'],
+                            'list_number'     => $list['list_number'],
+                            'title'           => $list['title'],
+                            'sub_title'       => $list['sub_title'],
+                            'wilaya'          => $list['wilaya'],
+                            'period_month'    => $list['period_month'],
+                            'shift_date'      => $shiftDate,
+                            'shift_timestamp' => $shiftTimestamp,
+                            'is_upcoming'     => $isUpcoming,
+                            'is_today'        => $isToday,
+                            'agrement_num'    => $item['agrement_num'] ?? '',
+                            'order_num'       => $item['num'] ?? '',
+                        ];
+                    }
+                }
+            }
+        }
+        usort($driverShifts, function($a, $b) {
+            return $b['shift_timestamp'] <=> $a['shift_timestamp'];
+        });
+    } catch (\Throwable $e) {}
+
+    try {
+        $stmtNW = $pdo->prepare("
+            SELECT nw.*, v.plate_number, v.door_number 
+            FROM night_watch nw 
+            LEFT JOIN vehicles v ON v.id = nw.vehicle_id 
+            WHERE (v.current_driver_id = ? OR v.replacement_driver_id = ?)
+            ORDER BY nw.id DESC 
+            LIMIT 5
+        ");
+        $stmtNW->execute([$driver['id'], $driver['id']]);
+        $driverNightWatches = $stmtNW->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {}
+
+    // 4d. Fetch Personal Driver Notifications (إشعارات الهاتف وتنبيهات النظام)
+    $driverNotifications = [];
+    try {
+        $stmtN = $pdo->prepare("
+            SELECT * FROM notifications 
+            WHERE (user_id = ? OR user_id IS NULL) 
+            ORDER BY id DESC 
+            LIMIT 8
+        ");
+        $stmtN->execute([$driver['id']]);
+        $driverNotifications = $stmtN->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {}
+
+    // 4e. Fetch Driver Passenger Ratings & Reviews (تقييمات الركاب)
+    $driverRatingsCount = 0;
+    $driverAvgRating = 5.0;
+    $driverCleanAvg = 5.0;
+    $driverDriveAvg = 5.0;
+    $driverCourtAvg = 5.0;
+    $driverRecentRatings = [];
+    try {
+        $stmtRStat = $pdo->prepare("
+            SELECT 
+                COUNT(*) as cnt,
+                AVG(rating) as avg_r,
+                AVG(cleanliness_rating) as avg_c,
+                AVG(driving_rating) as avg_d,
+                AVG(courtesy_rating) as avg_ct
+            FROM driver_ratings r
+            LEFT JOIN vehicles v ON v.id = r.vehicle_id
+            WHERE r.driver_id = ? OR v.current_driver_id = ?
+        ");
+        $stmtRStat->execute([$driver['id'], $driver['id']]);
+        $rStat = $stmtRStat->fetch(PDO::FETCH_ASSOC);
+        if ($rStat && (int)$rStat['cnt'] > 0) {
+            $driverRatingsCount = (int)$rStat['cnt'];
+            $driverAvgRating = round((float)$rStat['avg_r'], 1);
+            $driverCleanAvg = round((float)$rStat['avg_c'], 1);
+            $driverDriveAvg = round((float)$rStat['avg_d'], 1);
+            $driverCourtAvg = round((float)$rStat['avg_ct'], 1);
+        }
+
+        $stmtRList = $pdo->prepare("
+            SELECT r.*, v.door_number, v.plate_number 
+            FROM driver_ratings r
+            LEFT JOIN vehicles v ON v.id = r.vehicle_id
+            WHERE r.driver_id = ? OR v.current_driver_id = ?
+            ORDER BY r.id DESC 
+            LIMIT 6
+        ");
+        $stmtRList->execute([$driver['id'], $driver['id']]);
+        $driverRecentRatings = $stmtRList->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {}
+}
+
 // 5. Build Document Expiry Alerts (إشعارات الوثائق وخاناتها)
 $today = strtotime(date('Y-m-d'));
 
@@ -455,12 +585,12 @@ $pageTitle = is_driver() ? 'حسابي المهني' : ('الملف المهني
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="space-y-6 max-w-7xl mx-auto pb-12">
+<div class="space-y-6 max-w-7xl mx-auto pb-24 sm:pb-12">
 
     <!-- ==============================================
          Top Navigation / Header Actions (No Print)
          ============================================== -->
-    <div class="flex flex-wrap items-center justify-between gap-3 no-print bg-white dark:bg-[#161d27] p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print bg-white dark:bg-[#161d27] p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs">
         <div class="flex items-center gap-3 flex-wrap">
             <?php if (!is_driver()): ?>
                 <a href="drivers.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
@@ -470,11 +600,11 @@ require_once __DIR__ . '/../includes/header.php';
                     <span>سجل السائقين</span>
                 </a>
             <?php else: ?>
-                <a href="index.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap">
+                <a href="index.php" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:bg-slate-800 transition whitespace-nowrap shadow-2xs">
                     <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
                     </svg>
-                    <span>الرئيسية</span>
+                    <span>لوحة التحكم الرئيسية</span>
                 </a>
             <?php endif; ?>
 
@@ -482,7 +612,7 @@ require_once __DIR__ . '/../includes/header.php';
 
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-xs font-bold text-slate-500 dark:text-slate-400">حساب السائق:</span>
-                <span class="font-black text-slate-900 dark:text-white text-xs"><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?></span>
+                <span class="font-black text-slate-900 dark:text-white text-xs sm:text-sm"><?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?></span>
                 <?php if (!empty($driver['is_replacement'])): ?>
                     <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200">
                         سائق بديل معتمد
@@ -491,31 +621,42 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </div>
 
-        <div class="flex items-center gap-2 flex-wrap justify-end">
+        <div class="flex items-center gap-2 flex-wrap">
+            <!-- Quick BaridiMob CTA -->
+            <button type="button" 
+                    onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
+                    class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-xs transition inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer">
+                <span>💳</span>
+                <span>تسديد بريدي موب</span>
+            </button>
+
             <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
                class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
                 <svg class="w-3.5 h-3.5 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>كشف الحساب الكامل (Solde)</span>
+                <span>كشف الحساب والديون</span>
             </a>
 
             <!-- Edit Profile Modal Trigger -->
             <button onclick="document.getElementById('editProfileModal').classList.remove('hidden')" 
-                    class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-2xs cursor-pointer">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    class="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs transition inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
                 </svg>
-                <span>تعديل بياناتي وكلمة المرور</span>
+                <span>تعديل بياناتي</span>
             </button>
         </div>
     </div>
 
     <!-- ==============================================
-         Hero Strip: Identity & Current Taxi
+         Hero Strip: Chauffeur Card & Taxi License
          ============================================== -->
-    <div class="no-print bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-2xs">
-        <div class="flex flex-col md:flex-row items-center md:items-start gap-6">
+    <div class="no-print bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-2xs relative overflow-hidden">
+        <!-- Top taxi stripe accent -->
+        <div class="absolute top-0 right-0 left-0 h-1.5 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600"></div>
+
+        <div class="flex flex-col md:flex-row items-center md:items-start gap-6 pt-1">
             
             <!-- Driver Avatar with Beacon -->
             <div class="relative shrink-0 group">
@@ -527,7 +668,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <div class="w-14 h-14 rounded-full bg-amber-500/20 border-2 border-amber-400/50 flex items-center justify-center text-amber-700 dark:text-amber-300 font-black text-2xl mb-1 shadow-inner font-num">
                                 <?= mb_substr($driver['full_name'], 0, 1) ?>
                             </div>
-                            <span class="text-[10px] font-bold text-slate-400">سائق معتمد</span>
+                            <span class="text-[10px] font-bold text-slate-400">سائق تاكسي</span>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -544,21 +685,21 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
 
             <!-- Driver Info -->
-            <div class="flex-1 space-y-3 text-right">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div class="flex-1 space-y-3.5 text-right w-full">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                     <div>
                         <div class="flex items-center gap-2 flex-wrap">
-                            <h2 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                            <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                                 <?= htmlspecialchars($driver['clean_name'] ?? $driver['full_name']) ?>
-                            </h2>
+                            </h1>
                             <?php if (!empty($driver['is_replacement'])): ?>
                                 <span class="px-2.5 py-0.5 rounded-full text-xs font-black bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200">
-                                    (سائق بديل)
+                                    سائق بديل معتمد
                                 </span>
                             <?php endif; ?>
                         </div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
-                            <span>الولاية: <strong class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($driver['wilaya'] ?? '16 - الجزائر العاصمة') ?></strong></span>
+                        <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2.5 flex-wrap">
+                            <span>الولاية: <strong class="text-slate-800 dark:text-slate-200"><?= htmlspecialchars($driver['wilaya'] ?? 'أدرار') ?></strong></span>
                             <?php if (!empty($driver['phone'])): ?>
                                 <span>•</span>
                                 <span>الهاتف: <strong class="text-slate-800 dark:text-slate-200 font-num" dir="ltr"><?= htmlspecialchars($driver['phone']) ?></strong></span>
@@ -566,8 +707,14 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
 
-                    <!-- Status Badges -->
+                    <!-- Status Badges & Quick Contact -->
                     <div class="flex items-center gap-2 flex-wrap">
+                        <a href="#ratingsSection" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 transition shadow-2xs" title="الانتقال لتقييمات الركاب">
+                            <span>⭐</span>
+                            <span class="font-num"><?= number_format($driverAvgRating, 1) ?></span>
+                            <span class="text-[10px] text-slate-500 dark:text-slate-400 font-num">(<?= $driverRatingsCount ?> تقييم)</span>
+                        </a>
+
                         <span class="inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold <?= !empty($driver['is_replacement']) ? 'bg-violet-50 text-violet-800 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300' : 'bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300' ?>">
                             <?= !empty($driver['is_replacement']) ? 'سائق بديل (Remplaçant)' : ($driver['driver_type'] === 'ajir' ? 'سائق أجير (قانون 90-11)' : 'مؤجر / مستقل') ?>
                         </span>
@@ -575,37 +722,55 @@ require_once __DIR__ . '/../includes/header.php';
                             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                             <span>نشط ميدانياً</span>
                         </span>
+
+                        <?php if (!empty($driver['phone'])): 
+                            $cleanPhone = preg_replace('/[^0-9]/', '', $driver['phone']);
+                            if (str_starts_with($cleanPhone, '0')) $cleanPhone = '213' . substr($cleanPhone, 1);
+                        ?>
+                            <a href="tel:<?= htmlspecialchars($driver['phone']) ?>" class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition" title="اتصال هاتفي">
+                                📞
+                            </a>
+                            <a href="https://wa.me/<?= $cleanPhone ?>" target="_blank" class="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 transition" title="محادثة واتساب">
+                                💬
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
 
-                <!-- Car & Quick Identifiers -->
+                <!-- Car & Quick Identifiers (Authentic Taxi License Badge Style) -->
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                    <div class="p-3 rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-200/80 dark:border-amber-700/50">
-                        <span class="text-amber-800 dark:text-amber-300 block text-[10px] font-black mb-0.5">المركبة المستغلة حالياً:</span>
+                    
+                    <!-- Vehicle Box -->
+                    <div class="p-3 rounded-2xl bg-gradient-to-br from-amber-500/10 to-transparent dark:bg-amber-950/20 border border-amber-300/80 dark:border-amber-700/60">
+                        <span class="text-amber-900 dark:text-amber-300 block text-[10px] font-black mb-1">المركبة المستغلة حالياً:</span>
                         <?php if (!empty($driver['plate_number'])): ?>
-                            <span class="font-num font-black text-slate-900 dark:text-white text-sm" dir="ltr">
-                                <?= htmlspecialchars($driver['plate_number']) ?>
-                            </span>
-                            <?php if (!empty($driver['door_number'])): ?>
-                                <span class="text-[11px] font-bold text-amber-700 dark:text-amber-400 mr-1.5">(باب: <?= htmlspecialchars($driver['door_number']) ?>)</span>
-                            <?php endif; ?>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-num font-black text-slate-950 bg-amber-400 px-2.5 py-0.5 rounded-lg border border-slate-900 text-xs shadow-2xs" dir="ltr">
+                                    <?= htmlspecialchars($driver['plate_number']) ?>
+                                </span>
+                                <?php if (!empty($driver['door_number'])): ?>
+                                    <span class="text-xs font-black text-slate-800 dark:text-slate-200">باب: <?= htmlspecialchars($driver['door_number']) ?></span>
+                                <?php endif; ?>
+                            </div>
                         <?php else: ?>
-                            <span class="text-slate-400 font-bold">غير مرتبطة بمركبة</span>
+                            <span class="text-slate-400 font-bold">غير مرتبطة بمركبة حالياً</span>
                         <?php endif; ?>
                     </div>
 
+                    <!-- Brand / Model -->
                     <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
-                        <span class="text-slate-400 block text-[10px] font-bold mb-0.5">نوع وطراز السيارة:</span>
-                        <span class="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">نوع وطراز السيارة:</span>
+                        <strong class="text-slate-800 dark:text-slate-200 text-xs block">
                             <?= !empty($driver['brand']) ? htmlspecialchars($driver['brand'] . ' ' . ($driver['model'] ?? '')) : 'غير محدد' ?>
-                        </span>
+                        </strong>
                     </div>
 
+                    <!-- Driving License -->
                     <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800">
-                        <span class="text-slate-400 block text-[10px] font-bold mb-0.5">رقم رخصة السياقة:</span>
-                        <span class="font-num font-bold text-slate-900 dark:text-white text-xs" dir="ltr">
+                        <span class="text-slate-400 block text-[10px] font-bold mb-1">رقم رخصة السياقة:</span>
+                        <strong class="font-num font-bold text-slate-900 dark:text-white text-xs block" dir="ltr">
                             <?= !empty($driver['license_number']) ? htmlspecialchars($driver['license_number']) : '—' ?>
-                        </span>
+                        </strong>
                     </div>
                 </div>
 
@@ -683,10 +848,10 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="space-y-4">
         
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-                <span class="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-lg">💰</span>
+            <div class="flex items-center gap-2.5">
+                <span class="p-2.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xl font-bold">💰</span>
                 <div>
-                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">الوضعية المالية والاشتراكات</h3>
+                    <h2 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">الوضعية المالية والاشتراكات</h2>
                     <p class="text-xs text-slate-500 dark:text-slate-400">متابعة إجمالي الديون، الدفعات المسددة، والرصيد المتبقي بذمة السائق</p>
                 </div>
             </div>
@@ -695,16 +860,49 @@ require_once __DIR__ . '/../includes/header.php';
                 <!-- BaridiMob Add Versement Button -->
                 <button type="button" 
                         onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
-                        class="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition inline-flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                        class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition inline-flex items-center gap-2 whitespace-nowrap cursor-pointer">
                     <span class="text-base">💳</span>
                     <span>تسديد دفعة عبر بريدي موب (BaridiMob)</span>
                 </button>
 
                 <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" target="_blank" 
-                   class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1 font-num">
-                    <span>كشف الحساب الرسمي</span>
+                   class="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition inline-flex items-center gap-1.5 font-num">
+                    <span>كشف الحساب والديون</span>
                     <span>←</span>
                 </a>
+            </div>
+        </div>
+
+        <!-- شعار رانا نسالوه في كل شهر (الاشتراك الشهري المستحق) -->
+        <div class="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 dark:from-amber-950/40 dark:via-slate-900 border-2 border-amber-400 dark:border-amber-600/70 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div class="flex items-center gap-3.5">
+                <span class="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center text-2xl font-black shrink-0 shadow-xs">
+                    📅
+                </span>
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="text-sm sm:text-base font-black text-slate-950 dark:text-white">
+                            شعار رانا نسالوه في كل شهر (الاشتراك الشهري المعتمد)
+                        </h3>
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black <?= $remainingBalance > 0 ? 'bg-amber-200 dark:bg-amber-900 text-amber-950 dark:text-amber-200' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300' ?>">
+                            <?= $remainingBalance > 0 ? 'واجب السداد شهرياً' : 'الحساب خالص ومسوى ✓' ?>
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                        المبلغ المطلوب سداده شهرياً لمؤسسة تاكسي نقيلو: 
+                        <strong class="font-num text-amber-800 dark:text-amber-300 font-black text-sm" dir="ltr"><?= number_format($activeMonthlyDue, 2) ?> دج / شهر</strong>
+                        <span class="text-slate-500 dark:text-slate-400 font-normal mr-1">
+                            (اشتراك المركبة: <?= number_format($monthlyVehicleFee, 0) ?> دج + حق المكان والمقررة: <?= number_format($monthlySpaceFee, 0) ?> دج)
+                        </span>
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                <button type="button" 
+                        onclick="setPaymentAmount(<?= (int)$activeMonthlyDue ?>); document.getElementById('baridimobModal').classList.remove('hidden')" 
+                        class="w-full md:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+                    <span>💳 تسديد اشتراك هذا الشهر</span>
+                </button>
             </div>
         </div>
 
@@ -714,14 +912,14 @@ require_once __DIR__ . '/../includes/header.php';
             <!-- 1. إجمالي الديون والمستحقات -->
             <div class="p-5 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-2">
                 <div class="flex items-center justify-between text-xs">
-                    <span class="font-bold text-slate-500 dark:text-slate-400">إجمالي الديون والمستحقات</span>
+                    <span class="font-bold text-slate-500 dark:text-slate-400">إجمالي الديون والواجبات</span>
                     <span class="p-2 rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 text-sm">💳</span>
                 </div>
                 <div class="space-y-0.5">
                     <div class="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-num" dir="ltr">
                         <?= number_format($totalDebts, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
                     </div>
-                    <p class="text-[11px] text-slate-400">مجموع الاشتراكات والواجبات المقيدة على السائق</p>
+                    <p class="text-[11px] text-slate-400">مجموع الاشتراكات والواجبات المقيدة على ذمتك</p>
                 </div>
             </div>
 
@@ -735,30 +933,97 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 font-num" dir="ltr">
                         <?= number_format($totalVersements, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
                     </div>
-                    <p class="text-[11px] text-slate-400">المبالغ المدفوعة والمثبتة بوصولات إيداع رسمية</p>
+                    <p class="text-[11px] text-slate-400">المبالغ المدفوعة والمثبتة بوصولات إيداع معتمدة</p>
                 </div>
             </div>
 
             <!-- 3. الرصيد المتبقي (Solde) -->
-            <div class="p-5 rounded-3xl <?= $remainingBalance > 0 ? 'bg-gradient-to-br from-rose-50/50 to-white dark:from-rose-950/20 dark:to-[#161d27] border-rose-200 dark:border-rose-900/60' : 'bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-950/20 dark:to-[#161d27] border-emerald-200 dark:border-emerald-900/60' ?> border shadow-2xs space-y-2">
+            <div class="p-5 rounded-3xl <?= $remainingBalance > 0 ? 'bg-gradient-to-br from-rose-500/10 via-amber-500/5 to-white dark:from-rose-950/30 dark:via-amber-950/20 dark:to-[#161d27] border-2 border-rose-400 dark:border-rose-600 shadow-sm' : 'bg-gradient-to-br from-emerald-50/70 to-white dark:from-emerald-950/30 dark:to-[#161d27] border-2 border-emerald-400 dark:border-emerald-600 shadow-sm' ?> space-y-2.5">
                 <div class="flex items-center justify-between text-xs">
-                    <span class="font-bold <?= $remainingBalance > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300' ?>">
+                    <span class="font-black <?= $remainingBalance > 0 ? 'text-rose-800 dark:text-rose-300' : 'text-emerald-800 dark:text-emerald-300' ?>">
                         الرصيد المتبقي (Solde)
                     </span>
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black font-num <?= $remainingBalance > 0 ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 animate-pulse' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' ?>">
-                        <?= $remainingBalance > 0 ? 'متبقي للذمة ⚠️' : 'الحساب خالص ✓' ?>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black font-num <?= $remainingBalance > 0 ? 'bg-rose-600 text-white animate-pulse' : 'bg-emerald-600 text-white' ?>">
+                        <?= $remainingBalance > 0 ? 'متبقي للذمة ⚠️' : 'الحساب خالص ومريكل ✓' ?>
                     </span>
                 </div>
-                <div class="space-y-0.5">
+                <div class="space-y-1">
                     <div class="text-2xl sm:text-3xl font-black <?= $remainingBalance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400' ?> font-num" dir="ltr">
                         <?= number_format($remainingBalance, 2) ?> <span class="text-xs font-bold text-slate-400">دج</span>
                     </div>
-                    <p class="text-[11px] <?= $remainingBalance > 0 ? 'text-rose-600/80 dark:text-rose-400/80 font-bold' : 'text-slate-400' ?>">
-                        <?= $remainingBalance > 0 ? 'يتوجب تسوية المبلغ المتبقي عبر الدفع النقدي أو بريدي موب' : 'تم استيفاء كامل المبالغ المستحقة ولا توجد أي ديون متأخرة' ?>
+                    <p class="text-[11px] <?= $remainingBalance > 0 ? 'text-rose-700 dark:text-rose-300 font-bold' : 'text-emerald-700 dark:text-emerald-300 font-bold' ?>">
+                        <?= $remainingBalance > 0 ? 'يتوجب تسوية المبلغ المتبقي لتفادي تطبيق غرامات التأخير' : 'تم استيفاء كامل المبالغ المستحقة ولا توجد أي ديون متأخرة' ?>
                     </p>
+                </div>
+                <?php if ($remainingBalance > 0): ?>
+                    <button type="button" 
+                            onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
+                            class="w-full py-2 px-3 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-black text-xs shadow-xs hover:bg-slate-800 transition flex items-center justify-center gap-1.5 cursor-pointer">
+                        <span>💳 تسديد الرصيد عبر بريدي موب</span>
+                        <span>←</span>
+                    </button>
+                <?php endif; ?>
+            </div>
+
+        </div>
+
+        <!-- BaridiMob Quick Copy Widget (بنك بريدي موب المعتمد) -->
+        <div class="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent dark:from-amber-950/30 dark:via-slate-900 border border-amber-300 dark:border-amber-700/60 shadow-2xs space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 dark:border-amber-800/40 pb-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-sm shadow-xs">
+                        BM
+                    </span>
+                    <div>
+                        <div class="text-xs font-black text-slate-900 dark:text-white">الحساب المعتمد لمؤسسة تاكسي نقيلو (BaridiMob & CCP)</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400"><?= htmlspecialchars($bankAccountHolder) ?> (<?= htmlspecialchars($bankName) ?>)</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-400/40">
+                        تحويل فوري عبر RIP
+                    </span>
                 </div>
             </div>
 
+            <!-- RIP Instant Copy Card -->
+            <div class="flex flex-col md:flex-row items-center justify-between gap-3 bg-white dark:bg-[#111722] p-3 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 shadow-2xs">
+                <div class="w-full md:w-auto text-right">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-wider block">رقم الحساب الجاري RIP المخصص لتطبيق BaridiMob:</span>
+                    <span class="font-num font-black text-sm sm:text-base text-amber-800 dark:text-amber-300 tracking-wider select-all" dir="ltr"><?= htmlspecialchars($bankRip) ?></span>
+                </div>
+                <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+                    <button type="button" onclick="copyText('<?= htmlspecialchars($bankRip) ?>', this)" 
+                            class="w-full md:w-auto px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs">
+                        <span>📋</span>
+                        <span>نسخ رقم RIP</span>
+                    </button>
+                    <button type="button" onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
+                            class="w-full md:w-auto px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs">
+                        <span>📤 إرفاق الوصل</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div class="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-amber-200/70 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[10px] font-bold">رقم الحساب البريدي CCP:</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold text-xs" dir="ltr"><?= htmlspecialchars($bankCcp) ?></strong>
+                    </div>
+                    <button type="button" onclick="copyText('<?= htmlspecialchars($bankCcp) ?>', this)" class="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">نسخ CCP</button>
+                </div>
+
+                <?php if (!empty($baridimobNumber)): ?>
+                <div class="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-amber-200/70 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[10px] font-bold">الهاتف المرتبط ببريدي موب:</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold text-xs" dir="ltr"><?= htmlspecialchars($baridimobNumber) ?></strong>
+                    </div>
+                    <button type="button" onclick="copyText('<?= htmlspecialchars($baridimobNumber) ?>', this)" class="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">نسخ الرقم</button>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
 
         <!-- Recent Payments History Strip -->
@@ -830,7 +1095,7 @@ require_once __DIR__ . '/../includes/header.php';
          2. إشعارات الوثائق: خانات عندما تكون منتهية أو مقبلة على الانتهاء
          (اسم الوثيقة وتواريخها وحالتها)
          ============================================== -->
-    <div class="space-y-4">
+    <div id="documentsSection" class="space-y-4">
         
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="flex items-center gap-2">
@@ -946,7 +1211,179 @@ require_once __DIR__ . '/../includes/header.php';
 
 
     <!-- ==============================================
-         3. عقد العمل ورخصة الاستغلال (قانون 90-11)
+         3. المناوبة الليلية وحراسة الحظيرة (Permanence)
+         ============================================== -->
+    <div id="nightShiftSection" class="space-y-4">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <span class="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xl font-bold">🌙</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">جدول المناوبة الليلية وحراسة الحظيرة</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">نوبات المداومة الرسمية بالمؤسسة الاستشفائية وحراسة أسطول التاكسي</p>
+                </div>
+            </div>
+
+            <a href="planning.php?tab=archive" target="_blank" class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 font-bold text-xs inline-flex items-center gap-1.5 transition">
+                <span>📋 الأرشيف الكامل للمناوبة</span>
+                <span>←</span>
+            </a>
+        </div>
+
+        <?php if (!empty($driverShifts)): ?>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <?php foreach ($driverShifts as $sh): ?>
+                    <div class="p-4 rounded-3xl <?= $sh['is_today'] ? 'bg-amber-500/15 border-2 border-amber-500 shadow-md ring-2 ring-amber-300 dark:ring-amber-700' : ($sh['is_upcoming'] ? 'bg-indigo-500/10 border-2 border-indigo-400 dark:border-indigo-600 shadow-2xs' : 'bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800') ?> space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-black <?= $sh['is_today'] ? 'text-amber-800 dark:text-amber-300' : ($sh['is_upcoming'] ? 'text-indigo-800 dark:text-indigo-300' : 'text-slate-500') ?>">
+                                <?= $sh['is_today'] ? '🔥 نوبتك الليلة!' : ($sh['is_upcoming'] ? '⏳ نوبة قادمة' : '✓ نوبة سابقة') ?>
+                            </span>
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black font-num <?= $sh['is_today'] ? 'bg-amber-500 text-slate-950 font-black animate-pulse' : ($sh['is_upcoming'] ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300') ?>">
+                                <?= !empty($sh['order_num']) ? ('الترتيب: #' . $sh['order_num']) : 'مناوبة رسمية' ?>
+                            </span>
+                        </div>
+
+                        <div>
+                            <div class="text-xs text-slate-400 mb-0.5">تاريخ المناوبة:</div>
+                            <div class="text-base font-black text-slate-900 dark:text-white font-num" dir="ltr">
+                                <?= date('Y/m/d', $sh['shift_timestamp']) ?>
+                            </div>
+                            <div class="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                                <?= htmlspecialchars($sh['title']) ?>
+                            </div>
+                            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                <?= htmlspecialchars($sh['sub_title'] ?: 'المؤسسة العمومية الاستشفائية بأدرار') ?>
+                            </div>
+                        </div>
+
+                        <?php if (!empty($sh['agrement_num'])): ?>
+                            <div class="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] flex items-center justify-between">
+                                <span class="text-slate-400">رقم الاعتماد:</span>
+                                <strong class="font-num text-slate-800 dark:text-slate-200" dir="ltr"><?= htmlspecialchars($sh['agrement_num']) ?></strong>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div class="p-6 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 text-center space-y-2">
+                <span class="text-3xl block">🌙</span>
+                <p class="text-sm font-bold text-slate-800 dark:text-slate-200">لا توجد مناوبة ليلية مجدولة حالياً لهذا السائق.</p>
+                <p class="text-xs text-slate-400">عندما تصدر إدارة المنصة قائمة المناوبة الليلية الجديدة بالمؤسسة الاستشفائية سيتم إدراج نوبتك وإشعارك هنا فوراً.</p>
+            </div>
+        <?php endif; ?>
+
+        <!-- Night Watch Parking Logs if available -->
+        <?php if (!empty($driverNightWatches)): ?>
+            <div class="p-4 rounded-3xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 space-y-3">
+                <div class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    <span>🛡️</span>
+                    <span>سجل إيواء وحراسة المركبة بالححظيرة مؤخراً:</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+                    <?php foreach ($driverNightWatches as $nw): ?>
+                        <div class="p-3 rounded-2xl bg-white dark:bg-[#161d27] border border-slate-200/70 dark:border-slate-800">
+                            <div class="flex items-center justify-between text-[11px] mb-1">
+                                <span class="font-bold font-num text-amber-700 dark:text-amber-400"><?= htmlspecialchars($nw['plate_number'] ?? '') ?></span>
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold <?= $nw['status'] === 'in_park' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' ?>">
+                                    <?= $nw['status'] === 'in_park' ? 'مأوى في الحظيرة' : 'خرجت' ?>
+                                </span>
+                            </div>
+                            <div class="text-[11px] text-slate-500">
+                                <span>الحارس: <?= htmlspecialchars($nw['guardian_name'] ?: 'الحارس المكلف') ?></span> • 
+                                <span class="font-num"><?= htmlspecialchars($nw['park_slot'] ?: 'Zone A') ?></span>
+                            </div>
+                            <div class="text-[10px] text-slate-400 font-num mt-1" dir="ltr">
+                                <?= date('d/m/Y H:i', strtotime($nw['entry_time'])) ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+    </div>
+
+
+    <!-- ==============================================
+         4. إشعارات الهاتف وتنبيهات النظام المباشرة
+         ============================================== -->
+    <div id="notificationsSection" class="space-y-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <span class="p-2.5 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xl font-bold">🔔</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">تنبيهات وإشعارات الهاتف المباشرة</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">إشعارات تسديد الديون، تجديد الوثائق، وتكليفات المناوبة الليلية</p>
+                </div>
+            </div>
+
+            <a href="notifications.php" target="_blank" class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 font-bold text-xs inline-flex items-center gap-1.5 transition">
+                <span>مركز الإشعارات</span>
+                <span>←</span>
+            </a>
+        </div>
+
+        <div class="space-y-2.5">
+            <!-- 1. Real-Time Solde Alert -->
+            <?php if ($remainingBalance > 0): ?>
+                <div class="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                    <div class="flex items-start sm:items-center gap-3">
+                        <span class="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center text-lg shrink-0">💳</span>
+                        <div>
+                            <strong class="font-black text-rose-950 dark:text-rose-200 text-sm block">تنبيه مالي عاجل: رصيد متبقي بذمتك بقيمة <?= number_format($remainingBalance, 2) ?> دج</strong>
+                            <p class="text-rose-800 dark:text-rose-300 mt-0.5">يرجى تسديد المبلغ المتبقي عبر تطبيق بريدي موب (BaridiMob) لتجنب الغرامات الشهرية التلقائية.</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="document.getElementById('baridimobModal').classList.remove('hidden')" class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shrink-0 cursor-pointer shadow-2xs">
+                        تسديد الآن
+                    </button>
+                </div>
+            <?php endif; ?>
+
+            <!-- 2. Real-Time Documents Alert -->
+            <?php if ($expiredDocsCount > 0): ?>
+                <div class="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                    <div class="flex items-start sm:items-center gap-3">
+                        <span class="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center text-lg shrink-0">⚠️</span>
+                        <div>
+                            <strong class="font-black text-amber-950 dark:text-amber-200 text-sm block">تنبيه قانوني: يوجد <?= $expiredDocsCount ?> وثيقة منتهية الصلاحية</strong>
+                            <p class="text-amber-800 dark:text-amber-300 mt-0.5">يرجى تجديد الوثائق الموضحة في قسم الوثائق أعلاه فوراً لمواصلة النشاط بشكل نظامي.</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="filterDocs('alerts'); document.getElementById('documentsGrid').scrollIntoView({behavior: 'smooth'})" class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shrink-0 cursor-pointer shadow-2xs">
+                        عرض الوثائق
+                    </button>
+                </div>
+            <?php endif; ?>
+
+            <!-- 3. System In-App Notifications Stream -->
+            <?php if (!empty($driverNotifications)): ?>
+                <div class="bg-white dark:bg-[#161d27] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-2.5">
+                    <span class="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">آخر رسائل وتنبيهات الإدارة:</span>
+                    <div class="divide-y divide-slate-100 dark:border-slate-800/60">
+                        <?php foreach ($driverNotifications as $dn): ?>
+                            <div class="py-2.5 flex items-start justify-between gap-3 text-xs">
+                                <div class="space-y-0.5">
+                                    <div class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full <?= ($dn['is_read'] ?? 0) ? 'bg-slate-300 dark:bg-slate-600' : 'bg-rose-500 animate-ping' ?>"></span>
+                                        <span><?= htmlspecialchars($dn['title'] ?? 'إشعار إداري') ?></span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-500 dark:text-slate-400"><?= htmlspecialchars($dn['message'] ?? '') ?></p>
+                                </div>
+                                <span class="text-[10px] text-slate-400 font-num shrink-0" dir="ltr">
+                                    <?= !empty($dn['created_at']) ? date('d/m H:i', strtotime($dn['created_at'])) : '' ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+
+    <!-- ==============================================
+         5. عقد العمل ورخصة الاستغلال (قانون 90-11)
          ============================================== -->
     <div class="space-y-4">
         
@@ -1081,6 +1518,107 @@ require_once __DIR__ . '/../includes/header.php';
                 <p class="text-[11px] text-slate-400">يمكن لإدارة المنصة تسجيل وتوثيق عقد جديد وفق القانون 90-11 من قسم العقود.</p>
             </div>
         <?php endif; ?>
+
+    </div>
+
+
+    <!-- ==============================================
+         6. تقييمات الركاب وآراء الزبائن (Passenger Reviews)
+         ============================================== -->
+    <div id="ratingsSection" class="space-y-4">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <span class="p-2.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xl font-bold">⭐</span>
+                <div>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">تقييمات الركاب وآراء المسافرين</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">تقييمات وملاحظات الزبائن المسجلة عبر مسح كود QR للمركبة</p>
+                </div>
+            </div>
+
+            <a href="ratings.php?driver_id=<?= $driver['id'] ?>" class="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 font-bold text-xs inline-flex items-center gap-1.5 transition">
+                <span>سجل التقييمات الكامل</span>
+                <span>←</span>
+            </a>
+        </div>
+
+        <!-- Rating Metrics Summary Card -->
+        <div class="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#161d27] border border-slate-200/90 dark:border-slate-800 shadow-2xs space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div class="flex items-center gap-4">
+                    <div class="text-3xl sm:text-4xl font-black text-amber-600 dark:text-amber-400 font-num" dir="ltr">
+                        <?= number_format($driverAvgRating, 1) ?>
+                    </div>
+                    <div class="space-y-0.5">
+                        <div class="text-amber-500 text-lg leading-none" dir="ltr">
+                            <?php 
+                            $fullS = floor($driverAvgRating);
+                            echo str_repeat('★', (int)$fullS) . str_repeat('☆', 5 - (int)$fullS);
+                            ?>
+                        </div>
+                        <span class="text-xs text-slate-500 dark:text-slate-400 font-num">
+                            بناءً على <?= $driverRatingsCount ?> تقييم راكب
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 3 Criteria Bars -->
+                <div class="grid grid-cols-3 gap-2 text-center text-xs w-full sm:w-auto">
+                    <div class="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px]">✨ النظافة</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold"><?= number_format($driverCleanAvg, 1) ?> / 5</strong>
+                    </div>
+                    <div class="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px]">🛡️ السياقة</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold"><?= number_format($driverDriveAvg, 1) ?> / 5</strong>
+                    </div>
+                    <div class="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span class="text-slate-400 block text-[10px]">🤝 المعاملة</span>
+                        <strong class="text-slate-900 dark:text-white font-num font-bold"><?= number_format($driverCourtAvg, 1) ?> / 5</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Reviews -->
+            <?php if (!empty($driverRecentRatings)): ?>
+                <div class="space-y-3">
+                    <span class="text-xs font-bold text-slate-500 dark:text-slate-400 block">آخر تعليقات وملاحظات الركاب:</span>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <?php foreach ($driverRecentRatings as $dr): 
+                            $rStars = str_repeat('★', (int)$dr['rating']) . str_repeat('☆', 5 - (int)$dr['rating']);
+                        ?>
+                            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/70 dark:border-slate-800 space-y-2">
+                                <div class="flex items-center justify-between text-[11px]">
+                                    <span class="font-bold text-slate-800 dark:text-slate-200">
+                                        <?= htmlspecialchars($dr['passenger_name'] ?: 'راكب مسافر') ?>
+                                    </span>
+                                    <span class="font-num font-black text-amber-600 dark:text-amber-400" dir="ltr">
+                                        <?= $rStars ?> (<?= $dr['rating'] ?>/5)
+                                    </span>
+                                </div>
+                                <?php if (!empty($dr['comment'])): ?>
+                                    <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed italic">
+                                        “<?= htmlspecialchars($dr['comment']) ?>”
+                                    </p>
+                                <?php else: ?>
+                                    <span class="text-[10px] text-slate-400 italic block">بدون تعليق نصي</span>
+                                <?php endif; ?>
+                                <div class="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60 text-[10px] text-slate-400">
+                                    <span class="font-num" dir="ltr"><?= date('d/m/Y H:i', strtotime($dr['created_at'])) ?></span>
+                                    <a href="ratings.php?id=<?= $dr['id'] ?>" class="font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                                        معاينة التفاصيل الكاملة ←
+                                    </a>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="text-center py-4 text-xs text-slate-400">
+                    لم يتم تسجيل أي تقييم راكب لهذا السائق حتى الآن.
+                </div>
+            <?php endif; ?>
+        </div>
 
     </div>
 
@@ -1299,14 +1837,39 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="hidden" name="driver_id" value="<?= $driver['id'] ?>">
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
+                <div class="space-y-1.5 sm:col-span-2">
                     <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">المبلغ المدفوع (دج): *</label>
-                    <input type="number" step="100" name="amount" value="<?= $remainingBalance > 0 ? $remainingBalance : 4000 ?>" required dir="ltr"
+                    <div class="flex items-center gap-1.5 flex-wrap mb-2">
+                        <?php if ($remainingBalance > 0): ?>
+                            <button type="button" onclick="setPaymentAmount(<?= (int)$remainingBalance ?>)" class="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 text-[11px] font-black border border-rose-300 font-num cursor-pointer transition">
+                                كامل الرصيد (<?= number_format($remainingBalance, 0) ?> دج)
+                            </button>
+                        <?php endif; ?>
+                        <button type="button" onclick="setPaymentAmount(<?= (int)$activeMonthlyDue ?>)" class="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 text-[11px] font-black border border-amber-300 font-num cursor-pointer transition">
+                            الاشتراك الشهري (<?= number_format($activeMonthlyDue, 0) ?> دج)
+                        </button>
+                        <button type="button" onclick="setPaymentAmount(3000)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 font-num cursor-pointer transition">
+                            3,000 دج
+                        </button>
+                        <button type="button" onclick="setPaymentAmount(4000)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 font-num cursor-pointer transition">
+                            4,000 دج
+                        </button>
+                        <button type="button" onclick="setPaymentAmount(5000)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 font-num cursor-pointer transition">
+                            5,000 دج
+                        </button>
+                        <button type="button" onclick="setPaymentAmount(6000)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 font-num cursor-pointer transition">
+                            6,000 دج
+                        </button>
+                        <button type="button" onclick="setPaymentAmount(10000)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-bold border border-slate-200 dark:border-slate-700 font-num cursor-pointer transition">
+                            10,000 دج
+                        </button>
+                    </div>
+                    <input type="number" step="100" id="paymentAmountInput" name="amount" value="<?= $remainingBalance > 0 ? $remainingBalance : $activeMonthlyDue ?>" required dir="ltr"
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white font-num font-black text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none">
-                    <span class="text-[10px] text-slate-400 mt-0.5 block">الرصيد المتبقي بذمتك: <?= number_format($remainingBalance, 2) ?> دج</span>
+                    <span class="text-[10px] text-slate-400 mt-0.5 block">الرصيد المتبقي بذمتك حالياً: <?= number_format($remainingBalance, 2) ?> دج</span>
                 </div>
 
-                <div>
+                <div class="sm:col-span-2">
                     <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">تاريخ التحويل: *</label>
                     <input type="date" name="payment_date" value="<?= date('Y-m-d') ?>" required
                            class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white font-num text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
@@ -1321,8 +1884,8 @@ require_once __DIR__ . '/../includes/header.php';
 
             <div class="text-xs">
                 <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">صورة وصل التحويل (Reçu BaridiMob / CCP): *</label>
-                <input type="file" name="receipt_image" accept="image/png,image/jpeg,image/webp,application/pdf" required
-                       class="w-full text-xs text-slate-500 file:mr-0 file:ml-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-600 cursor-pointer border border-dashed border-amber-300 dark:border-amber-700 p-2 rounded-2xl bg-amber-50/20 dark:bg-amber-950/10">
+                <input type="file" name="receipt_image" accept="image/png,image/jpeg,image/webp,application/pdf" capture="environment" required
+                       class="w-full text-xs text-slate-500 file:mr-0 file:ml-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-600 cursor-pointer border border-dashed border-amber-300 dark:border-amber-700 p-2.5 rounded-2xl bg-amber-50/20 dark:bg-amber-950/10">
                 <span class="text-[10px] text-slate-400 mt-1 block">صورة واضحة لوصل التحويل أو لقطة شاشة من تطبيق بريدي موب تثبت نجاح العملية.</span>
             </div>
 
@@ -1379,6 +1942,14 @@ function copyText(text, btn) {
     });
 }
 
+function setPaymentAmount(amt) {
+    const input = document.getElementById('paymentAmountInput');
+    if (input) {
+        input.value = amt;
+        input.focus();
+    }
+}
+
 // Filter Document Cards
 function filterDocs(type) {
     const cards = document.querySelectorAll('.doc-card');
@@ -1418,5 +1989,50 @@ function filterDocs(type) {
     }
 }
 </script>
+
+<!-- Mobile Floating Quick-Action Dock (شريط الملاحة السريع للسائق في الهاتف) -->
+<div id="driverMobileBottomDock" 
+     class="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#111722]/95 backdrop-blur-md border-t border-slate-200/90 dark:border-slate-800 shadow-2xl p-2 px-3 flex items-center justify-around no-print"
+     dir="rtl">
+    
+    <button type="button" 
+            onclick="document.getElementById('baridimobModal').classList.remove('hidden')" 
+            class="flex flex-col items-center gap-1 text-amber-600 dark:text-amber-400 font-bold text-[10px] active:scale-95 transition cursor-pointer">
+        <span class="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-lg">💳</span>
+        <span>تسديد</span>
+    </button>
+
+    <a href="debt_statement.php?user_id=<?= $driver['id'] ?>" 
+       class="flex flex-col items-center gap-1 text-slate-700 dark:text-slate-300 font-bold text-[10px] active:scale-95 transition">
+        <span class="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">📊</span>
+        <span>الكشف</span>
+    </a>
+
+    <button type="button" 
+            onclick="document.getElementById('documentsGrid').scrollIntoView({behavior: 'smooth'})" 
+            class="flex flex-col items-center gap-1 text-slate-700 dark:text-slate-300 font-bold text-[10px] active:scale-95 transition cursor-pointer">
+        <span class="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">📑</span>
+        <span>الوثائق</span>
+    </button>
+
+    <button type="button" 
+            onclick="document.getElementById('nightShiftSection').scrollIntoView({behavior: 'smooth'})" 
+            class="flex flex-col items-center gap-1 text-indigo-600 dark:text-indigo-400 font-bold text-[10px] active:scale-95 transition cursor-pointer">
+        <span class="w-10 h-10 rounded-2xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center text-lg">🌙</span>
+        <span>المناوبة</span>
+    </button>
+
+    <button type="button" 
+            onclick="document.getElementById('notificationsSection').scrollIntoView({behavior: 'smooth'})" 
+            class="flex flex-col items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-[10px] active:scale-95 transition cursor-pointer">
+        <span class="w-10 h-10 rounded-2xl bg-rose-500/15 border border-rose-400/30 flex items-center justify-center text-lg relative">
+            🔔
+            <?php if ($remainingBalance > 0 || $expiredDocsCount > 0): ?>
+                <span class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-rose-600 border border-white animate-pulse"></span>
+            <?php endif; ?>
+        </span>
+        <span>التنبيهات</span>
+    </button>
+</div>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

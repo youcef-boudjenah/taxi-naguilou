@@ -3,6 +3,12 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
+// Driver Guard: traveler reports admin is restricted from drivers
+if (is_driver() && empty($_GET['print_id'])) {
+    set_flash('error', 'عذراً، محاضر المسافرين وأوامر المهمة مخصصة لإدارة المنصة.');
+    redirect('/dashboard/index.php');
+}
+
 $pdo = getDBConnection();
 $message = null;
 $messageType = null;
@@ -89,7 +95,7 @@ if (isset($_GET['print_id']) && $pdo) {
                 <!-- Official Header -->
                 <div class="text-center pb-6 border-b-2 border-slate-900 space-y-1">
                     <div class="text-sm font-bold text-slate-600">الجمهورية الجزائرية الديمقراطية الشعبية</div>
-                    <div class="text-xs font-bold text-slate-500">وزارة النقل — مديرية النقل البري</div>
+                    <div class="text-xs font-bold text-slate-500">وزارة النقل — مديرية النقل البري لولاية أدرار</div>
                     <h1 class="text-lg font-black text-slate-900 pt-2">محضر وقائمة ركاب سيارة الأجرة ما بين الولايات</h1>
                     <div class="text-xs font-bold text-amber-600 font-mono tracking-wider">FEUILLE DE ROUTE & PV DE TRANSPORT VOYAGEURS</div>
                     <div class="text-xs font-bold text-slate-700 pt-1">رقم المحضر: <span class="font-mono text-slate-950 font-black inline-block" dir="ltr"><?= htmlspecialchars($report['report_number']) ?></span></div>

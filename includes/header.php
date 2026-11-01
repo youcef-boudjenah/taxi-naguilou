@@ -35,6 +35,15 @@ if (isset($_GET['mark_notif_read']) && $pdo) {
     exit;
 }
 
+// Automated Daily Check for Late Debt Penalties (Runs silently once per day)
+if ($pdo && function_exists('apply_automated_debt_penalties')) {
+    try {
+        apply_automated_debt_penalties($pdo, false);
+    } catch (\Throwable $e) {
+        error_log("Automated penalties background trigger notice: " . $e->getMessage());
+    }
+}
+
 // Fetch urgent alert count for document expirations (< 30 days)
 $alertCount = 0;
 $expiringList = [];
@@ -96,6 +105,7 @@ $erpNavCategories = [
             'slips' => ['title' => 'جداول الإرسال (Bordereaux)', 'url' => '/dashboard/slips.php', 'badge' => 'DTW'],
             'traveler_reports' => ['title' => 'الأمر بالمهمة (PV)', 'url' => '/dashboard/traveler_reports.php', 'badge' => 'مهمة'],
             'planning' => ['title' => 'المناوبة الليلية', 'url' => '/dashboard/planning.php', 'badge' => 'مداومة'],
+            'ratings' => ['title' => 'تقييمات الركاب وآراء الزبائن', 'url' => '/dashboard/ratings.php', 'badge' => '⭐ نجوم'],
             'verifications' => ['title' => 'مركز التدقيق والمصادقة', 'url' => '/dashboard/verifications.php', 'badge' => 'تدقيق'],
         ]
     ],
@@ -147,8 +157,8 @@ foreach ($erpNavCategories as $catKey => $catData) {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Production Compiled Tailwind CSS -->
-    <link rel="stylesheet" href="<?= url('/assets/css/tailwind.min.css') ?>">
+    <!-- Production Compiled Tailwind CSS with Auto Cache Busting -->
+    <link rel="stylesheet" href="<?= url('/assets/css/tailwind.min.css') ?>?v=<?= file_exists(__DIR__ . '/../assets/css/tailwind.min.css') ? filemtime(__DIR__ . '/../assets/css/tailwind.min.css') : '2.5.0' ?>">
     <?= render_theme_head() ?>
     <style>
         * { box-sizing: border-box; }
@@ -172,7 +182,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
         html[dir="rtl"], [dir="rtl"], h1, h2, h3, h4, h5, h6, p, span, a, button, label, input, td, th {
             letter-spacing: normal !important;
         }
-        .font-num, .font-mono, [dir="ltr"], .num-ltr {
+        .font-num, .font-mono {
             font-family: 'Plus Jakarta Sans', 'Cairo', sans-serif !important;
             font-feature-settings: "tnum" 1;
             font-variant-numeric: tabular-nums;
@@ -180,7 +190,10 @@ foreach ($erpNavCategories as $catKey => $catData) {
         }
         [dir="ltr"], .num-ltr {
             direction: ltr !important;
+            display: inline-block;
             unicode-bidi: isolate;
+            font-feature-settings: "tnum" 1;
+            font-variant-numeric: tabular-nums;
         }
         span.font-num, span.font-mono, td.font-num, td.font-mono, div.font-num, div.font-mono {
             unicode-bidi: isolate;
@@ -221,6 +234,14 @@ foreach ($erpNavCategories as $catKey => $catData) {
         .animate-fadeIn {
             animation: fadeIn 0.15s ease-out forwards;
         }
+        html, body {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+            width: 100% !important;
+        }
+        html.dark, html.dark body {
+            background-color: #0b0f14 !important;
+        }
         @media print {
             .no-print { display: none !important; }
             body { background: white !important; padding: 0 !important; color: black !important; }
@@ -228,18 +249,18 @@ foreach ($erpNavCategories as $catKey => $catData) {
         }
     </style>
 </head>
-<body class="min-h-full bg-[#f4f6f9] text-slate-800 antialiased flex flex-col font-sans">
+<body class="min-h-full bg-[#f4f6f9] dark:bg-[#0b0f14] text-slate-800 dark:text-slate-100 antialiased flex flex-col font-sans overflow-x-hidden">
     <div class="flex-1 flex flex-col min-w-0 min-h-screen">
 
         <!-- 1. Top Expiry Radar Alert Banner (If Any Warnings) -->
         <?php if (!empty($expiringList)): ?>
-            <div class="bg-rose-600 text-white px-4 py-2 text-xs font-bold shadow-2xs z-50 no-print">
+            <div class="bg-rose-600 text-white px-4 py-2 text-xs font-bold shadow-2xs z-50 no-print w-full">
                 <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                        <span>تنبيه رادار الصلاحية: يوجد <?= count($expiringList) ?> وثائق لمركبات الأسطول تنتهي خلال أقل من 30 يوماً (تأمين / مراقبة تقنية / GPL).</span>
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-2 h-2 rounded-full bg-white animate-ping shrink-0"></span>
+                        <span class="truncate">تنبيه رادار الصلاحية: يوجد <?= count($expiringList) ?> وثائق لمركبات الأسطول تنتهي خلال أقل من 30 يوماً (تأمين / مراقبة تقنية / GPL).</span>
                     </div>
-                    <a href="<?= url('/dashboard/vehicles.php?filter=expiring') ?>" class="underline hover:text-rose-100 whitespace-nowrap text-[11px] font-black">
+                    <a href="<?= url('/dashboard/vehicles.php?filter=expiring') ?>" class="underline hover:text-rose-100 whitespace-nowrap text-[11px] font-black shrink-0">
                         معاينة الوثائق وتفادي المحشر ←
                     </a>
                 </div>
@@ -247,24 +268,21 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <?php endif; ?>
 
         <!-- 2. Sticky Desktop Top ERP Header -->
-        <header class="sticky top-0 z-40 bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 shadow-2xs no-print">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <header class="sticky top-0 z-40 w-full bg-white/95 dark:bg-[#161d27]/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800 shadow-2xs no-print">
+            <div class="max-w-7xl mx-auto w-full px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-3 min-w-0">
                 
                 <!-- Brand & Desktop Launcher Button & Quick Dropdowns -->
                 <div class="flex items-center gap-2.5 sm:gap-4 shrink-0">
                     
                     <!-- Brand Identity -->
-                    <a href="<?= url('/dashboard/index.php') ?>" class="flex items-center gap-2.5 group">
-                        <div class="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center shadow-2xs group-hover:scale-105 transition">
-                            <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-6 h-6 object-contain">
-                        </div>
-                        <div class="hidden lg:block text-right">
-                            <div class="text-sm font-black text-slate-900 tracking-tight leading-none flex items-center gap-1.5">
-                                <span>تاكسي</span>
-                                <span class="text-amber-600">نقيلو</span>
-                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">ERP</span>
+                    <a href="<?= url('/dashboard/index.php') ?>" class="flex items-center gap-2 group shrink-0" title="تاكسي نقيلو - أولاد أحمد تيمي، أدرار">
+                        <img src="<?= url('/logo.webp') ?>" alt="تاكسي نقيلو" class="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-full bg-white p-0.5 border border-amber-400 shadow-xs group-hover:scale-105 transition-transform shrink-0" onerror="this.src='<?= url('/assets/logo.png') ?>'">
+                        <div class="text-right pr-1">
+                            <div class="text-[12px] sm:text-[13px] font-black text-slate-900 dark:text-white tracking-tight leading-none flex items-center gap-1">
+                                <span>تاكسي نقيلو</span>
+                                <span class="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">ERP</span>
                             </div>
-                            <span class="text-[8px] text-slate-400 font-extrabold block mt-0.5 uppercase tracking-wider">EURL TAXI NAGUILOU</span>
+                            <span class="text-[8px] sm:text-[9px] text-slate-500 dark:text-slate-400 font-bold block mt-0.5">أولاد أحمد تيمي - أدرار</span>
                         </div>
                     </a>
 
@@ -278,6 +296,38 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         <span class="hidden sm:inline">لوحة التحكم</span>
                     </a>
 
+                    <?php if ($isTaxiDriver): ?>
+                    <!-- Driver Direct Navigation (Only His 4 Core Modules) -->
+                    <div class="hidden xl:flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3 mr-1">
+                        <a href="<?= url('/dashboard/driver_fiche.php?id=' . $user['id']) ?>" 
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 <?= $currentPage === 'driver_fiche' ? 'bg-amber-500 text-slate-950 font-black shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800' ?>"
+                           title="رخصة السياقة، الفحص الطبي، التأمين والمراقبة التقنية">
+                            <span>🪪</span>
+                            <span>وثائقي وصلاحياتها</span>
+                        </a>
+                        <a href="<?= url('/dashboard/debt_statement.php?user_id=' . $user['id']) ?>" target="_blank"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 <?= $currentPage === 'debt_statement' ? 'bg-emerald-600 text-white font-black shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800' ?>"
+                           title="الاشتراك الشهري والديون المسجلة">
+                            <span>💰</span>
+                            <span>الدراهم والديون</span>
+                        </a>
+                        <a href="<?= url('/dashboard/planning.php') ?>" 
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 <?= $currentPage === 'planning' ? 'bg-purple-600 text-white font-black shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800' ?>"
+                           title="جدول المداومة الليلية وحراسة الحظيرة">
+                            <span>🌙</span>
+                            <span>المناوبة الليلية</span>
+                        </a>
+                        <a href="<?= url('/dashboard/notifications.php') ?>" 
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 <?= $currentPage === 'notifications' ? 'bg-rose-600 text-white font-black shadow-2xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800' ?>"
+                           title="مركز التنبيهات والإشعارات الفورية">
+                            <span>🔔</span>
+                            <span>الإشعارات</span>
+                            <?php if ($unreadNotifCount > 0): ?>
+                                <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-rose-500 text-white font-num font-black animate-pulse"><?= $unreadNotifCount ?></span>
+                            <?php endif; ?>
+                        </a>
+                    </div>
+                    <?php else: ?>
                     <!-- Desktop Module Dropdown Menus (Quick ERP Navigation) -->
                     <div class="hidden xl:flex items-center gap-1.5 border-r border-slate-200 dark:border-slate-800 pr-3 mr-1">
                         
@@ -431,10 +481,11 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         </div>
 
                     </div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Global Search Input (Ctrl + K) -->
-                <div class="flex-1 max-w-sm sm:max-w-md relative hidden md:block">
+                <div class="flex-1 max-w-xs xl:max-w-sm relative hidden md:block min-w-0">
                     <div class="relative">
                         <?php if ($currentPage === 'index'): ?>
                             <input type="text" id="launcherSearch" 
@@ -455,6 +506,70 @@ foreach ($erpNavCategories as $catKey => $catData) {
                         </div>
                     </div>
                 </div>
+
+                <?php if ($currentPage === 'index'): ?>
+                <!-- App Bar Layout & Content Switchers (Homepage Exclusive - Shown on Ultra-Wide 2xl) -->
+                <div class="hidden 2xl:flex items-center gap-2 shrink-0">
+                    <!-- 1. Content/Category Selector in App Bar -->
+                    <div class="relative">
+                        <select id="appBarCategorySelect" onchange="setHomeCategory(this.value)" 
+                                title="اختر تصنيف المحتوى للعرض"
+                                class="pr-3 pl-7 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20 cursor-pointer shadow-2xs">
+                            <?php if ($isTaxiDriver): ?>
+                            <option value="stats">📊 لوحة إحصائياتي</option>
+                            <option value="all">📂 كافة خدماتي</option>
+                            <option value="finance">💰 الدراهم والديون</option>
+                            <option value="fleet">🪪 الوثائق والصلاحيات</option>
+                            <option value="drivers">🌙 المناوبة الليلية</option>
+                            <option value="system">🔔 الإشعارات</option>
+                            <?php else: ?>
+                            <option value="stats">📊 لوحة الإحصائيات</option>
+                            <option value="all">📂 كافة الأقسام</option>
+                            <option value="fleet">🚗 الأسطول والمركبات</option>
+                            <option value="drivers">👨‍✈️ السائقون والتشغيل</option>
+                            <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                            <option value="finance">💰 المالية والاشتراكات</option>
+                            <?php endif; ?>
+                            <option value="system">⚙️ النظام والتنبيهات</option>
+                            <?php endif; ?>
+                        </select>
+                    </div>
+
+                    <!-- 2. Dynamic Layout Segmented Selector in App Bar -->
+                    <div class="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/80" role="group" aria-label="نمط عرض الصفحة الرئيسية">
+                        <button type="button" 
+                                onclick="setHomeLayout('grid')" 
+                                data-layout-target="grid" 
+                                title="عرض الشبكة (Grid View)" 
+                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                            </svg>
+                            <span class="hidden xl:inline">شبكة</span>
+                        </button>
+                        <button type="button" 
+                                onclick="setHomeLayout('sidebar')" 
+                                data-layout-target="sidebar" 
+                                title="عرض جانبي مع شريط أقسام (Sidebar View)" 
+                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5A2.25 2.25 0 016 2.25h12A2.25 2.25 0 0120.25 4.5v15a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 19.5v-15zM9 2.25v19.5" />
+                            </svg>
+                            <span class="hidden xl:inline">جانبي</span>
+                        </button>
+                        <button type="button" 
+                                onclick="setHomeLayout('list')" 
+                                data-layout-target="list" 
+                                title="عرض القائمة الأفقية (List View)" 
+                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                            </svg>
+                            <span class="hidden xl:inline">قائمة</span>
+                        </button>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <!-- Right Quick Actions: Expiry Badge, Notification Bell, User Status, Logout -->
                 <div class="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -583,11 +698,35 @@ foreach ($erpNavCategories as $catKey => $catData) {
         <!-- Mobile Navigation Drawer / Dropdown -->
         <div id="mobileNavDrawer" class="hidden xl:hidden bg-white dark:bg-[#161d27] border-b border-slate-200/90 dark:border-slate-800 px-4 py-3 shadow-lg z-40 space-y-3 no-print">
             <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+                <?php if ($isTaxiDriver): ?>
+                <!-- Driver Only Focused Mobile Menu -->
+                <a href="<?= url('/dashboard/driver_fiche.php?id=' . $user['id']) ?>" class="p-2.5 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-800 dark:text-violet-300 flex items-center gap-2">
+                    <span>🪪</span>
+                    <span>وثائقي وصلاحياتها</span>
+                </a>
+                <a href="<?= url('/dashboard/debt_statement.php?user_id=' . $user['id']) ?>" target="_blank" class="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                    <span>💰</span>
+                    <span>الدراهم والديون</span>
+                </a>
+                <a href="<?= url('/dashboard/planning.php') ?>" class="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 flex items-center gap-2">
+                    <span>🌙</span>
+                    <span>المناوبة الليلية</span>
+                </a>
+                <a href="<?= url('/dashboard/notifications.php') ?>" class="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 flex items-center justify-between">
+                    <span class="flex items-center gap-2">
+                        <span>🔔</span>
+                        <span>الإشعارات</span>
+                    </span>
+                    <?php if ($unreadNotifCount > 0): ?>
+                        <span class="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-num"><?= $unreadNotifCount ?></span>
+                    <?php endif; ?>
+                </a>
+                <?php else: ?>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/drivers.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-700">👤 سجل السائقين</a>
                 <?php endif; ?>
                 <a href="<?= url('/dashboard/vehicles.php') ?>" class="p-2 rounded-lg bg-amber-50 text-amber-800">🚗 سجل المركبات</a>
-                <a href="<?= url('/dashboard/driver_fiche.php' . ($isTaxiDriver ? ('?id=' . $user['id']) : '')) ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 <?= $isTaxiDriver ? 'حسابي المهني' : 'البطاقة الفنية' ?></a>
+                <a href="<?= url('/dashboard/driver_fiche.php') ?>" class="p-2 rounded-lg bg-violet-50 text-violet-800">🪪 البطاقة الفنية</a>
                 <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                 <a href="<?= url('/dashboard/contracts.php') ?>" class="p-2 rounded-lg bg-teal-50 text-teal-700">📄 عقود 90-11</a>
                 <a href="<?= url('/dashboard/insurance.php') ?>" class="p-2 rounded-lg bg-emerald-50 text-emerald-700">🛡️ التأمين والفحص</a>
@@ -615,6 +754,7 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <a href="<?= url('/dashboard/users.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">👥 المستخدمون</a>
                 <a href="<?= url('/dashboard/settings.php') ?>" class="p-2 rounded-lg bg-slate-100 text-slate-700">⚙️ الإعدادات</a>
                 <?php endif; ?>
+                <?php endif; ?>
             </div>
             <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
                 <div class="flex items-center gap-2">
@@ -633,31 +773,98 @@ foreach ($erpNavCategories as $catKey => $catData) {
             <div class="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 overflow-x-auto">
                 
                 <?php if ($currentPage === 'index'): ?>
-                    <!-- On Launcher Grid (index.php): Filter Pills -->
-                    <div class="flex items-center gap-1.5 shrink-0" id="categoryFilterBar">
-                        <button type="button" data-filter="all" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-900 text-white">
-                            الكل
-                        </button>
-                        <button type="button" data-filter="fleet" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
-                            الأسطول والمركبات
-                        </button>
-                        <button type="button" data-filter="drivers" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
-                            السائقون والتشغيل
-                        </button>
-                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                        <button type="button" data-filter="finance" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
-                            المالية والاشتراكات
-                        </button>
-                        <?php endif; ?>
-                        <button type="button" data-filter="system" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 hover:bg-slate-200">
-                            النظام والتنبيهات
-                        </button>
-                    </div>
+                    <!-- On Launcher Grid (index.php): Filter Pills on Desktop + Dropdown on Mobile + Mobile Layout Switcher -->
+                    <div class="flex items-center justify-between w-full gap-3">
+                        <div class="flex items-center gap-2 shrink-0">
+                            <!-- Desktop Filter Pills -->
+                            <div class="hidden sm:flex items-center gap-1.5 shrink-0" id="categoryFilterBar">
+                                <button type="button" data-filter="stats" onclick="setHomeCategory('stats')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    📊 الإحصائيات
+                                </button>
+                                <button type="button" data-filter="all" onclick="setHomeCategory('all')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-900 text-white dark:bg-white dark:text-slate-900">
+                                    الكل
+                                </button>
+                                <?php if ($isTaxiDriver): ?>
+                                <button type="button" data-filter="finance" onclick="setHomeCategory('finance')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    💰 الدراهم والديون
+                                </button>
+                                <button type="button" data-filter="fleet" onclick="setHomeCategory('fleet')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    🪪 الوثائق والصلاحيات
+                                </button>
+                                <button type="button" data-filter="drivers" onclick="setHomeCategory('drivers')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    🌙 المناوبة الليلية
+                                </button>
+                                <button type="button" data-filter="system" onclick="setHomeCategory('system')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    🔔 الإشعارات
+                                </button>
+                                <?php else: ?>
+                                <button type="button" data-filter="fleet" onclick="setHomeCategory('fleet')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    الأسطول والمركبات
+                                </button>
+                                <button type="button" data-filter="drivers" onclick="setHomeCategory('drivers')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    السائقون والتشغيل
+                                </button>
+                                <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                <button type="button" data-filter="finance" onclick="setHomeCategory('finance')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    المالية والاشتراكات
+                                </button>
+                                <?php endif; ?>
+                                <button type="button" data-filter="system" onclick="setHomeCategory('system')" class="category-btn px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200">
+                                    النظام والتنبيهات
+                                </button>
+                                <?php endif; ?>
+                            </div>
 
-                    <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-semibold shrink-0">
-                        <span>الولاية: <strong class="text-slate-700"><?= htmlspecialchars($user['wilaya']) ?></strong></span>
-                        <span>•</span>
-                        <span class="text-emerald-700 font-bold">الخادم متصل ونشط</span>
+                            <!-- Mobile Category Select Dropdown -->
+                            <div class="sm:hidden flex items-center gap-1.5">
+                                <span class="text-xs font-bold text-slate-500">القسم:</span>
+                                <select id="mobileCategorySelect" onchange="setHomeCategory(this.value)" 
+                                        class="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 focus:outline-none">
+                                    <?php if ($isTaxiDriver): ?>
+                                    <option value="stats">📊 إحصائياتي</option>
+                                    <option value="all">📂 كافة خدماتي</option>
+                                    <option value="finance">💰 الدراهم والديون</option>
+                                    <option value="fleet">🪪 الوثائق والصلاحيات</option>
+                                    <option value="drivers">🌙 المناوبة الليلية</option>
+                                    <option value="system">🔔 الإشعارات</option>
+                                    <?php else: ?>
+                                    <option value="stats">📊 الإحصائيات</option>
+                                    <option value="all">📂 الكل</option>
+                                    <option value="fleet">🚗 الأسطول والمركبات</option>
+                                    <option value="drivers">👨‍✈️ السائقون والتشغيل</option>
+                                    <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
+                                    <option value="finance">💰 المالية والاشتراكات</option>
+                                    <?php endif; ?>
+                                    <option value="system">⚙️ النظام والتنبيهات</option>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Right Side: Status (Desktop) & Layout Switcher (Always accessible) -->
+                        <div class="flex items-center gap-3 shrink-0">
+                            <!-- Universal Layout Switcher -->
+                            <div class="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shrink-0" role="group" aria-label="نمط عرض المحتوى">
+                                <button type="button" onclick="setHomeLayout('grid')" data-layout-target="grid" title="عرض الشبكة (Grid View)" class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
+                                    <span class="hidden md:inline">شبكة</span>
+                                </button>
+                                <button type="button" onclick="setHomeLayout('sidebar')" data-layout-target="sidebar" title="عرض جانبي (Sidebar View)" class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5A2.25 2.25 0 016 2.25h12A2.25 2.25 0 0120.25 4.5v15a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 19.5v-15zM9 2.25v19.5" /></svg>
+                                    <span class="hidden md:inline">جانبي</span>
+                                </button>
+                                <button type="button" onclick="setHomeLayout('list')" data-layout-target="list" title="عرض القائمة (List View)" class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                                    <span class="hidden md:inline">قائمة</span>
+                                </button>
+                            </div>
+
+                            <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-semibold shrink-0">
+                                <span>الولاية: <strong class="text-slate-700 dark:text-slate-200"><?= htmlspecialchars($user['wilaya']) ?></strong></span>
+                                <span>•</span>
+                                <span class="text-emerald-700 dark:text-emerald-400 font-bold">الخادم متصل ونشط</span>
+                            </div>
+                        </div>
                     </div>
 
                 <?php else: ?>

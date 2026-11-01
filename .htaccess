@@ -1,39 +1,84 @@
-# Taxi-Naguilou - Apache Configuration for Bluehost / cPanel
+# =========================================================================
+# Taxi-Naguilou ERP — Production Apache Configuration
+# Enterprise Grade: Security Hardening, Performance & Asset Caching
+# =========================================================================
+
 DirectoryIndex index.php
 
-# Prevent Directory Browsing
-Options -Indexes
+# 1. Prevent Directory Browsing & Server Signature Disclosure
+Options -Indexes -MultiViews
+ServerSignature Off
 
+# 2. Character Encoding & Error Documents
+AddDefaultCharset UTF-8
+ErrorDocument 403 /403.php
+ErrorDocument 404 /404.php
+ErrorDocument 500 /500.php
+
+# 3. URL Rewrite Engine
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteBase /
+
+    # Canonical redirect for legacy URLs
     RewriteRule ^dashboard/fleet\.php$ /dashboard/vehicles.php [R=301,L]
+
+    # Block direct web access to install.php if system is already installed
+    <IfModule mod_authz_core.c>
+        RewriteCond %{DOCUMENT_ROOT}/install.lock -f
+        RewriteRule ^install\.php$ / [R=302,L]
+    </IfModule>
 </IfModule>
 
-# UTF-8 Encoding
-AddDefaultCharset UTF-8
+# 4. Security: Block Access to Sensitive & Administrative Files
+<FilesMatch "(?i)^(\.env|\.env\..*|\.git.*|database\.sql|wipe_data\.sql|migrate_all_new_columns\.sql|install\.lock|package\.json|package-lock\.json|tailwind\.config\.js|composer\.json|composer\.lock|.*\.log|.*\.bak|.*\.sql|.*\.md|install\.bat|install\.ps1)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
 
-<IfModule mod_php.c>
-    php_value display_errors 1
-    php_value display_startup_errors 1
-    php_value error_reporting 32767
+# 5. Security: Block Hidden Files and Folders (except .well-known for SSL certs)
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_URI} "!(^|/)\.well-known([^/]+)?/" [NC]
+    RewriteRule "(^|/)\." - [F]
 </IfModule>
 
-<IfModule mod_php8.c>
-    php_value display_errors 1
-    php_value display_startup_errors 1
-    php_value error_reporting 32767
+# 6. Security: Production HTTP Response Headers (OWASP AppSec Standards)
+<IfModule mod_headers.c>
+    # Prevent MIME Sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Prevent Clickjacking (allow embedding only on same origin)
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # Cross-site scripting (XSS) filter
+    Header always set X-XSS-Protection "1; mode=block"
+
+    # Referrer Policy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Restrict dangerous browser features
+    Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+
+    # Remove sensitive server disclosure headers
+    Header unset X-Powered-By
+    Header unset Server
 </IfModule>
 
 # =========================================================================
 # PERFORMANCE & SPEED OPTIMIZATION (GZIP Compression & Browser Caching)
 # =========================================================================
 
-# 1. Enable GZIP Output Compression (mod_deflate)
+# 7. Enable GZIP Output Compression (mod_deflate)
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/plain text/html text/xml text/css application/xml application/xhtml+xml application/rss+xml application/javascript application/x-javascript application/json image/svg+xml font/woff2
 </IfModule>
 
-# 2. Browser Caching for Static Assets (mod_expires)
+# 8. Browser Caching for Static Assets (mod_expires)
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresDefault "access plus 1 day"
@@ -50,7 +95,7 @@ AddDefaultCharset UTF-8
     ExpiresByType application/font-woff2 "access plus 1 year"
 </IfModule>
 
-# 3. HTTP Header Cache-Control
+# 9. HTTP Header Cache-Control
 <IfModule mod_headers.c>
     <FilesMatch "\.(ico|jpe?g|png|gif|webp|svg)$">
         Header set Cache-Control "max-age=2592000, public"

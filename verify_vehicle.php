@@ -183,6 +183,10 @@ if ($vehicle && $_SERVER['REQUEST_METHOD'] === 'GET') {
                 VALUES ('info', ?, ?, ?, 0, NOW())
             ");
             $stmtNotif->execute([$notifTitle, $notifMsg, $notifLink]);
+
+            if (function_exists('log_audit')) {
+                log_audit($pdo, 'vehicle_qr_scanned', 'vehicles', (int)$vehicle['id'], "مسح QR لمركبة الأجرة $doorNum ($vehTitle) من طرف زبون أو مفتش");
+            }
         }
     } catch (\Throwable $e) {
         error_log("verify_vehicle.php - scan log error: " . $e->getMessage());
@@ -227,8 +231,9 @@ if ($vehicle && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ra
             $comment ?: null,
             $ip
         ]);
+        $newRatingId = (int)$pdo->lastInsertId();
 
-        // Insert notification for admin & fleet managers
+        // Insert notification for admin & fleet managers with direct link to rating details
         $starsStr = str_repeat('⭐', $rating);
         $driverName = $vehicle['driver_name'] ?: 'سائق المركبة';
         $doorNum = $vehicle['door_number'];
@@ -238,12 +243,28 @@ if ($vehicle && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ra
         $commentExcerpt = !empty($comment) ? " • ملاحظة الراكب: \"$comment\"" : " • بدون تعليق";
         $passengerInfo = !empty($passengerName) ? " (من: $passengerName)" : "";
         $notifMsg = "تم تسجيل تقييم راكب جديد لسيارة الأجرة $doorNum ($starsStr)$passengerInfo$commentExcerpt";
-        $notifLink = "/dashboard/drivers.php?search=" . urlencode($driverName);
+        $notifLink = "/dashboard/ratings.php?id=" . $newRatingId;
 
         $pdo->prepare("
             INSERT INTO notifications (type, title, message, link, is_read, created_at)
             VALUES (?, ?, ?, ?, 0, NOW())
         ")->execute([$notifType, $notifTitle, $notifMsg, $notifLink]);
+
+        // If driver has an active user account, also notify them directly
+        if (!empty($activeDriverId)) {
+            $driverNotifTitle = "تقييم راكب جديد: $starsStr ($rating/5)";
+            $driverNotifMsg = "سجل أحد الركاب تقييماً لمركبتك باب $doorNum ($starsStr)" . (!empty($comment) ? " • \"$comment\"" : "");
+            $driverNotifLink = "/dashboard/ratings.php?id=" . $newRatingId;
+            $pdo->prepare("
+                INSERT INTO notifications (user_id, type, title, message, link, is_read, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, NOW())
+            ")->execute([$activeDriverId, $notifType, $driverNotifTitle, $driverNotifMsg, $driverNotifLink]);
+        }
+
+        if (function_exists('log_audit')) {
+            $pName = !empty($passengerName) ? $passengerName : 'زبون / راكب';
+            log_audit($pdo, 'passenger_rating_submitted', 'driver_ratings', $newRatingId, "تقييم راكب جديد ($rating/5) من $pName لمركبة الأجرة $doorNum");
+        }
 
         $ratingSubmitted = true;
     } catch (\Throwable $e) {

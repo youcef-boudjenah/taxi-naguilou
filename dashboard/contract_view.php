@@ -73,6 +73,12 @@ $defaultWilayaNum = preg_match('/^(\d+)/', $company['wilaya_raw'] ?? '', $m) ? $
 $dtwNumber = htmlspecialchars($_GET['dtw_num'] ?? (!empty($contract['dtw_number']) ? $contract['dtw_number'] : $defaultWilayaNum));
 $dtwYear = htmlspecialchars($_GET['dtw_year'] ?? (!empty($contract['dtw_year']) ? $contract['dtw_year'] : date('Y', strtotime($contract['start_date'] ?? 'now'))));
 
+$slipLogo = file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.png') 
+    ? url('/uploads/slips/slip_header_logo.png') 
+    : (file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.jpg') 
+        ? url('/uploads/slips/slip_header_logo.jpg') 
+        : url('/logo.webp'));
+
 // Format duration and dates
 $d1 = !empty($contract['start_date']) ? new DateTime($contract['start_date']) : new DateTime();
 $d2 = !empty($contract['end_date']) ? new DateTime($contract['end_date']) : (clone $d1)->modify('+5 years');
@@ -236,10 +242,10 @@ $endDateFormatted = date('d/m/Y', strtotime($contract['end_date']));
         <!-- Republic Official Header with Logo -->
         <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-2 border-amber-400 dark:border-amber-500 shadow-md shrink-0 p-1 bg-white">
+                <img src="<?= $slipLogo ?>" alt="EURL TAXI NAGUILOU" class="h-16 sm:h-20 max-w-[200px] object-contain shrink-0">
                 <div class="text-center space-y-1.5 flex-1">
                     <h1 class="text-base sm:text-xl font-black text-slate-950 dark:text-white">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
-                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل لولاية <?= htmlspecialchars($company['wilaya_clean']) ?></h2>
+                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل لولاية <?= !empty($company['wilaya_clean']) ? htmlspecialchars($company['wilaya_clean']) : 'أدرار' ?></h2>
                     <div class="text-xs sm:text-sm font-black text-amber-700 dark:text-amber-400 font-num"><?= htmlspecialchars($company['name']) ?></div>
                 </div>
                 <div class="w-28 text-center text-xs text-slate-600 dark:text-slate-400 font-num shrink-0">

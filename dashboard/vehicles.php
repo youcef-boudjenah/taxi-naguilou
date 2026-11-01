@@ -4,6 +4,12 @@ require_once __DIR__ . '/../includes/auth.php';
 require_login();
 $user = current_user();
 
+// Driver Guard: drivers should only see their own vehicle & documents
+if (is_driver()) {
+    set_flash('info', 'تم توجيهك إلى بطاقة مركبتك ووثائقك المهنية وصلاحياتها.');
+    redirect('/dashboard/driver_fiche.php?id=' . $user['id']);
+}
+
 $pdo = getDBConnection();
 $drivers = [];
 
@@ -1897,33 +1903,7 @@ if (isset($_GET['edit']) && $pdo) {
                                             </a>
                                             <?php endif; ?>
 
-                                            <!-- QR Code & Vehicle Sticker Modal Trigger -->
-                                            <?php
-                                            $vJsonData = htmlspecialchars(json_encode([
-                                                'id' => $v['id'],
-                                                'brand' => $v['brand'],
-                                                'model' => $v['model'],
-                                                'plate_number' => str_replace('/', '-', $v['plate_number']),
-                                                'door_number' => $v['door_number'],
-                                                'color' => $v['color'],
-                                                'status' => $v['status'] ?? 'active',
-                                                'suspended_reason' => $v['suspended_reason'] ?? '',
-                                                'driver_name' => $v['driver_name'] ?? 'بدون سائق حالياً',
-                                                'driver_phone' => $v['driver_phone'] ?? '',
-                                                'qr_code' => $v['qr_code'] ?? ('TN-V' . str_pad($v['id'], 3, '0', STR_PAD_LEFT)),
-                                                'ratings_count' => (int)($v['ratings_count'] ?? 0),
-                                                'avg_rating' => (float)($v['avg_rating'] ?? 5.0)
-                                            ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-                                            ?>
-                                            <button type="button"
-                                                    onclick="openVehicleQrModal(<?= $vJsonData ?>)"
-                                                    class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 font-bold transition text-right cursor-pointer whitespace-nowrap">
-                                                <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.008v.008H6.75V6.75zM6.75 16.5h.008v.008H6.75V16.5zM16.5 6.75h.008v.008H16.5V6.75zM13.5 13.5h.008v.008H13.5V13.5zM13.5 19.5h.008v.008H13.5V19.5zM19.5 13.5h.008v.008H19.5V13.5zM19.5 19.5h.008v.008H19.5V19.5zM16.5 16.5h.008v.008H16.5V16.5z" />
-                                                </svg>
-                                                <span>كود بار وملصق السيارة 📱</span>
-                                            </button>
+
                                             <a href="<?= url('/dashboard/vehicle_sticker.php?id=' . (int)$v['id'] . '&print=1') ?>"
                                                target="_blank"
                                                class="table-dropdown-item w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition text-right whitespace-nowrap">

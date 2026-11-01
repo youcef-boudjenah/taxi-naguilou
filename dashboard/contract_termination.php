@@ -61,6 +61,13 @@ $terminationNotes = !empty($contract['termination_notes']) ? $contract['terminat
 // Reference numbers
 $resNum = 'RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$contract['id'], 3, '0', STR_PAD_LEFT);
 $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$contract['id'], 3, '0', STR_PAD_LEFT);
+
+// Logo handling
+$slipLogo = file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.png') 
+    ? url('/uploads/slips/slip_header_logo.png') 
+    : (file_exists(__DIR__ . '/../uploads/slips/slip_header_logo.jpg') 
+        ? url('/uploads/slips/slip_header_logo.jpg') 
+        : url('/logo.webp'));
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -100,7 +107,7 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
             body { background: white !important; padding: 0 !important; color: #000 !important; }
             .contract-paper { border: none !important; box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
             strong, b, .font-bold, .font-black { font-weight: 900 !important; color: #000 !important; }
-            .contract-paper img { border-radius: 9999px !important; object-fit: cover !important; }
+            .contract-paper img { object-fit: contain !important; }
         }
     </style>
 </head>
@@ -137,18 +144,18 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
         </div>
 
         <!-- Document / Slip Tab Switcher -->
-        <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <a href="contract_termination.php?id=<?= $contractId ?>&tab=document" 
-               class="px-3 py-1.5 rounded-lg text-xs font-black transition <?= $activeTab === 'document' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700' ?>">
-                📜 محضر الفسخ الرسمي
-            </a>
-            <a href="contract_termination.php?id=<?= $contractId ?>&tab=slip" 
-               class="px-3 py-1.5 rounded-lg text-xs font-black transition <?= $activeTab === 'slip' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700' ?>">
-                📋 بوردرورو الفسخ (DTW)
-            </a>
-        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <a href="contract_termination.php?id=<?= $contractId ?>&tab=document" 
+                   class="px-3 py-1.5 rounded-lg text-xs font-black transition <?= $activeTab === 'document' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700' ?>">
+                    📜 محضر الفسخ الرسمي
+                </a>
+                <a href="contract_termination.php?id=<?= $contractId ?>&tab=slip" 
+                   class="px-3 py-1.5 rounded-lg text-xs font-black transition <?= $activeTab === 'slip' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700' ?>">
+                    📋 بوردرورو الفسخ (DTW)
+                </a>
+            </div>
 
-        <div class="flex items-center gap-2">
             <button onclick="window.print()" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition shadow-xs flex items-center gap-2 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h10.5a2.25 2.25 0 012.25 2.25v6.75H4.5V9a2.25 2.25 0 012.25-2.25zm0 0V4.5a2.25 2.25 0 012.25-2.25h6a2.25 2.25 0 012.25 2.25v2.25m-9 9h9.75M6.75 18h10.5a2.25 2.25 0 002.25-2.25v-3H4.5v3A2.25 2.25 0 006.75 18z" />
@@ -168,10 +175,10 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
         <!-- Republic Official Header with Logo -->
         <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-2 border-rose-500 shadow-md shrink-0 p-1 bg-white">
+                <img src="<?= $slipLogo ?>" alt="EURL TAXI NAGUILOU" class="h-16 sm:h-20 max-w-[200px] object-contain shrink-0">
                 <div class="text-center space-y-1.5 flex-1">
                     <h1 class="text-base sm:text-xl font-black text-slate-950 dark:text-white">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
-                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل لولاية <?= htmlspecialchars($company['wilaya_clean']) ?></h2>
+                    <h2 class="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100">مديرية النقل لولاية أدرار</h2>
                     <div class="text-xs sm:text-sm font-black text-rose-700 dark:text-rose-400 font-num"><?= htmlspecialchars($company['name']) ?></div>
                 </div>
                 <div class="w-28 text-center text-xs text-slate-600 dark:text-slate-400 font-num shrink-0">
@@ -252,22 +259,17 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
             </div>
 
             <div>
-                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 03 (استرداد المركبة والوثائق):</strong>
-                يصرح السائق (الطرف الثاني) ويثبت أنه قام بإعادة وتسليم مركبة سيارة الأجرة بكامل تجهيزاتها الرسمية ودفتر المقررة والشارة وبطاقة الوقود لإدارة المؤسسة بحالة مطابقة لمحضر الاستلام، مع إلغاء تخصيص المركبة في سجل الأسطول المعتمد.
+                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 03 (استرداد الوثائق):</strong>
+                يصرح السائق (الطرف الثاني) ويثبت أنه قام بإعادة وتسليم الوثائق الرسمية والتجهيزات الرسمية (في حال توفرها) والدفتر المقرر لإدارة المؤسسة، مع شطب انتساب السائق في سجل الأسطول المعتمد.
             </div>
 
             <div>
-                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 04 (تصفية المستحقات وبراءة الذمة):</strong>
-                تمت التصفية المحاسبية والإدارية الشاملة لكافة المستحقات المالية والاشتراكات المتبادلة بين الطرفين حتى تاريخ سريان هذا الفسخ. ويقر كلا الطرفين ببراءة ذمة كل منهما تجاه الآخر براءة تامة ونهائية لا رجعة فيها، دون أي تعويض مالي إضافي من أي نوع.
-            </div>
-
-            <div>
-                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 05 (السريان والإخطار الرسمي):</strong>
+                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 04 (السريان والإخطار الرسمي):</strong>
                 يسري مفعول هذا الفسخ ابتداءً من <strong class="font-num font-bold" dir="ltr"><?= $termDateFormatted ?></strong>، وتتولى المؤسسة المستخدمة إخطار مفتشية العمل ومصالح مديرية النقل (DTW) ومصالح الصندوق الوطني للتأمينات الاجتماعية (CNAS) بنسخة من هذا المحضر لشطب انتساب السائق نظامياً.
             </div>
 
             <div>
-                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 06 (القبول والمصادقة):</strong>
+                <strong class="font-black text-slate-950 dark:text-white text-sm">البند 05 (القبول والمصادقة):</strong>
                 حرر هذا المحضر في نسختين أصليتين، بيد كل طرف نسخة للعمل والاحتجاج بها عند الاقتضاء، وصرح الطرفان بأنهما اطلعا على كافة بنوده ووافقا عليها بعد القراءة والمصادقة.
             </div>
         </div>
@@ -298,7 +300,7 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
         <!-- DTW Bordereau Republic Header -->
         <div class="border-b-2 border-slate-900 dark:border-slate-700 pb-5 space-y-3">
             <div class="flex items-center justify-between gap-4">
-                <img src="<?= url('/logo.webp') ?>" alt="EURL TAXI NAGUILOU" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-amber-400 dark:border-amber-500 shadow-md shrink-0 p-1 bg-white">
+                <img src="<?= $slipLogo ?>" alt="EURL TAXI NAGUILOU" class="h-16 sm:h-20 max-w-[200px] object-contain shrink-0">
                 <div class="text-center space-y-1 flex-1">
                     <h1 class="text-sm sm:text-lg font-black text-slate-950 dark:text-white">الجمهورية الجزائرية الديمقراطية الشعبية</h1>
                     <h2 class="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">وزارة النقل — مديرية النقل لولاية أدرار (DTW)</h2>
@@ -330,7 +332,7 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
                 <div>
                     <span class="font-bold text-slate-500 dark:text-slate-400 block mb-0.5">الجهة المرسل إليها (Destinataire):</span>
                     <strong class="text-slate-950 dark:text-white font-black text-sm block">
-                        السيد / مدير النقل لولاية <?= htmlspecialchars($company['wilaya_clean']) ?> (DTW)
+                        السيد / مدير النقل لولاية أدرار (DTW)
                     </strong>
                     <span class="text-xs text-slate-600 dark:text-slate-300">مصلحة استغلال سيارات الأجرة ونقل الأشخاص</span>
                 </div>
@@ -418,8 +420,7 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
             <span class="font-bold text-slate-900 dark:text-slate-100 block">الوثائق الرسمية المرفقة بجدول الإرسال:</span>
             <ul class="list-disc list-inside space-y-1 text-slate-700 dark:text-slate-300 pr-2">
                 <li>نسخة أصلية ومطابقة من محضر فسخ العقد رقم <strong class="font-mono" dir="ltr"><?= $resNum ?></strong> ممضى ومصادق عليه.</li>
-                <li>نسخة من رخصة السياقة للسائق المعني المشطوب.</li>
-                <li>محضر استرجاع تجهيزات سيارة الأجرة ورخصة الاستغلال وبراءة الذمة.</li>
+                <li>محضر استرجاع الوثائق (الدفتر ورخصة الاستغلال).</li>
             </ul>
         </div>
 
@@ -440,6 +441,5 @@ $slipNum = 'BRD-RES-' . date('Y', strtotime($termDate)) . '-' . str_pad((int)$co
 
     </div>
     <?php endif; ?>
-
 </body>
 </html>

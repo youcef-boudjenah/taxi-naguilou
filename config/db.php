@@ -1,10 +1,93 @@
 <?php
 // config/db.php - Central Database Configuration & Auto-Migration
-define('DB_HOST', 'localhost');
-define('DB_PORT', '3306');
-define('DB_USER', 'mvnmwgmy_taxi_naguilou');
-define('DB_PASS', 'mvnmwgmy_taxi_naguilou');
-define('DB_NAME', 'mvnmwgmy_taxi_naguilou');
+
+// -------------------------------------------------------------------------
+// 1. ENVIRONMENT CONFIGURATION (.env Loader)
+// -------------------------------------------------------------------------
+$envFile = __DIR__ . '/../.env';
+if (file_exists($envFile) && is_readable($envFile)) {
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') continue;
+        if (strpos($line, '=') !== false) {
+            list($envKey, $envVal) = explode('=', $line, 2);
+            $envKey = trim($envKey);
+            $envVal = trim($envVal);
+            if ((substr($envVal, 0, 1) === '"' && substr($envVal, -1) === '"') ||
+                (substr($envVal, 0, 1) === "'" && substr($envVal, -1) === "'")) {
+                $envVal = substr($envVal, 1, -1);
+            }
+            if (!array_key_exists($envKey, $_SERVER) && !array_key_exists($envKey, $_ENV)) {
+                putenv("{$envKey}={$envVal}");
+                $_ENV[$envKey] = $envVal;
+                $_SERVER[$envKey] = $envVal;
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// 2. ENVIRONMENT & DEBUG MODE DETECTION
+// -------------------------------------------------------------------------
+$isLocalEnv = (PHP_OS_FAMILY === 'Windows') 
+              || in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1']) 
+              || (($_SERVER['HTTP_HOST'] ?? '') === 'localhost')
+              || (strpos(str_replace('\\', '/', __DIR__), 'laragon') !== false);
+
+if (!defined('APP_ENV')) {
+    $detectedEnv = getenv('APP_ENV') ?: ($isLocalEnv ? 'development' : 'production');
+    define('APP_ENV', $detectedEnv);
+}
+
+if (!defined('APP_DEBUG')) {
+    $envDebug = getenv('APP_DEBUG');
+    if ($envDebug !== false && $envDebug !== null && $envDebug !== '') {
+        define('APP_DEBUG', filter_var($envDebug, FILTER_VALIDATE_BOOLEAN));
+    } else {
+        define('APP_DEBUG', $isLocalEnv && APP_ENV !== 'production');
+    }
+}
+
+// -------------------------------------------------------------------------
+// 3. PRODUCTION ERROR HANDLING & SECURE LOGGING
+// -------------------------------------------------------------------------
+if (APP_DEBUG) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    error_reporting(E_ALL);
+} else {
+    ini_set('display_errors', '0');
+    ini_set('display_startup_errors', '0');
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+}
+
+ini_set('log_errors', '1');
+$logDir = __DIR__ . '/../storage/logs';
+if (!is_dir($logDir)) {
+    @mkdir($logDir, 0755, true);
+}
+ini_set('error_log', $logDir . '/php_errors.log');
+
+// -------------------------------------------------------------------------
+// 4. SECURE HTTP RESPONSE HEADERS (OWASP Standard Defense-in-Depth)
+// -------------------------------------------------------------------------
+if (!headers_sent() && php_sapi_name() !== 'cli') {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: geolocation=(), camera=(), microphone=()');
+}
+
+// -------------------------------------------------------------------------
+// 5. DATABASE CONNECTION CONSTANTS
+// -------------------------------------------------------------------------
+if (!defined('DB_HOST')) define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+if (!defined('DB_PORT')) define('DB_PORT', getenv('DB_PORT') ?: '3306');
+if (!defined('DB_USER')) define('DB_USER', getenv('DB_USER') ?: 'mvnmwgmy_taxi_naguilou');
+if (!defined('DB_PASS')) define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : 'mvnmwgmy_taxi_naguilou');
+if (!defined('DB_NAME')) define('DB_NAME', getenv('DB_NAME') ?: 'mvnmwgmy_taxi_naguilou');
 /**
  * Dynamic App Base URL Resolution
  * Works seamlessly whether hosted at root (vhost http://taxi-naguilou.test/)
@@ -149,7 +232,8 @@ function getDBConnection() {
             $qrCheck = $pdo->query("SHOW COLUMNS FROM `vehicles` LIKE 'qr_code'")->fetch();
             $feeCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'custom_vehicle_fee'")->fetch();
             $termCheck = $pdo->query("SHOW COLUMNS FROM `contracts` LIKE 'termination_clause'")->fetch();
-            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck) || empty($termCheck)) {
+            $ratingIpCheck = $pdo->query("SHOW COLUMNS FROM `driver_ratings` LIKE 'ip_address'")->fetch();
+            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck) || empty($termCheck) || empty($ratingIpCheck)) {
                 $needsMigration = true;
             }
         } catch (\Throwable $e) {}
@@ -182,7 +266,7 @@ function initAllTables(PDO $pdo) {
     // Check if key tables already exist to avoid running schema queries repeatedly
     $keyTables = [
         'users', 'vehicles', 'contracts', 'leaves', 'billings', 
-        'transmission_slips', 'driver_debts', 'versements', 'night_watch', 
+        'transmission_slips', 'driver_debts', 'versements', 'debt_penalties', 'night_watch', 
         'driver_schedules', 'insurance_policies', 'driver_subscriptions', 
         'leads', 'notifications', 'settings', 'audit_logs', 
         'cnas_declarations', 'traveler_reports', 'traveler_passengers',
@@ -378,6 +462,23 @@ function initAllTables(PDO $pdo) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at DATETIME NULL DEFAULT NULL,
         FOREIGN KEY (debt_id) REFERENCES driver_debts(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    -- Late Debt Penalties Log (سجل غرامات التأخير التلقائية التصاعدية)
+    CREATE TABLE IF NOT EXISTS debt_penalties (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        debt_id INT NOT NULL,
+        penalty_month INT NOT NULL,
+        ref_date DATE NOT NULL,
+        days_overdue INT NOT NULL,
+        amount DECIMAL(12, 2) NOT NULL,
+        multiplier DECIMAL(3, 1) DEFAULT 1.0,
+        period_label VARCHAR(150) NOT NULL,
+        applied_date DATE NOT NULL,
+        is_auto TINYINT(1) DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (debt_id) REFERENCES driver_debts(id) ON DELETE CASCADE,
+        UNIQUE KEY uq_debt_ref_month (debt_id, ref_date, penalty_month)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
     -- Garde de nuit du parc (Night Watch / Park Security)
@@ -735,6 +836,14 @@ function migrateDriverFicheFields(PDO $pdo): void {
                 `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+    } catch (\Throwable $e) {}
+
+    // 2c. Driver ratings table columns ensure
+    try {
+        $rCols = $pdo->query("SHOW COLUMNS FROM `driver_ratings`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (!empty($rCols) && !in_array('ip_address', $rCols)) {
+            $pdo->exec("ALTER TABLE `driver_ratings` ADD COLUMN `ip_address` VARCHAR(45) NULL AFTER `comment`");
+        }
     } catch (\Throwable $e) {}
 
     // 3. Leaves table columns
@@ -1454,6 +1563,21 @@ function ensure_db_indexes(PDO $pdo): void {
         ],
         'driver_debts' => [
             'idx_debts_user_status' => '(`user_id`, `status`)'
+        ],
+        'billings' => [
+            'idx_billings_status_created' => '(`status`, `created_at`)'
+        ],
+        'driver_subscriptions' => [
+            'idx_sub_driver_period' => '(`driver_id`, `period_month`)'
+        ],
+        'night_watch' => [
+            'idx_nw_entry_status' => '(`entry_time`, `status`)'
+        ],
+        'transmission_slips' => [
+            'idx_slips_status_issue' => '(`status`, `issue_date`)'
+        ],
+        'audit_logs' => [
+            'idx_audit_user_created' => '(`user_id`, `created_at`)'
         ]
     ];
 
@@ -1527,6 +1651,20 @@ function migrateDebtsAndVersements(PDO $pdo): void {
         if (!in_array('deleted_at', $debtCols)) {
             $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_debts_deleted_at` (`deleted_at`)");
         }
+        if (!in_array('total_penalties', $debtCols)) {
+            $pdo->exec("ALTER TABLE `driver_debts` ADD COLUMN `total_penalties` DECIMAL(12, 2) DEFAULT 0.00 AFTER `total_versements`");
+        }
+
+        // Sanitize any orphaned or zero user_id values in driver_debts to preserve foreign key integrity
+        try {
+            $pdo->exec("UPDATE `driver_debts` SET `user_id` = NULL WHERE `user_id` = 0");
+            $pdo->exec("
+                UPDATE `driver_debts` d
+                LEFT JOIN `users` u ON d.`user_id` = u.`id`
+                SET d.`user_id` = NULL
+                WHERE d.`user_id` IS NOT NULL AND u.`id` IS NULL
+            ");
+        } catch (\Throwable $exSanitize) {}
     } catch (\Throwable $e) {}
 
     try {
@@ -1541,7 +1679,233 @@ function migrateDebtsAndVersements(PDO $pdo): void {
             $pdo->exec("ALTER TABLE `versements` ADD COLUMN `deleted_at` DATETIME NULL DEFAULT NULL, ADD INDEX `idx_vers_deleted_at` (`deleted_at`)");
         }
     } catch (\Throwable $e) {}
+
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS debt_penalties (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                debt_id INT NOT NULL,
+                penalty_month INT NOT NULL,
+                ref_date DATE NOT NULL,
+                days_overdue INT NOT NULL,
+                amount DECIMAL(12, 2) NOT NULL,
+                multiplier DECIMAL(3, 1) DEFAULT 1.0,
+                period_label VARCHAR(150) NOT NULL,
+                applied_date DATE NOT NULL,
+                is_auto TINYINT(1) DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (debt_id) REFERENCES driver_debts(id) ON DELETE CASCADE,
+                UNIQUE KEY uq_debt_ref_month (debt_id, ref_date, penalty_month)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+    } catch (\Throwable $e) {}
 }
+
+/**
+ * Automatically calculates and applies progressive monthly late penalties:
+ * - 0 to 89 days (< 3 months): Grace period, 0 DZD.
+ * - 90 to 179 days (Months 4, 5, 6): Base monthly penalty (debt_penalty_3m, default 5,000 DZD) applied each month.
+ * - 180+ days (Month 7 onwards): Double monthly penalty (2x base = debt_penalty_6m, default 10,000 DZD) applied each subsequent month.
+ * 
+ * Safe, idempotent, non-duplicating via UNIQUE KEY (debt_id, ref_date, penalty_month).
+ */
+function apply_automated_debt_penalties(?PDO $pdo, bool $force = false): array {
+    $result = [
+        'success' => false,
+        'ran' => false,
+        'debts_checked' => 0,
+        'debts_penalized' => 0,
+        'penalties_applied' => 0,
+        'total_amount' => 0.0,
+        'message' => ''
+    ];
+
+    if (!$pdo) {
+        $result['message'] = 'قاعدة البيانات غير متصلة.';
+        return $result;
+    }
+
+    try {
+        migrateDebtsAndVersements($pdo);
+
+        $settings = get_all_settings($pdo);
+        $enabled = isset($settings['debt_penalty_enabled']) ? ($settings['debt_penalty_enabled'] == '1') : true;
+        $autoApply = isset($settings['debt_penalty_auto_apply']) ? ($settings['debt_penalty_auto_apply'] == '1') : true;
+
+        if (!$enabled) {
+            $result['message'] = 'نظام غرامات التأخير معطل في الإعدادات.';
+            return $result;
+        }
+
+        if (!$force && !$autoApply) {
+            $result['message'] = 'التطبيق الآلي اليومي معطل في الإعدادات.';
+            return $result;
+        }
+
+        $today = date('Y-m-d');
+        $lastAutoRun = $settings['debt_penalty_last_auto_check'] ?? '';
+
+        // If not forced and already ran today, skip to save CPU/DB load
+        if (!$force && $lastAutoRun === $today) {
+            $result['message'] = 'تم تشغيل الفحص الآلي للغرامات مسبقاً اليوم (' . $today . ').';
+            return $result;
+        }
+
+        // Monthly penalty rates
+        $penalty3m = isset($settings['debt_penalty_3m']) ? (float)$settings['debt_penalty_3m'] : 5000.00;
+        // User rule: after 6 months it becomes double (2x), defaults to 2 * penalty3m
+        $penalty6m = isset($settings['debt_penalty_6m']) ? (float)$settings['debt_penalty_6m'] : ($penalty3m * 2.0);
+        if ($penalty6m <= 0) {
+            $penalty6m = $penalty3m * 2.0;
+        }
+
+        $pdo->beginTransaction();
+
+        // Find candidate debts with pending balances
+        $stmtDebts = $pdo->query("
+            SELECT id, user_id, chauffeur_name, total_credits, total_versements, 
+                   COALESCE(total_penalties, 0) as total_penalties,
+                   last_versement_date, created_at, notes
+            FROM driver_debts 
+            WHERE (total_credits - total_versements) > 0 
+              AND deleted_at IS NULL
+            FOR UPDATE
+        ");
+        $debts = $stmtDebts->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $result['debts_checked'] = count($debts);
+
+        $appliedPenaltiesCount = 0;
+        $totalPenaltiesAmount = 0.0;
+        $affectedDebtIds = [];
+
+        $checkExistingStmt = $pdo->prepare("
+            SELECT id FROM debt_penalties 
+            WHERE debt_id = ? AND ref_date = ? AND penalty_month = ? 
+            LIMIT 1
+        ");
+
+        $insertPenaltyStmt = $pdo->prepare("
+            INSERT INTO debt_penalties 
+                (debt_id, penalty_month, ref_date, days_overdue, amount, multiplier, period_label, applied_date, is_auto)
+            VALUES 
+                (?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)
+        ");
+
+        $updateDebtStmt = $pdo->prepare("
+            UPDATE driver_debts 
+            SET total_credits = total_credits + ?,
+                total_penalties = total_penalties + ?
+            WHERE id = ?
+        ");
+
+        foreach ($debts as $d) {
+            $refDate = !empty($d['last_versement_date']) ? $d['last_versement_date'] : substr($d['created_at'], 0, 10);
+            if (empty($refDate)) continue;
+
+            $days = (int)((time() - strtotime($refDate)) / 86400);
+            if ($days < 90) {
+                // Grace period: less than 3 months overdue
+                continue;
+            }
+
+            // How many 30-day monthly penalty cycles are due?
+            // Day 90: Month 4 is due (cycles = 1)
+            // Day 120: Month 4, Month 5 are due (cycles = 2)
+            // Day 150: Month 4, Month 5, Month 6 are due (cycles = 3)
+            // Day 180: Month 7 is due (cycles = 4, double penalty!)
+            // Day 210: Month 8 is due (cycles = 5, double penalty!)
+            $cycles = (int)floor(($days - 90) / 30) + 1;
+            $driverPenaltiesAdded = 0;
+            $driverAmountAdded = 0.0;
+
+            for ($i = 0; $i < $cycles; $i++) {
+                $monthNum = 4 + $i;
+                $isDouble = ($monthNum >= 7);
+                $monthAmount = $isDouble ? $penalty6m : $penalty3m;
+                $multiplier = $isDouble ? 2.0 : 1.0;
+                $thresholdDays = 90 + ($i * 30);
+
+                // Check if this specific month has already been applied for this debt cycle
+                $checkExistingStmt->execute([$d['id'], $refDate, $monthNum]);
+                if ($checkExistingStmt->fetch()) {
+                    continue; // Already applied
+                }
+
+                $periodLabel = $isDouble 
+                    ? "غرامة الشهر {$monthNum} (تأخير {$thresholdDays} يوماً - مضاعفة 2×)"
+                    : "غرامة الشهر {$monthNum} (تأخير {$thresholdDays} يوماً)";
+
+                $insertPenaltyStmt->execute([
+                    $d['id'],
+                    $monthNum,
+                    $refDate,
+                    $days,
+                    $monthAmount,
+                    $multiplier,
+                    $periodLabel,
+                    $force ? 0 : 1
+                ]);
+
+                $driverPenaltiesAdded++;
+                $driverAmountAdded += $monthAmount;
+            }
+
+            if ($driverPenaltiesAdded > 0) {
+                $updateDebtStmt->execute([$driverAmountAdded, $driverAmountAdded, $d['id']]);
+                $appliedPenaltiesCount += $driverPenaltiesAdded;
+                $totalPenaltiesAmount += $driverAmountAdded;
+                $affectedDebtIds[] = $d['id'];
+            }
+        }
+
+        // Update last auto check timestamp in settings
+        $stmtSetDate = $pdo->prepare("INSERT INTO settings (`key`, `value`, `category`) VALUES ('debt_penalty_last_auto_check', ?, 'finance') ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)");
+        $stmtSetDate->execute([$today]);
+
+        $pdo->commit();
+
+        $result['success'] = true;
+        $result['ran'] = true;
+        $result['debts_penalized'] = count($affectedDebtIds);
+        $result['penalties_applied'] = $appliedPenaltiesCount;
+        $result['total_amount'] = $totalPenaltiesAmount;
+
+        if ($appliedPenaltiesCount > 0) {
+            $msg = "تم تطبيق غرامات التأخير التلقائية على " . count($affectedDebtIds) . " سائقين بمجموع {$appliedPenaltiesCount} غرامة شهرية بقيمة إجمالية " . number_format($totalPenaltiesAmount, 2) . " دج";
+            if (function_exists('log_audit')) {
+                log_audit($pdo, 'automated_penalties_applied', 'driver_debts', null, $msg);
+            }
+            $result['message'] = $msg;
+        } else {
+            $result['message'] = "تم فحص جميع الديون (" . count($debts) . " سائق). لا توجد غرامات تأخير جديدة مستحقة التطبيق حالياً.";
+        }
+
+    } catch (\Throwable $e) {
+        if ($pdo && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        $result['success'] = false;
+        $result['message'] = 'خطأ أثناء تطبيق غرامات التأخير: ' . $e->getMessage();
+        error_log("apply_automated_debt_penalties error: " . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/**
+ * Returns all applied penalties for a given debt ID
+ */
+function get_debt_penalties(?PDO $pdo, int $debtId): array {
+    if (!$pdo || $debtId <= 0) return [];
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM debt_penalties WHERE debt_id = ? ORDER BY penalty_month ASC, applied_date ASC");
+        $stmt->execute([$debtId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
 
 /**
  * Soft deletes an entity by setting its deleted_at to current timestamp
