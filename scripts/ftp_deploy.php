@@ -40,9 +40,18 @@ if (empty($user) || empty($pass)) {
 }
 
 // Files to deploy
-$filesToDeploy = [
-    'includes/header.php'
-];
+$customFiles = $options['files'] ?? null;
+if ($customFiles) {
+    $filesToDeploy = array_map('trim', explode(',', $customFiles));
+} else {
+    $filesToDeploy = [
+        'includes/header.php',
+        'dashboard/debts.php',
+        'dashboard/leaves.php',
+        'dashboard/users.php',
+        'includes/backup_importer.php'
+    ];
+}
 
 echo "========================================================\n";
 echo "   TAXI NAGUILOU — AUTOMATED FTP DEPLOYMENT TOOL       \n";

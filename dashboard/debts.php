@@ -398,7 +398,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     if ($debtId > 0 && !empty($chauffeurName) && $totalCredits >= 0) {
         try {
-            $currDebt = $pdo->query("SELECT total_versements FROM driver_debts WHERE id = $debtId")->fetch();
+            $stmtCurr = $pdo->prepare("SELECT total_versements FROM driver_debts WHERE id = ?");
+            $stmtCurr->execute([$debtId]);
+            $currDebt = $stmtCurr->fetch();
             $totalVersements = (float)($currDebt['total_versements'] ?? 0);
             $newStatus = ($totalCredits - $totalVersements) <= 0 ? 'a_jour' : 'endette';
 

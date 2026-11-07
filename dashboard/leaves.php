@@ -146,7 +146,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($leaveId > 0) {
         try {
             // Check vehicle replacement driver
-            $leaveData = $pdo->query("SELECT vehicle_id, replacement_driver_id FROM leaves WHERE id = $leaveId")->fetch();
+            $stmtLeave = $pdo->prepare("SELECT vehicle_id, replacement_driver_id FROM leaves WHERE id = ?");
+            $stmtLeave->execute([$leaveId]);
+            $leaveData = $stmtLeave->fetch();
             if ($leaveData && $leaveData['replacement_driver_id']) {
                 $pdo->prepare("UPDATE vehicles SET replacement_driver_id = NULL WHERE id = ? AND replacement_driver_id = ?")->execute([$leaveData['vehicle_id'], $leaveData['replacement_driver_id']]);
             }

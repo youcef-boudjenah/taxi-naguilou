@@ -333,7 +333,9 @@ function import_full_backup(PDO $pdo, array $payload): array {
                 } elseif (!empty($c['partner']['email']) && isset($emailToUserId[strtolower(trim($c['partner']['email']))])) {
                     $driverId = $emailToUserId[strtolower(trim($c['partner']['email']))];
                 } else {
-                    $driverId = (int)($pdo->query("SELECT current_driver_id FROM vehicles WHERE id = $vehId")->fetchColumn() ?: $defaultAdminId);
+                    $stmtV = $pdo->prepare("SELECT current_driver_id FROM vehicles WHERE id = ?");
+                    $stmtV->execute([$vehId]);
+                    $driverId = (int)($stmtV->fetchColumn() ?: $defaultAdminId);
                 }
 
                 $ownerId = $defaultAdminId;

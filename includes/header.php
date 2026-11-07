@@ -521,12 +521,23 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 <!-- Category Select Element for System & State Synchronization -->
                 <div class="hidden">
                     <select id="appBarCategorySelect" onchange="setHomeCategory(this.value)">
-                        <option value="stats">📊 الإحصائيات</option>
+                        <?php if ($isTaxiDriver): ?>
+                        <option value="stats">📊 لوحة إحصائياتي</option>
+                        <option value="all">📂 كافة خدماتي</option>
+                        <option value="finance">💰 الدراهم والديون</option>
+                        <option value="fleet">🪪 الوثائق والصلاحيات</option>
+                        <option value="drivers">🌙 المناوبة الليلية</option>
+                        <option value="system">🔔 الإشعارات</option>
+                        <?php else: ?>
+                        <option value="stats">📊 لوحة الإحصائيات</option>
                         <option value="all">📂 كافة الأقسام</option>
                         <option value="fleet">🚗 الأسطول والمركبات</option>
                         <option value="drivers">👨‍✈️ السائقون والتشغيل</option>
+                        <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
                         <option value="finance">💰 المالية والاشتراكات</option>
+                        <?php endif; ?>
                         <option value="system">⚙️ النظام والتنبيهات</option>
+                        <?php endif; ?>
                     </select>
                 </div>
                 <?php endif; ?>

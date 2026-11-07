@@ -165,7 +165,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                 $message = 'عذراً، لا يمكنك حذف حسابك الشخصي الذي تستخدمه حالياً.';
                 $messageType = 'error';
             } elseif ($userId > 0) {
-                $targetRole = $pdo->query("SELECT role FROM users WHERE id = $userId")->fetchColumn();
+                $stmtRole = $pdo->prepare("SELECT role FROM users WHERE id = ?");
+                $stmtRole->execute([$userId]);
+                $targetRole = $stmtRole->fetchColumn();
                 if ($targetRole === 'super_admin' && !is_super_admin()) {
                     $message = 'عذراً، فقط المدير العام مخول بحذف حسابات المشرفين العامين.';
                     $messageType = 'error';
