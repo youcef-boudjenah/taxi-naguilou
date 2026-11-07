@@ -31,7 +31,7 @@ if (isset($options['help'])) {
 $host = $options['host'] ?? getenv('FTP_HOST') ?: 'website-9715b8e7.mvn.mwg.mybluehost.me';
 $user = $options['user'] ?? getenv('FTP_USER') ?: '';
 $pass = $options['pass'] ?? getenv('FTP_PASS') ?: '';
-$remoteDir = trim($options['dir'] ?? getenv('FTP_DIR') ?: 'public_html', '/');
+$remoteDir = trim($options['dir'] ?? getenv('FTP_DIR') ?: 'website_9715b8e7', '/');
 
 if (empty($user) || empty($pass)) {
     echo "❌ ERROR: FTP User and Password are required.\n";
@@ -52,7 +52,9 @@ if ($customFiles) {
         'dashboard/debts.php',
         'dashboard/leaves.php',
         'dashboard/users.php',
-        'includes/backup_importer.php'
+        'includes/backup_importer.php',
+        'tests/run_all_suites.php',
+        'tests/test_notifications_isolation.php'
     ];
 }
 
@@ -72,19 +74,21 @@ foreach ($filesToDeploy as $relPath) {
         continue;
     }
 
-    $targetUrl = "ftp://" . urlencode($user) . ":" . urlencode($pass) . "@" . $host . "/" . $remoteDir . "/" . $relPath;
+    $targetUrl = "ftp://" . $host . "/" . $remoteDir . "/" . $relPath;
     echo "Uploading: $relPath ... ";
 
-    // Execute curl with SSL/Plain fallback
-    $curlCmd = "curl.exe -s -S --connect-timeout 15 --ftp-create-dirs -T " . escapeshellarg($localFile) . " " . escapeshellarg($targetUrl) . " 2>&1";
+    $outputLines = [];
+    $authArg = escapeshellarg($user . ":" . $pass);
+    $curlCmd = "curl.exe -s -S --connect-timeout 20 --ftp-create-dirs --user $authArg -T " . escapeshellarg($localFile) . " " . escapeshellarg($targetUrl) . " 2>&1";
     exec($curlCmd, $outputLines, $exitCode);
 
     if ($exitCode === 0) {
         echo "✅ SUCCESS\n";
     } else {
         // Try without remoteDir prefix if user is already chrooted to root
-        $fallbackUrl = "ftp://" . urlencode($user) . ":" . urlencode($pass) . "@" . $host . "/" . $relPath;
-        $fallbackCmd = "curl.exe -s -S --connect-timeout 15 --ftp-create-dirs -T " . escapeshellarg($localFile) . " " . escapeshellarg($fallbackUrl) . " 2>&1";
+        $fallbackUrl = "ftp://" . $host . "/" . $relPath;
+        $fallbackOutput = [];
+        $fallbackCmd = "curl.exe -s -S --connect-timeout 20 --ftp-create-dirs --user $authArg -T " . escapeshellarg($localFile) . " " . escapeshellarg($fallbackUrl) . " 2>&1";
         exec($fallbackCmd, $fallbackOutput, $fallbackExit);
 
         if ($fallbackExit === 0) {

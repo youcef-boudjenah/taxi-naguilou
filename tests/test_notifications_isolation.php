@@ -159,3 +159,4 @@ if ($failed === 0) {
     echo "⚠️ FAILURES DETECTED IN NOTIFICATION TESTS!\n\n";
     exit(1);
 }
+
