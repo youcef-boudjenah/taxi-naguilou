@@ -254,15 +254,26 @@ foreach ($erpNavCategories as $catKey => $catData) {
 
         <!-- 1. Top Expiry Radar Alert Banner (If Any Warnings) -->
         <?php if (!empty($expiringList)): ?>
-            <div class="bg-rose-600 text-white px-4 py-2 text-xs font-bold shadow-2xs z-50 no-print w-full">
-                <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div id="topRadarAlertBar" class="bg-gradient-to-r from-rose-800 via-rose-700 to-rose-800 dark:from-rose-950 dark:via-rose-900 dark:to-rose-950 text-white px-4 py-1.5 text-xs font-semibold shadow-xs z-50 no-print w-full border-b border-rose-500/20">
+                <div class="max-w-7xl mx-auto flex items-center justify-between gap-3 min-w-0">
                     <div class="flex items-center gap-2 min-w-0">
-                        <span class="w-2 h-2 rounded-full bg-white animate-ping shrink-0"></span>
-                        <span class="truncate">تنبيه رادار الصلاحية: يوجد <?= count($expiringList) ?> وثائق لمركبات الأسطول تنتهي خلال أقل من 30 يوماً (تأمين / مراقبة تقنية / GPL).</span>
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/20 dark:bg-rose-500/30 text-[10.5px] font-black text-white shrink-0">
+                            <span class="w-1.5 h-1.5 rounded-full bg-rose-300 animate-ping"></span>
+                            رادار الصلاحية
+                        </span>
+                        <span class="truncate text-xs text-rose-100">
+                            يوجد <strong class="font-num text-white"><?= count($expiringList) ?></strong> وثائق لمركبات الأسطول تنتهي خلال أقل من 30 يوماً.
+                        </span>
                     </div>
-                    <a href="<?= url('/dashboard/vehicles.php?filter=expiring') ?>" class="underline hover:text-rose-100 whitespace-nowrap text-[11px] font-black shrink-0">
-                        معاينة الوثائق وتفادي المحشر ←
-                    </a>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <a href="<?= url('/dashboard/vehicles.php?filter=expiring') ?>" class="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white whitespace-nowrap text-[11px] font-bold transition flex items-center gap-1">
+                            <span>معاينة الوثائق وتفادي المحضر</span>
+                            <span>←</span>
+                        </a>
+                        <button type="button" onclick="document.getElementById('topRadarAlertBar').style.display='none'" class="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition" title="إغلاق التنبيه">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         <?php endif; ?>
@@ -485,102 +496,52 @@ foreach ($erpNavCategories as $catKey => $catData) {
                 </div>
 
                 <!-- Global Search Input (Ctrl + K) -->
-                <div class="flex-1 max-w-xs xl:max-w-sm relative hidden md:block min-w-0">
+                <div class="flex-1 max-w-[200px] lg:max-w-xs xl:max-w-sm relative hidden md:block min-w-0 mx-2">
                     <div class="relative">
                         <?php if ($currentPage === 'index'): ?>
                             <input type="text" id="launcherSearch" 
-                                   placeholder="بحث فوري في الوحدات والمهام (اضغط Ctrl+K للتركيز)..." 
-                                   class="w-full pr-9 pl-16 py-1.5 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-slate-50 focus:bg-white text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs">
+                                   placeholder="بحث فوري في المهام (Ctrl+K)..." 
+                                   class="w-full pr-8 pl-14 py-1.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition shadow-2xs">
                         <?php else: ?>
                             <input type="text" id="globalSearchInput" 
-                                   placeholder="بحث سريع في الأسطول والسائقين (Ctrl+K)..." 
+                                   placeholder="بحث سريع (Ctrl+K)..." 
                                    onkeydown="if(event.key==='Enter'){ window.location='<?= url('/dashboard/vehicles.php') ?>?search=' + encodeURIComponent(this.value); }"
-                                   class="w-full pr-9 pl-16 py-1.5 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-slate-50 focus:bg-white text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition shadow-2xs">
+                                   class="w-full pr-8 pl-14 py-1.5 rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition shadow-2xs">
                         <?php endif; ?>
-                        <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <svg class="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                         </svg>
-                        <div class="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                            <kbd class="px-1.5 py-0.5 rounded text-[9px] font-num font-bold bg-white text-slate-400 border border-slate-200 shadow-2xs">Ctrl</kbd>
-                            <kbd class="px-1.5 py-0.5 rounded text-[9px] font-num font-bold bg-white text-slate-400 border border-slate-200 shadow-2xs">K</kbd>
+                        <div class="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pointer-events-none">
+                            <kbd class="px-1.5 py-0.5 rounded text-[9px] font-num font-bold bg-white dark:bg-slate-700 text-slate-400 dark:text-slate-300 border border-slate-200 dark:border-slate-600 shadow-2xs">Ctrl+K</kbd>
                         </div>
                     </div>
                 </div>
 
                 <?php if ($currentPage === 'index'): ?>
-                <!-- App Bar Layout & Content Switchers (Homepage Exclusive - Shown on Ultra-Wide 2xl) -->
-                <div class="hidden 2xl:flex items-center gap-2 shrink-0">
-                    <!-- 1. Content/Category Selector in App Bar -->
-                    <div class="relative">
-                        <select id="appBarCategorySelect" onchange="setHomeCategory(this.value)" 
-                                title="اختر تصنيف المحتوى للعرض"
-                                class="pr-3 pl-7 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20 cursor-pointer shadow-2xs">
-                            <?php if ($isTaxiDriver): ?>
-                            <option value="stats">📊 لوحة إحصائياتي</option>
-                            <option value="all">📂 كافة خدماتي</option>
-                            <option value="finance">💰 الدراهم والديون</option>
-                            <option value="fleet">🪪 الوثائق والصلاحيات</option>
-                            <option value="drivers">🌙 المناوبة الليلية</option>
-                            <option value="system">🔔 الإشعارات</option>
-                            <?php else: ?>
-                            <option value="stats">📊 لوحة الإحصائيات</option>
-                            <option value="all">📂 كافة الأقسام</option>
-                            <option value="fleet">🚗 الأسطول والمركبات</option>
-                            <option value="drivers">👨‍✈️ السائقون والتشغيل</option>
-                            <?php if ($isSuperOrAdmin || $isFleetOwner): ?>
-                            <option value="finance">💰 المالية والاشتراكات</option>
-                            <?php endif; ?>
-                            <option value="system">⚙️ النظام والتنبيهات</option>
-                            <?php endif; ?>
-                        </select>
-                    </div>
-
-                    <!-- 2. Dynamic Layout Segmented Selector in App Bar -->
-                    <div class="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/80" role="group" aria-label="نمط عرض الصفحة الرئيسية">
-                        <button type="button" 
-                                onclick="setHomeLayout('grid')" 
-                                data-layout-target="grid" 
-                                title="عرض الشبكة (Grid View)" 
-                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-                            </svg>
-                            <span class="hidden xl:inline">شبكة</span>
-                        </button>
-                        <button type="button" 
-                                onclick="setHomeLayout('sidebar')" 
-                                data-layout-target="sidebar" 
-                                title="عرض جانبي مع شريط أقسام (Sidebar View)" 
-                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.5A2.25 2.25 0 016 2.25h12A2.25 2.25 0 0120.25 4.5v15a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 19.5v-15zM9 2.25v19.5" />
-                            </svg>
-                            <span class="hidden xl:inline">جانبي</span>
-                        </button>
-                        <button type="button" 
-                                onclick="setHomeLayout('list')" 
-                                data-layout-target="list" 
-                                title="عرض القائمة الأفقية (List View)" 
-                                class="home-layout-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                            </svg>
-                            <span class="hidden xl:inline">قائمة</span>
-                        </button>
-                    </div>
+                <!-- Category Select Element for System & State Synchronization -->
+                <div class="hidden">
+                    <select id="appBarCategorySelect" onchange="setHomeCategory(this.value)">
+                        <option value="stats">📊 الإحصائيات</option>
+                        <option value="all">📂 كافة الأقسام</option>
+                        <option value="fleet">🚗 الأسطول والمركبات</option>
+                        <option value="drivers">👨‍✈️ السائقون والتشغيل</option>
+                        <option value="finance">💰 المالية والاشتراكات</option>
+                        <option value="system">⚙️ النظام والتنبيهات</option>
+                    </select>
                 </div>
                 <?php endif; ?>
 
                 <!-- Right Quick Actions: Expiry Badge, Notification Bell, User Status, Logout -->
-                <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+                <div class="flex items-center gap-2 sm:gap-2.5 shrink-0">
                     
-                    <!-- Expiry Badge -->
+                    <!-- Expiry Badge (Fixed: shrink-0 whitespace-nowrap and dark mode styling to prevent clipping) -->
                     <?php if ($alertCount > 0): ?>
                         <a href="<?= url('/dashboard/vehicles.php?filter=expiring') ?>" 
-                           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold hover:bg-rose-100 transition shadow-2xs">
-                            <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
-                            <span class="hidden sm:inline font-num"><?= $alertCount ?></span>
-                            <span class="hidden xl:inline">وثائق للتجديد</span>
+                           class="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/80 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/60 transition shadow-2xs"
+                           title="<?= $alertCount ?> وثائق بحاجة لتجديد عاجل">
+                            <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0"></span>
+                            <span class="font-num font-black text-rose-700 dark:text-rose-300"><?= $alertCount ?></span>
+                            <span class="hidden md:inline font-bold">للتجديد</span>
                         </a>
                     <?php endif; ?>
 
@@ -658,25 +619,25 @@ foreach ($erpNavCategories as $catKey => $catData) {
                     <!-- Global Theme Toggle (Sun/Moon) -->
                     <?= render_theme_toggle_btn() ?>
 
-                    <div class="h-6 w-px bg-slate-200"></div>
+                    <div class="h-6 w-px bg-slate-200 dark:bg-slate-700 shrink-0"></div>
 
                     <!-- User Status Pill -->
                     <a href="<?= $isTaxiDriver ? url('/dashboard/driver_fiche.php?id=' . $user['id']) : ($isSuperOrAdmin ? url('/dashboard/users.php') : url('/dashboard/index.php')) ?>" 
-                       class="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition group cursor-pointer" 
+                       class="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition group cursor-pointer shrink-0" 
                        title="<?= $isTaxiDriver ? 'عرض حسابي المهني' : 'إدارة الحساب' ?>">
-                        <div class="w-8 h-8 rounded-lg bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-black flex items-center justify-center text-xs shadow-2xs font-num shrink-0 group-hover:scale-105 transition-transform">
+                        <div class="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-2xs font-num shrink-0 group-hover:scale-105 transition-transform">
                             <?= mb_substr($user['name'], 0, 1) ?>
                         </div>
                         <div class="hidden md:block text-right">
-                            <div class="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight truncate max-w-[120px] group-hover:text-amber-600 transition-colors"><?= htmlspecialchars($user['name']) ?></div>
-                            <span class="text-[10px] font-bold <?= $isSuperOrAdmin ? 'text-amber-700 dark:text-amber-400' : ($isFleetOwner ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400') ?>">
+                            <div class="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight truncate max-w-[110px] xl:max-w-[140px] group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors"><?= htmlspecialchars($user['name']) ?></div>
+                            <span class="text-[10px] font-bold <?= $isSuperOrAdmin ? 'text-amber-600 dark:text-amber-400' : ($isFleetOwner ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400') ?>">
                                 <?= $isSuperOrAdmin ? 'مدير المنصة' : ($isFleetOwner ? 'مالك أسطول' : 'سائق تاكسي ↗') ?>
                             </span>
                         </div>
                     </a>
 
                     <!-- Direct Logout Button -->
-                    <a href="<?= url('/auth/logout.php') ?>" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition" title="تسجيل الخروج">
+                    <a href="<?= url('/auth/logout.php') ?>" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shrink-0" title="تسجيل الخروج">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
                         </svg>
