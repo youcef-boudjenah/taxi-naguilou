@@ -106,7 +106,7 @@ if ($pdo) {
             $counts['planning']           = (int)$pdo->query("SELECT COUNT(*) FROM night_watch WHERE status = 'in_park'")->fetchColumn();
             $counts['debts']              = (int)$pdo->query("SELECT COUNT(*) FROM driver_debts WHERE status = 'endette' AND deleted_at IS NULL")->fetchColumn();
             $counts['billing']            = (float)$pdo->query("SELECT COALESCE(SUM(paid_amount), 0) FROM billings WHERE status = 'paid'")->fetchColumn();
-            $counts['notifications']      = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
+            $counts['notifications']      = (int)$unreadNotifCount;
             $counts['users']              = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL")->fetchColumn();
             $counts['audit_logs']         = (int)$pdo->query("SELECT COUNT(*) FROM audit_logs")->fetchColumn();
             $counts['settings']           = (int)$pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn();

@@ -5,48 +5,156 @@ require_once __DIR__ . '/../includes/header.php';
 
 $pdo = getDBConnection();
 
-// Handle Actions (Mark all read, mark single, delete, trigger audit scan)
+$currUid = (int)($_SESSION['user_id'] ?? 0);
+$currRole = $_SESSION['user_role'] ?? 'driver';
+$isDriver = ($currRole === 'driver');
+$isAdmin = in_array($currRole, ['super_admin', 'admin']);
+$isOwner = ($currRole === 'owner');
+
+// Handle Actions
 if (isset($_REQUEST['action'])) {
     $act = $_REQUEST['action'];
+    
+    // 1. Mark All Read
     if ($act === 'mark_all_read') {
-        $pdo->query("UPDATE notifications SET is_read = 1");
-        set_flash('success', 'تم تحديد جميع الإشعارات كمقروءة');
+        if ($isDriver) {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'driver')))");
+            $stmt->execute([$currUid]);
+        } elseif ($isAdmin) {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? OR user_id IS NULL OR target_role IS NULL OR target_role IN ('all', 'admin')");
+            $stmt->execute([$currUid]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?");
+            $stmt->execute([$currUid]);
+        }
+        set_flash('success', 'تم تحديد جميع الإشعارات الخاصة بك كمقروءة');
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'toggle_read' && isset($_REQUEST['id'])) {
+    }
+    
+    // 2. Toggle Read Status
+    elseif ($act === 'toggle_read' && isset($_REQUEST['id'])) {
         $nId = intval($_REQUEST['id']);
-        $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ?")->execute([$nId]);
+        if ($isDriver) {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ? AND (user_id = ? OR user_id IS NULL)");
+            $stmt->execute([$nId, $currUid]);
+        } elseif ($isAdmin) {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ?");
+            $stmt->execute([$nId]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE notifications SET is_read = NOT is_read WHERE id = ? AND user_id = ?");
+            $stmt->execute([$nId, $currUid]);
+        }
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'delete' && isset($_REQUEST['id'])) {
+    }
+    
+    // 3. Delete Notification
+    elseif ($act === 'delete' && isset($_REQUEST['id'])) {
         $nId = intval($_REQUEST['id']);
-        $pdo->prepare("DELETE FROM notifications WHERE id = ?")->execute([$nId]);
-        set_flash('success', 'تم حذف الإشعار بنجاح');
+        if ($isAdmin) {
+            $stmt = $pdo->prepare("DELETE FROM notifications WHERE id = ?");
+            $stmt->execute([$nId]);
+            set_flash('success', 'تم حذف الإشعار بنجاح');
+        } else {
+            $stmt = $pdo->prepare("DELETE FROM notifications WHERE id = ? AND user_id = ?");
+            $stmt->execute([$nId, $currUid]);
+            if ($stmt->rowCount() > 0) {
+                set_flash('success', 'تم حذف الإشعار بنجاح');
+            } else {
+                set_flash('error', 'غير مصرح بحذف هذا الإشعار.');
+            }
+        }
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'run_audit_scan') {
-        // Dynamic scan of vehicles and drivers to detect upcoming expirations
-        $vExpiring = $pdo->query("
-            SELECT plate_number, technical_control_expiry, insurance_expiry 
-            FROM vehicles 
-            WHERE (technical_control_expiry IS NOT NULL AND technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY))
-               OR (insurance_expiry IS NOT NULL AND insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 15 DAY))
-        ")->fetchAll();
+    }
+    
+    // 4. Run Audit Scan (Admin only)
+    elseif ($act === 'run_audit_scan') {
+        if (!$isAdmin) {
+            set_flash('error', 'غير مصرح.');
+            redirect('/dashboard/notifications.php');
+        }
 
         $addedCount = 0;
+
+        // Scan vehicles with expiring docs (30 days)
+        $vExpiring = $pdo->query("
+            SELECT v.id, v.plate_number, v.door_number, v.current_driver_id,
+                   v.technical_control_expiry, v.insurance_expiry, v.gpl_expiry, v.saccuriometre_expiry
+            FROM vehicles v
+            WHERE v.deleted_at IS NULL
+              AND (
+                  (v.technical_control_expiry IS NOT NULL AND v.technical_control_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+               OR (v.insurance_expiry IS NOT NULL AND v.insurance_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+               OR (v.gpl_expiry IS NOT NULL AND v.gpl_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+               OR (v.saccuriometre_expiry IS NOT NULL AND v.saccuriometre_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+              )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
         foreach ($vExpiring as $v) {
-            $msg = "فحص دوري: المركبة {$v['plate_number']} تتطلب المعاينة الفورية للوثائق المكتملة أو الوشيكة.";
+            $door = !empty($v['door_number']) ? "باب {$v['door_number']}" : "المركبة";
+            $adminMsg = "فحص الأسطول: $door ({$v['plate_number']}) تتطلب المعاينة وتجديد الوثائق المنتهية أو القريبة من الانتهاء.";
+
             $chk = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE message = ? AND created_at >= CURDATE()");
-            $chk->execute([$msg]);
+            $chk->execute([$adminMsg]);
             if ($chk->fetchColumn() == 0) {
-                $pdo->prepare("INSERT INTO notifications (type, title, message, link, is_read) VALUES ('urgent', 'تنبيه فحص الأسطول الدوري', ?, '/dashboard/vehicles.php?filter=expiring', 0)")
-                    ->execute([$msg]);
+                // Admin alert
+                $pdo->prepare("
+                    INSERT INTO notifications (target_role, type, title, message, link, is_read, created_at)
+                    VALUES ('admin', 'urgent', 'تنبيه فحص الأسطول الدوري', ?, '/dashboard/vehicles.php?filter=expiring', 0, NOW())
+                ")->execute([$adminMsg]);
+                $addedCount++;
+
+                // Notify assigned driver
+                if (!empty($v['current_driver_id'])) {
+                    $driverMsg = "تنبيه وثائق مركبتك: وثائق سيارتك $door ({$v['plate_number']}) تنتهي خلال أقل من 30 يوماً. يرجى مراجعة الإدارة.";
+                    $pdo->prepare("
+                        INSERT INTO notifications (user_id, target_role, type, title, message, link, is_read, created_at)
+                        VALUES (?, 'driver', 'urgent', 'تنبيه تجديد وثائق المركبة المعينة', ?, '/dashboard/vehicles.php', 0, NOW())
+                    ")->execute([$v['current_driver_id'], $driverMsg]);
+                    $addedCount++;
+                }
+            }
+        }
+
+        // Scan drivers with expiring license/medical cert (30 days)
+        $dExpiring = $pdo->query("
+            SELECT id, full_name, phone, license_expiry, medical_cert_expiry
+            FROM users
+            WHERE role = 'driver' AND deleted_at IS NULL
+              AND (
+                  (license_expiry IS NOT NULL AND license_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+               OR (medical_cert_expiry IS NOT NULL AND medical_cert_expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY))
+              )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($dExpiring as $d) {
+            $dAdminMsg = "تنبيه رخصة/شهادة: السائق {$d['full_name']} تنتهي صلاحية رخصته أو شهادته الطبية خلال 30 يوماً.";
+            $chkD = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE message = ? AND created_at >= CURDATE()");
+            $chkD->execute([$dAdminMsg]);
+            if ($chkD->fetchColumn() == 0) {
+                $pdo->prepare("
+                    INSERT INTO notifications (target_role, type, title, message, link, is_read, created_at)
+                    VALUES ('admin', 'warning', 'تنبيه رخصة/شهادة طبية لسائق', ?, ?, 0, NOW())
+                ")->execute([$dAdminMsg, "/dashboard/driver_fiche.php?id=" . $d['id']]);
+                $addedCount++;
+
+                $dPersonalMsg = "تنبيه تجديد: سائقنا المحترم {$d['full_name']}، نذكرك بضرورة تجديد رخصة سياقتك أو شهادتك الطبية قبل موعد الانتهاء.";
+                $pdo->prepare("
+                    INSERT INTO notifications (user_id, target_role, type, title, message, link, is_read, created_at)
+                    VALUES (?, 'driver', 'warning', 'تذكير تجديد رخصة السياقة / الملف الطبي', ?, '/dashboard/drivers.php', 0, NOW())
+                ")->execute([$d['id'], $dPersonalMsg]);
                 $addedCount++;
             }
         }
-        log_audit($pdo, 'run_audit_scan', 'notifications', null, "مسح وتدقيق دوري للأسطول - إضافة $addedCount تنبيهات جديدة");
-        set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول وتحديث مركز التنبيهات بنجاح");
+
+        log_audit($pdo, 'run_audit_scan', 'notifications', null, "مسح وتدقيق دوري للأسطول والسائقين - إضافة $addedCount تنبيهات جديدة");
+        set_flash('success', "تم إجراء مسح وتدقيق شامل للأسطول والسائقين وإرسال $addedCount تنبيهات مخصصة بنجاح");
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'add_notification' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    }
+    
+    // 5. Add Manual Notification (Admin only)
+    elseif ($act === 'add_notification' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         require_csrf_token();
-        if (!is_admin()) {
+        if (!$isAdmin) {
             set_flash('error', 'غير مصرح.');
             redirect('/dashboard/notifications.php');
         }
@@ -54,49 +162,93 @@ if (isset($_REQUEST['action'])) {
         $message = trim($_POST['message'] ?? '');
         $type = in_array($_POST['type'] ?? '', ['urgent', 'warning', 'info', 'success']) ? $_POST['type'] : 'info';
         $link = trim($_POST['link'] ?? '');
+        $targetAudience = $_POST['audience'] ?? 'all';
+        $targetUserId = !empty($_POST['target_user_id']) ? intval($_POST['target_user_id']) : null;
+
+        $targetRole = 'all';
+        $destUserId = null;
+
+        if ($targetAudience === 'driver') {
+            $targetRole = 'driver';
+        } elseif ($targetAudience === 'admin') {
+            $targetRole = 'admin';
+        } elseif ($targetAudience === 'specific' && $targetUserId > 0) {
+            $targetRole = 'driver';
+            $destUserId = $targetUserId;
+        }
+
         if (!empty($title) && !empty($message)) {
-            $stmt = $pdo->prepare("INSERT INTO notifications (type, title, message, link, is_read, created_at) VALUES (?, ?, ?, ?, 0, NOW())");
-            $stmt->execute([$type, $title, $message, $link ?: null]);
+            $stmt = $pdo->prepare("
+                INSERT INTO notifications (user_id, target_role, type, title, message, link, is_read, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 0, NOW())
+            ");
+            $stmt->execute([$destUserId, $targetRole, $type, $title, $message, $link ?: null]);
             $notifId = (int)$pdo->lastInsertId();
-            log_audit($pdo, 'notification_created', 'notifications', $notifId, "بث إشعار إداري جديد: $title");
+            log_audit($pdo, 'notification_created', 'notifications', $notifId, "بث إشعار إداري جديد ($targetAudience): $title");
             set_flash('success', 'تم إرسال وبث الإشعار بنجاح');
         } else {
             set_flash('error', 'يرجى إدخال عنوان ونص الإشعار.');
         }
         redirect('/dashboard/notifications.php');
-    } elseif ($act === 'delete_all_read') {
-        if (!is_admin()) {
+    }
+    
+    // 6. Delete All Read (Admin only)
+    elseif ($act === 'delete_all_read') {
+        if (!$isAdmin) {
             set_flash('error', 'غير مصرح.');
             redirect('/dashboard/notifications.php');
         }
-        $count = $pdo->query("DELETE FROM notifications WHERE is_read = 1")->rowCount();
+        $count = $pdo->query("DELETE FROM notifications WHERE is_read = 1 AND (target_role = 'admin' OR user_id IS NULL OR user_id = {$currUid})")->rowCount();
         log_audit($pdo, 'notifications_cleared', 'notifications', null, "تنظيف $count إشعارات مقروءة");
         set_flash('success', "تم حذف وتنظيف $count إشعار مقروء بنجاح");
         redirect('/dashboard/notifications.php');
     }
 }
 
-// Filters & Search
+// ────────────────────────────────────────────────────────────
+// Filters & Search Setup
+// ────────────────────────────────────────────────────────────
 $search = trim($_GET['search'] ?? '');
-$filterType = $_GET['type'] ?? 'all'; // all, unread, urgent, info
+$filterType = $_GET['type'] ?? 'all'; // all, unread, urgent, info, fleet, finance, ratings
 
-$where = ["1=1"];
+$where = ["title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'"];
 $params = [];
 
+// Base Role Isolation
+if ($isDriver) {
+    $where[] = "(user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'driver'))))";
+    $params[] = $currUid;
+} elseif ($isAdmin) {
+    $where[] = "(user_id = ? OR user_id IS NULL OR target_role IS NULL OR target_role IN ('all', 'admin'))";
+    $params[] = $currUid;
+} elseif ($isOwner) {
+    $where[] = "(user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'owner'))))";
+    $params[] = $currUid;
+}
+
+// Search Keyword
 if (!empty($search)) {
     $where[] = "(title LIKE ? OR message LIKE ?)";
     $params[] = "%$search%";
     $params[] = "%$search%";
 }
 
+// Category / Status Filter
 if ($filterType === 'unread') {
     $where[] = "is_read = 0";
 } elseif ($filterType === 'urgent') {
     $where[] = "type IN ('urgent', 'alert')";
 } elseif ($filterType === 'info') {
     $where[] = "type IN ('info', 'warning', 'success')";
+} elseif ($filterType === 'fleet') {
+    $where[] = "(title LIKE '%الأسطول%' OR title LIKE '%المركبة%' OR link LIKE '%vehicles%')";
+} elseif ($filterType === 'finance') {
+    $where[] = "(title LIKE '%دفعة%' OR title LIKE '%بريدي موب%' OR title LIKE '%دين%' OR title LIKE '%غرامة%' OR link LIKE '%debts%' OR link LIKE '%driver_fiche%')";
+} elseif ($filterType === 'ratings') {
+    $where[] = "(title LIKE '%تقييم%' OR link LIKE '%ratings%')";
 }
 
+// Fetch Notifications List
 $notificationsList = [];
 $totalNotifs = 0;
 $unreadCount = 0;
@@ -105,29 +257,42 @@ $infoCount = 0;
 
 if ($pdo) {
     try {
-        $sql = "SELECT * FROM notifications WHERE " . implode(' AND ', $where) . " ORDER BY created_at DESC";
+        $sql = "
+            SELECT n.*, u.full_name as recipient_name, u.phone as recipient_phone
+            FROM notifications n
+            LEFT JOIN users u ON u.id = n.user_id
+            WHERE " . implode(' AND ', $where) . " 
+            ORDER BY n.created_at DESC 
+            LIMIT 150
+        ";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        $notificationsList = $stmt->fetchAll() ?: [];
+        $notificationsList = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     } catch (\Throwable $e) {
         $notificationsList = [];
     }
 
-    try {
-        $totalNotifs = (int)$pdo->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
-    } catch (\Throwable $e) { $totalNotifs = 0; }
+    // Scoped metrics
+    $totalNotifs = count($notificationsList);
+    $unreadCount = getUnreadNotificationsCount($pdo, $currUid, $currRole);
 
-    try {
-        $unreadCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
-    } catch (\Throwable $e) { $unreadCount = 0; }
+    foreach ($notificationsList as $n) {
+        if (in_array($n['type'], ['urgent', 'alert'])) $urgentCount++;
+        if (in_array($n['type'], ['info', 'warning', 'success'])) $infoCount++;
+    }
+}
 
+// Fetch active drivers for admin targeting modal
+$activeDriversList = [];
+if ($isAdmin && $pdo) {
     try {
-        $urgentCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('urgent', 'alert')")->fetchColumn();
-    } catch (\Throwable $e) { $urgentCount = 0; }
-
-    try {
-        $infoCount = (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE type IN ('info', 'warning', 'success')")->fetchColumn();
-    } catch (\Throwable $e) { $infoCount = 0; }
+        $activeDriversList = $pdo->query("
+            SELECT id, full_name, phone 
+            FROM users 
+            WHERE role = 'driver' AND deleted_at IS NULL 
+            ORDER BY full_name ASC
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {}
 }
 ?>
 
@@ -137,16 +302,27 @@ if ($pdo) {
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
             <div class="flex items-center gap-2.5">
-                <h1 class="text-xl font-bold text-slate-900 tracking-tight">Notifications Système</h1>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-800 border border-amber-500/20 font-num">
+                <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+                    <?= $isDriver ? 'مركز إشعارات السائق' : 'مركز الإشعارات والتنبيهات الإدارية' ?>
+                </h1>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20 font-num">
                     <?= $totalNotifs ?> إشعار
                 </span>
+                <?php if ($unreadCount > 0): ?>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 font-num animate-pulse">
+                        <?= $unreadCount ?> جديد غير مقروء
+                    </span>
+                <?php endif; ?>
             </div>
-            <p class="text-xs text-slate-500 mt-1">مراقبة التنبيهات الفنية، وثائق التأمين، رخص السائقين، واستحقاقات الاشتراكات في الوقت الفعلي</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <?= $isDriver 
+                    ? 'متابعة تنبيهات مركبتك المعينة، رخصتك المهنية، تحصيلات بريدي موب، والمستحقات في الوقت الفعلي'
+                    : 'مراقبة التنبيهات الفنية للأسطول، وثائق التأمين، رخص السائقين، والتحصيلات في الوقت الفعلي' ?>
+            </p>
         </div>
 
         <div class="flex items-center flex-wrap gap-2">
-            <?php if (is_admin()): ?>
+            <?php if ($isAdmin): ?>
                 <button type="button" onclick="document.getElementById('newNotifModal').classList.remove('hidden')"
                         class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition shadow-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -154,19 +330,19 @@ if ($pdo) {
                     </svg>
                     <span>إرسال إشعار جديد</span>
                 </button>
-            <?php endif; ?>
 
-            <a href="notifications.php?action=run_audit_scan" 
-               class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs">
-                <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-                <span>فحص وتدقيق الأسطول</span>
-            </a>
+                <a href="notifications.php?action=run_audit_scan" 
+                   class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs transition shadow-xs">
+                    <svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    <span>فحص وتدقيق شامل</span>
+                </a>
+            <?php endif; ?>
             
             <?php if ($unreadCount > 0): ?>
                 <a href="notifications.php?action=mark_all_read" 
-                   class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-xs">
+                   class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white font-bold text-xs transition shadow-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                     </svg>
@@ -174,10 +350,10 @@ if ($pdo) {
                 </a>
             <?php endif; ?>
 
-            <?php if (is_admin() && ($totalNotifs - $unreadCount) > 0): ?>
+            <?php if ($isAdmin && ($totalNotifs - $unreadCount) > 0): ?>
                 <a href="notifications.php?action=delete_all_read" 
                    onclick="return confirm('هل تريد حذف جميع الإشعارات المقروءة لتنظيف القائمة؟')"
-                   class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200/60 shadow-xs" title="حذف وتنظيف المقروءة">
+                   class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold text-xs transition border border-rose-200/60 dark:border-rose-800 shadow-xs" title="حذف وتنظيف المقروءة">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                     </svg>
@@ -189,48 +365,48 @@ if ($pdo) {
 
     <!-- 4 KPI Metric Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div class="bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
             <div>
-                <p class="text-[11px] font-semibold text-slate-500">إجمالي الإشعارات</p>
-                <p class="text-xl font-bold text-slate-900 font-num mt-0.5"><?= $totalNotifs ?></p>
+                <p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">إجمالي إشعاراتي</p>
+                <p class="text-xl font-bold text-slate-900 dark:text-white font-num mt-0.5"><?= $totalNotifs ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
                 </svg>
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div class="bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
             <div>
-                <p class="text-[11px] font-semibold text-amber-700">غير مقروءة (Non Lues)</p>
-                <p class="text-xl font-bold text-amber-600 font-num mt-0.5"><?= $unreadCount ?></p>
+                <p class="text-[11px] font-semibold text-amber-700 dark:text-amber-400">غير مقروءة (Non Lues)</p>
+                <p class="text-xl font-bold text-amber-600 dark:text-amber-400 font-num mt-0.5"><?= $unreadCount ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
+            <div class="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-amber-600 dark:text-amber-400">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                 </svg>
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div class="bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
             <div>
-                <p class="text-[11px] font-semibold text-rose-700">تنبيهات حرجة وعاجلة</p>
-                <p class="text-xl font-bold <?= $urgentCount > 0 ? 'text-rose-600' : 'text-slate-400' ?> font-num mt-0.5"><?= $urgentCount ?></p>
+                <p class="text-[11px] font-semibold text-rose-700 dark:text-rose-400">تنبيهات حرجة وعاجلة</p>
+                <p class="text-xl font-bold <?= $urgentCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400' ?> font-num mt-0.5"><?= $urgentCount ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl <?= $urgentCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400' ?> flex items-center justify-center">
+            <div class="w-10 h-10 rounded-xl <?= $urgentCount > 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400' ?> flex items-center justify-center">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div class="bg-white dark:bg-[#161d27] p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
             <div>
-                <p class="text-[11px] font-semibold text-slate-500">إشعارات مالية وإدارية</p>
-                <p class="text-xl font-bold text-blue-600 font-num mt-0.5"><?= $infoCount ?></p>
+                <p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">إشعارات تشغيلية ومالية</p>
+                <p class="text-xl font-bold text-blue-600 dark:text-blue-400 font-num mt-0.5"><?= $infoCount ?></p>
             </div>
-            <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+            <div class="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                 </svg>
@@ -239,43 +415,53 @@ if ($pdo) {
     </div>
 
     <!-- Filter & Search Toolbar -->
-    <div class="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+    <div class="bg-white dark:bg-[#161d27] p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         
         <!-- Search -->
         <form method="GET" class="flex-1 w-full flex items-center gap-2">
             <div class="relative flex-1 sm:max-w-md">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
                        placeholder="بحث في محتوى الإشعارات والتنبيهات..."
-                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
+                       class="w-full pr-9 pl-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition">
                 <svg class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
             </div>
-            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white font-bold hover:bg-slate-800 transition">بحث</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-amber-500 dark:hover:bg-amber-600 text-white dark:text-slate-950 font-bold transition">بحث</button>
             <?php if (!empty($search) || $filterType !== 'all'): ?>
-                <a href="notifications.php" class="text-xs text-slate-400 hover:text-slate-600 underline">إلغاء</a>
+                <a href="notifications.php" class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline">إلغاء</a>
             <?php endif; ?>
         </form>
 
         <!-- Segmented Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
             <a href="notifications.php?type=all<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'all' ? 'bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700' ?>">
                 الكل
             </a>
             <a href="notifications.php?type=unread<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filterType === 'unread' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-amber-700 hover:bg-amber-50' ?>">
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap flex items-center gap-1.5 <?= $filterType === 'unread' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-slate-700' ?>">
                 <span>غير مقروءة</span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white font-num font-bold"><?= $unreadCount ?></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white text-slate-900 font-num font-bold"><?= $unreadCount ?></span>
             </a>
             <a href="notifications.php?type=urgent<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'urgent' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-rose-700 hover:bg-rose-50' ?>">
-                حرجة (Urgentes)
+               class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'urgent' ? 'bg-rose-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-700' ?>">
+                🚨 حرجة
             </a>
-            <a href="notifications.php?type=info<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
-               class="px-3.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'info' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-blue-700 hover:bg-blue-50' ?>">
-                إدارية ومالية
-            </a>
+            <?php if ($isAdmin): ?>
+                <a href="notifications.php?type=fleet<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+                   class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'fleet' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700' ?>">
+                    🚗 الأسطول
+                </a>
+                <a href="notifications.php?type=finance<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+                   class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'finance' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-700' ?>">
+                    💰 التحصيلات
+                </a>
+                <a href="notifications.php?type=ratings<?= !empty($search) ? '&search=' . urlencode($search) : '' ?>" 
+                   class="px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap <?= $filterType === 'ratings' ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-slate-700' ?>">
+                    ⭐ تقييمات الركاب
+                </a>
+            <?php endif; ?>
         </div>
 
     </div>
@@ -285,20 +471,24 @@ if ($pdo) {
         <?php if (!empty($notificationsList)): ?>
             <?php foreach ($notificationsList as $notif): 
                 $badgeStyle = [
-                    'urgent' => 'bg-rose-50 text-rose-700 border-rose-200',
-                    'alert' => 'bg-amber-50 text-amber-800 border-amber-200',
-                    'warning' => 'bg-amber-50 text-amber-800 border-amber-200',
-                    'info' => 'bg-blue-50 text-blue-700 border-blue-200',
-                    'success' => 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                ][$notif['type']] ?? 'bg-slate-100 text-slate-700 border-slate-200';
+                    'urgent' => 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+                    'alert' => 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+                    'warning' => 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+                    'info' => 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+                    'success' => 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                ][$notif['type']] ?? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700';
             ?>
-                <div class="bg-white p-4 sm:p-5 rounded-2xl border <?= !$notif['is_read'] ? 'border-amber-300 ring-1 ring-amber-200/50 shadow-xs' : 'border-slate-200 shadow-2xs' ?> transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="bg-white dark:bg-[#161d27] p-4 sm:p-5 rounded-2xl border <?= !$notif['is_read'] ? 'border-amber-300 dark:border-amber-500/60 ring-1 ring-amber-200/50 dark:ring-amber-500/20 shadow-xs' : 'border-slate-200 dark:border-slate-800 shadow-2xs' ?> transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     
                     <div class="flex items-start gap-3.5 flex-1 min-w-0">
-                        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 <?= !$notif['is_read'] ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600' ?>">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 <?= !$notif['is_read'] ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' ?>">
                             <?php if ($notif['type'] === 'urgent' || $notif['type'] === 'alert'): ?>
-                                <svg class="w-5 h-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                <svg class="w-5 h-5 text-rose-600 dark:text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            <?php elseif ($notif['type'] === 'success'): ?>
+                                <svg class="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             <?php else: ?>
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -312,20 +502,42 @@ if ($pdo) {
                                 <span class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase font-sans <?= $badgeStyle ?>">
                                     <?= htmlspecialchars($notif['type']) ?>
                                 </span>
-                                <h3 class="font-bold text-slate-900 text-sm"><?= htmlspecialchars($notif['title']) ?></h3>
+                                <h3 class="font-bold text-slate-900 dark:text-white text-sm"><?= htmlspecialchars($notif['title']) ?></h3>
+                                
                                 <?php if (!$notif['is_read']): ?>
                                     <span class="px-2 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">جديد</span>
                                 <?php endif; ?>
+
+                                <!-- Audience Tag for Admin Visibility -->
+                                <?php if ($isAdmin): ?>
+                                    <?php if (!empty($notif['user_id'])): ?>
+                                        <span class="px-2 py-0.2 rounded-full text-[10px] bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
+                                            👤 مخصص: <?= htmlspecialchars($notif['recipient_name'] ?: 'مستخدم #' . $notif['user_id']) ?>
+                                        </span>
+                                    <?php elseif (($notif['target_role'] ?? 'all') === 'driver'): ?>
+                                        <span class="px-2 py-0.2 rounded-full text-[10px] bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold">
+                                            🚕 موجه لكافة السائقين
+                                        </span>
+                                    <?php elseif (($notif['target_role'] ?? 'all') === 'admin'): ?>
+                                        <span class="px-2 py-0.2 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold">
+                                            🏢 موجه للإدارة
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="px-2 py-0.2 rounded-full text-[10px] bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 font-bold">
+                                            📢 عام للجميع
+                                        </span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                             </div>
 
-                            <p class="text-slate-600 leading-relaxed text-xs">
+                            <p class="text-slate-600 dark:text-slate-300 leading-relaxed text-xs">
                                 <?= htmlspecialchars($notif['message']) ?>
                             </p>
 
-                            <div class="flex items-center gap-3 pt-1 text-[11px] text-slate-400 font-num">
+                            <div class="flex items-center gap-3 pt-1 text-[11px] text-slate-400 dark:text-slate-500 font-num">
                                 <span dir="ltr"><?= date('Y-m-d H:i', strtotime($notif['created_at'])) ?></span>
                                 <span>•</span>
-                                <span>الحالة: <strong class="<?= $notif['is_read'] ? 'text-slate-500' : 'text-amber-700' ?>"><?= $notif['is_read'] ? 'مقروء' : 'غير مقروء' ?></strong></span>
+                                <span>الحالة: <strong class="<?= $notif['is_read'] ? 'text-slate-500' : 'text-amber-700 dark:text-amber-400' ?>"><?= $notif['is_read'] ? 'مقروء' : 'غير مقروء' ?></strong></span>
                             </div>
                         </div>
                     </div>
@@ -333,7 +545,7 @@ if ($pdo) {
                     <!-- Action Buttons -->
                     <div class="flex items-center gap-2 self-end sm:self-center shrink-0 text-xs">
                         <?php if (!empty($notif['link'])): ?>
-                            <a href="<?= htmlspecialchars($notif['link']) ?>" 
+                            <a href="<?= htmlspecialchars(url($notif['link'])) ?>" 
                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition shadow-2xs">
                                 <span>معالجة وتفاصيل</span>
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -344,92 +556,121 @@ if ($pdo) {
 
                         <a href="notifications.php?action=toggle_read&id=<?= $notif['id'] ?>" 
                            title="<?= $notif['is_read'] ? 'تحديد كغير مقروء' : 'تحديد كمقروء' ?>"
-                           class="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition">
+                           class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition">
                             <?php if ($notif['is_read']): ?>
                                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                                 </svg>
                             <?php else: ?>
-                                <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                 </svg>
                             <?php endif; ?>
                         </a>
 
-                        <a href="notifications.php?action=delete&id=<?= $notif['id'] ?>" 
-                           onclick="return confirm('هل تريد حذف هذا الإشعار؟')"
-                           title="حذف الإشعار"
-                           class="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 transition">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                        </a>
+                        <?php if ($isAdmin || (!empty($notif['user_id']) && $notif['user_id'] == $currUid)): ?>
+                            <a href="notifications.php?action=delete&id=<?= $notif['id'] ?>" 
+                               onclick="return confirm('هل تريد بالتأكيد حذف هذا الإشعار؟')"
+                               title="حذف الإشعار"
+                               class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 text-slate-400 transition">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </a>
+                        <?php endif; ?>
                     </div>
 
                 </div>
             <?php endforeach; ?>
         <?php else: ?>
-            <div class="p-12 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200 space-y-2">
-                <div class="w-12 h-12 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
+            <div class="p-12 text-center text-slate-400 text-xs bg-white dark:bg-[#161d27] rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
+                <div class="w-12 h-12 mx-auto rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3">
                     <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                 </div>
-                <div class="font-bold text-slate-700 text-sm">لا توجد إشعارات مطابقة حالياً</div>
-                <p class="text-slate-400 text-xs">جميع وثائق الأسطول واشتراكات السائقين ومواعيد المراقبة التقنية في حالة نظامية.</p>
+                <div class="font-bold text-slate-700 dark:text-slate-200 text-sm">لا توجد إشعارات أو تنبيهات مطابقة حالياً</div>
+                <p class="text-slate-400 dark:text-slate-500 text-xs">
+                    <?= $isDriver 
+                        ? 'كافة وثائق مركبتك، رخصتك المهنية، ومستحقاتك في حالة نظامية ومحدّثة بالكامل.'
+                        : 'جميع وثائق الأسطول واشتراكات السائقين ومواعيد المراقبة التقنية في حالة نظامية.' ?>
+                </p>
             </div>
         <?php endif; ?>
     </div>
 
 </div>
 
-<?php if (is_admin()): ?>
-<!-- Modal: New Manual Notification -->
+<?php if ($isAdmin): ?>
+<!-- Modal: New Manual Notification with Target Audience Selection -->
 <div id="newNotifModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-right m-auto">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+    <div class="bg-white dark:bg-[#161d27] rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-right m-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
-                <h3 class="text-sm font-bold text-slate-900">إرسال وبث إشعار نظام جديد</h3>
-                <span class="text-xs text-slate-500">نشر تنبيه أو رسالة إدارية لكافة مستخدمي المنصة</span>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">إرسال وبث إشعار نظام جديد</h3>
+                <span class="text-xs text-slate-500 dark:text-slate-400">توجيه تنبيه أو تعليمات إدارية للسائقين أو الإدارة</span>
             </div>
-            <button type="button" onclick="document.getElementById('newNotifModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            <button type="button" onclick="document.getElementById('newNotifModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg">✕</button>
         </div>
 
         <form method="POST" action="notifications.php?action=add_notification" class="space-y-4 text-xs">
             <?= csrf_field() ?>
 
+            <!-- Target Audience Selector -->
             <div>
-                <label class="block font-bold text-slate-700 mb-1">عنوان الإشعار *</label>
-                <input type="text" name="title" required placeholder="مثال: تنبيه بخصوص تجديد وثائق التأمين لشهر نوفمبر"
-                       class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">الجهة المستهدفة بالإشعار *</label>
+                <select name="audience" id="notifAudienceSelect" onchange="toggleSpecificDriverSelect(this.value)"
+                        class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold">
+                    <option value="all">📢 كافة مستخدمي المنصة (إدارة وسائقون)</option>
+                    <option value="driver">🚕 السائقون فقط (Chauffeurs)</option>
+                    <option value="admin">🏢 الإدارة والمشرفون فقط (Administration)</option>
+                    <option value="specific">👤 سائق محدد بعينه...</option>
+                </select>
+            </div>
+
+            <!-- Specific Driver Dropdown (Hidden by default) -->
+            <div id="specificDriverDiv" class="hidden">
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">اختر السائق المستهدف *</label>
+                <select name="target_user_id" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold">
+                    <option value="">-- اختر السائق من القائمة --</option>
+                    <?php foreach ($activeDriversList as $drv): ?>
+                        <option value="<?= $drv['id'] ?>"><?= htmlspecialchars($drv['full_name']) ?> (<?= htmlspecialchars($drv['phone'] ?: 'بدون هاتف') ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">عنوان الإشعار *</label>
+                <input type="text" name="title" required placeholder="مثال: تنبيه بخصوص موعد تجديد رخص السياقة"
+                       class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold">
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">نوع الإشعار ومستوى الأهمية *</label>
-                    <select name="type" required class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-bold">
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">نوع الإشعار ومستوى الأهمية *</label>
+                    <select name="type" required class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold">
                         <option value="info">ℹ️ معلومة عادية (Info)</option>
                         <option value="warning">⚠️ تحذير إداري (Warning)</option>
                         <option value="urgent">🚨 عاجل وحرج (Urgent)</option>
-                        <option value="success">✅ نجاح / إشعار إيجابي (Success)</option>
+                        <option value="success">✅ نجاح / إيجابي (Success)</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-700 mb-1">رابط الإجراء السريع (اختياري)</label>
+                    <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">رابط الإجراء السريع (اختياري)</label>
                     <input type="text" name="link" placeholder="مثال: /dashboard/vehicles.php"
-                           class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500 font-mono text-[11px]" dir="ltr">
+                           class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-[11px]" dir="ltr">
                 </div>
             </div>
 
             <div>
-                <label class="block font-bold text-slate-700 mb-1">نص وتفاصيل الإشعار *</label>
+                <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">نص وتفاصيل الإشعار *</label>
                 <textarea name="message" rows="3" required placeholder="اكتب تفاصيل التنبيه أو التوجيهات الموجهة للسائقين أو الإدارة..."
-                          class="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-amber-500"></textarea>
+                          class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"></textarea>
             </div>
 
-            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+            <div class="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <button type="button" onclick="document.getElementById('newNotifModal').classList.add('hidden')"
-                        class="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold transition">
+                        class="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition">
                     إلغاء
                 </button>
                 <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black transition">
@@ -439,6 +680,17 @@ if ($pdo) {
         </form>
     </div>
 </div>
+
+<script>
+function toggleSpecificDriverSelect(val) {
+    const div = document.getElementById('specificDriverDiv');
+    if (val === 'specific') {
+        div.classList.remove('hidden');
+    } else {
+        div.classList.add('hidden');
+    }
+}
+</script>
 <?php endif; ?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

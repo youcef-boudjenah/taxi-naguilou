@@ -233,7 +233,8 @@ function getDBConnection() {
             $feeCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'custom_vehicle_fee'")->fetch();
             $termCheck = $pdo->query("SHOW COLUMNS FROM `contracts` LIKE 'termination_clause'")->fetch();
             $ratingIpCheck = $pdo->query("SHOW COLUMNS FROM `driver_ratings` LIKE 'ip_address'")->fetch();
-            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck) || empty($termCheck) || empty($ratingIpCheck)) {
+            $notifTargetCheck = $pdo->query("SHOW COLUMNS FROM `notifications` LIKE 'target_role'")->fetch();
+            if (empty($colCheck) || empty($qrCheck) || empty($feeCheck) || empty($termCheck) || empty($ratingIpCheck) || empty($notifTargetCheck)) {
                 $needsMigration = true;
             }
         } catch (\Throwable $e) {}
@@ -243,6 +244,7 @@ function getDBConnection() {
         initAllTables($pdo);
         migrateDriverFicheFields($pdo);
         migrateSoftDeleteFields($pdo);
+        migrateNotificationsTable($pdo);
         migrateDebtsAndVersements($pdo);
         seedDefaultData($pdo);
         ensure_db_indexes($pdo);
@@ -561,6 +563,7 @@ function initAllTables(PDO $pdo) {
     CREATE TABLE IF NOT EXISTS notifications (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NULL,
+        target_role VARCHAR(20) DEFAULT 'all',
         type ENUM('alert', 'warning', 'info', 'success', 'urgent') DEFAULT 'info',
         title VARCHAR(200) NOT NULL,
         message TEXT NOT NULL,
@@ -1510,26 +1513,104 @@ function get_company_meta(?PDO $pdo): array {
     ];
 }
 
-function getUnreadNotificationsCount(?PDO $pdo): int {
+function getUnreadNotificationsCount(?PDO $pdo, ?int $userId = null, ?string $userRole = null): int {
     if (!$pdo) {
         return 0;
     }
+    if ($userId === null && isset($_SESSION['user_id'])) {
+        $userId = (int)$_SESSION['user_id'];
+    }
+    if ($userRole === null && isset($_SESSION['user_role'])) {
+        $userRole = $_SESSION['user_role'];
+    }
+
     try {
-        return (int)$pdo->query("SELECT COUNT(*) FROM notifications WHERE is_read = 0")->fetchColumn();
+        if ($userRole === 'driver') {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM notifications 
+                WHERE is_read = 0 
+                  AND (user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'driver'))))
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+            ");
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn();
+        } elseif (in_array($userRole, ['super_admin', 'admin'])) {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM notifications 
+                WHERE is_read = 0 
+                  AND (user_id = ? OR user_id IS NULL OR target_role IS NULL OR target_role IN ('all', 'admin'))
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+            ");
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn();
+        } elseif ($userRole === 'owner') {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM notifications 
+                WHERE is_read = 0 
+                  AND (user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'owner'))))
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+            ");
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn();
+        } else {
+            return (int)$pdo->query("
+                SELECT COUNT(*) FROM notifications 
+                WHERE is_read = 0 
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+            ")->fetchColumn();
+        }
     } catch (\Throwable $e) {
         return 0;
     }
 }
 
-function getRecentNotifications(?PDO $pdo, int $limit = 5): array {
+function getRecentNotifications(?PDO $pdo, int $limit = 5, ?int $userId = null, ?string $userRole = null): array {
     if (!$pdo) {
         return [];
     }
+    if ($userId === null && isset($_SESSION['user_id'])) {
+        $userId = (int)$_SESSION['user_id'];
+    }
+    if ($userRole === null && isset($_SESSION['user_role'])) {
+        $userRole = $_SESSION['user_role'];
+    }
+
     try {
-        $stmt = $pdo->prepare("SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?");
-        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
-        $stmt->execute();
-        return $stmt->fetchAll() ?: [];
+        if ($userRole === 'driver') {
+            $stmt = $pdo->prepare("
+                SELECT * FROM notifications 
+                WHERE (user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'driver'))))
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ");
+            $stmt->bindValue(1, $userId, PDO::PARAM_INT);
+            $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll() ?: [];
+        } elseif (in_array($userRole, ['super_admin', 'admin'])) {
+            $stmt = $pdo->prepare("
+                SELECT * FROM notifications 
+                WHERE (user_id = ? OR user_id IS NULL OR target_role IS NULL OR target_role IN ('all', 'admin'))
+                  AND title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ");
+            $stmt->bindValue(1, $userId, PDO::PARAM_INT);
+            $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll() ?: [];
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT * FROM notifications 
+                WHERE title NOT LIKE '%Connexion%' AND title NOT LIKE '%Déconnexion%'
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ");
+            $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll() ?: [];
+        }
     } catch (\Throwable $e) {
         return [];
     }
@@ -1640,6 +1721,34 @@ function migrateSoftDeleteFields(PDO $pdo): void {
             }
         } catch (\Throwable $e) {}
     }
+}
+
+/**
+ * Migrates notifications table: adds target_role, indexes, and purges legacy connection logs
+ */
+function migrateNotificationsTable(PDO $pdo): void {
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM `notifications`")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (!in_array('target_role', $cols)) {
+            $pdo->exec("ALTER TABLE `notifications` ADD COLUMN `target_role` VARCHAR(20) DEFAULT 'all' AFTER `user_id`");
+        }
+
+        // Add composite index for fast role & user scoping
+        $indexes = $pdo->query("SHOW INDEX FROM `notifications`")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $idxNames = array_column($indexes, 'Key_name');
+        if (!in_array('idx_notif_scope', $idxNames)) {
+            try {
+                $pdo->exec("ALTER TABLE `notifications` ADD INDEX `idx_notif_scope` (`user_id`, `target_role`, `is_read`)");
+            } catch (\Throwable $e) {}
+        }
+
+        // Clean up obsolete legacy connection logs that flooded notifications
+        $pdo->exec("DELETE FROM `notifications` WHERE `title` IN ('Connexion Collaborateur', 'Déconnexion Collaborateur')");
+
+        // Normalize existing rows
+        $pdo->exec("UPDATE `notifications` SET `target_role` = 'admin' WHERE `title` LIKE '%الأسطول الدوري%' OR `title` LIKE '%مسح كود بار%' OR (`title` LIKE '%تقييم راكب%' AND `user_id` IS NULL)");
+        $pdo->exec("UPDATE `notifications` SET `target_role` = 'driver' WHERE `user_id` IN (SELECT `id` FROM `users` WHERE `role` = 'driver') AND `target_role` = 'all'");
+    } catch (\Throwable $e) {}
 }
 
 /**

@@ -23,11 +23,23 @@ $pdo = getDBConnection();
 // Handle Mark Notification as Read
 if (isset($_GET['mark_notif_read']) && $pdo) {
     try {
+        $currUid = (int)($_SESSION['user_id'] ?? 0);
+        $currRole = $_SESSION['user_role'] ?? 'driver';
         if ($_GET['mark_notif_read'] === 'all') {
-            $pdo->query("UPDATE notifications SET is_read = 1");
+            if ($currRole === 'driver') {
+                $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? OR (user_id IS NULL AND (target_role IS NULL OR target_role IN ('all', 'driver')))")->execute([$currUid]);
+            } elseif (in_array($currRole, ['super_admin', 'admin'])) {
+                $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? OR user_id IS NULL OR target_role IS NULL OR target_role IN ('all', 'admin')")->execute([$currUid]);
+            } else {
+                $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?")->execute([$currUid]);
+            }
         } else {
             $nId = intval($_GET['mark_notif_read']);
-            $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ?")->execute([$nId]);
+            if (in_array($currRole, ['super_admin', 'admin'])) {
+                $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ?")->execute([$nId]);
+            } else {
+                $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND (user_id = ? OR user_id IS NULL)")->execute([$nId, $currUid]);
+            }
         }
     } catch (\Throwable $e) {}
     $targetUrl = strtok($_SERVER['REQUEST_URI'], '?');
@@ -73,13 +85,15 @@ if ($pdo) {
     } catch (\Throwable $e) {}
 }
 
-// Fetch unread notifications & recent list
+// Fetch unread notifications & recent list (Scoped strictly to current user & role)
 $unreadNotifCount = 0;
 $recentNotifs = [];
 if ($pdo) {
     try {
-        $unreadNotifCount = getUnreadNotificationsCount($pdo);
-        $recentNotifs = getRecentNotifications($pdo, 5);
+        $currUid = (int)($_SESSION['user_id'] ?? 0);
+        $currRole = $_SESSION['user_role'] ?? 'driver';
+        $unreadNotifCount = getUnreadNotificationsCount($pdo, $currUid, $currRole);
+        $recentNotifs = getRecentNotifications($pdo, 5, $currUid, $currRole);
     } catch (\Throwable $e) {}
 }
 

@@ -20,7 +20,11 @@ foreach ($files as $f) {
     $outStr = implode("\n", $output);
     $totalSuites++;
 
-    if ($code !== 0 || strpos($outStr, '[FAIL]') !== false || (strpos($outStr, 'FAIL') !== false && strpos($outStr, 'FAIL: 0') === false && strpos($outStr, '0 Failed') === false)) {
+    $hasExplicitFailure = (strpos($outStr, '[FAIL]') !== false) 
+                       || (strpos($outStr, '❌ FAIL:') !== false)
+                       || (preg_match('/\b[1-9]\d*\s*(?:failed|failures)\b/i', $outStr));
+
+    if ($code !== 0 || $hasExplicitFailure) {
         echo "❌ FAILED\n";
         foreach ($output as $line) {
             if (strpos($line, 'FAIL') !== false || strpos($line, 'Results:') !== false) {
@@ -44,3 +48,4 @@ if ($allPass) {
     echo "⚠️ FAILURES DETECTED IN TEST SUITES!\n";
     exit(1);
 }
+

@@ -45,7 +45,10 @@ if ($customFiles) {
     $filesToDeploy = array_map('trim', explode(',', $customFiles));
 } else {
     $filesToDeploy = [
+        'config/db.php',
         'includes/header.php',
+        'dashboard/index.php',
+        'dashboard/notifications.php',
         'dashboard/debts.php',
         'dashboard/leaves.php',
         'dashboard/users.php',
